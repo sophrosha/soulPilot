@@ -464,6 +464,41 @@ function apl_exportGraph()
     return edgeIdOf(x.a, x.b) < edgeIdOf(y.a, y.b)
   end)
 
+  -- Срез для example: СВЯЗНЫЙ подграф из 20 узлов (BFS от первого узла
+  -- degree==2) — вариант (a), решение пользователя 2026-10-12. Раньше брались
+  -- «первые 20 по id» — это давало ~45 «битых ссылок» на узлы вне среза
+  -- (связный подграф отражает реальный граф).
+  local exampleIdSet = {}
+  local exampleNodes = {}
+  do
+    local function degreeOf(id)
+      local c = 0
+      for _ in pairs(adj[id] or {}) do c = c + 1 end
+      return c
+    end
+    local startId = ids[1]
+    for _, id in ipairs(ids) do
+      if degreeOf(id) == 2 then startId = id break end
+    end
+    local queue = { startId }
+    exampleIdSet[startId] = true
+    local qi = 1
+    while qi <= #queue and #queue < 20 do
+      local cur = queue[qi]
+      qi = qi + 1
+      local nb = {}
+      for toId in pairs(adj[cur] or {}) do nb[#nb + 1] = toId end
+      table.sort(nb, cmpId)
+      for _, toId in ipairs(nb) do
+        if #queue >= 20 then break end
+        if not exampleIdSet[toId] then
+          exampleIdSet[toId] = true
+          queue[#queue + 1] = toId
+        end
+      end
+    end
+  end
+
   -- === Проход B: узлы (degree — НЕОРИЕНТИРОВАННЫЙ, из adj) ===
   local nodeInfo = {} -- id -> {pos, degree, angle, sibs}
   local nodesArr = {}
@@ -540,14 +575,13 @@ function apl_exportGraph()
     }
     out.angle_deg = (degree == 2) and angle or JSON_NULL
     nodesArr[#nodesArr + 1] = out
+    if exampleIdSet[id] then exampleNodes[#exampleNodes + 1] = out end
 
     nodeInfo[id] = { pos = pos, degree = degree, angle = angle, sibs = sibs }
   end
 
   -- === Проход C: рёбра (по сырым парам из прохода A; дедуп уже там) ===
   local edgesArr = {}
-  local exampleIds = {}
-  for i = 1, math.min(20, #ids) do exampleIds[tostring(ids[i])] = true end
   local exampleEdges = {}
   local noRadius, noSpeed = 0, 0
 
@@ -608,7 +642,7 @@ function apl_exportGraph()
       eOut.angle_to_deg = (ti.degree == 2) and ti.angle or JSON_NULL
       edgesArr[#edgesArr + 1] = eOut
 
-      if exampleIds[tostring(id)] and exampleIds[tostring(toId)] then
+      if exampleIdSet[id] and exampleIdSet[toId] then
         exampleEdges[#exampleEdges + 1] = eOut
       end
     end
@@ -660,18 +694,16 @@ function apl_exportGraph()
     return false
   end
 
-  -- Пример формата (срез первых 20 узлов + рёбра между ними) — коммитится.
-  -- meta example — полная копия meta графа + note: чекер --example требует
-  -- mu/warnings и т.п., срез должен демонстрировать ВСЮ схему.
+  -- Пример формата: СВЯЗНЫЙ подграф из 20 узлов (BFS) + рёбра между ними —
+  -- коммитится. meta example — полная копия meta графа + note: чекер --example
+  -- требует mu/warnings и т.п., срез должен демонстрировать ВСЮ схему.
   do
-    local exNodes = {}
-    for i = 1, math.min(20, #nodesArr) do exNodes[#exNodes + 1] = nodesArr[i] end
     local exMeta = {}
     for k, v in pairs(data.meta) do exMeta[k] = v end
-    exMeta.note = 'срез первых 20 узлов graph.json для примера формата'
+    exMeta.note = 'срез: связный подграф 20 узлов graph.json (BFS) для примера формата'
     jsonWriteFile(GRAPH_DIR .. 'graph.example.json', {
       meta = exMeta,
-      nodes = exNodes,
+      nodes = exampleNodes,
       edges = exampleEdges,
     }, true)
   end
