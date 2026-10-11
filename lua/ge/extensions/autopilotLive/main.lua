@@ -752,6 +752,101 @@ function apl_mark(comment)
   return true
 end
 
+-- === Фаза 2 (шаг 2.7a): диагностика навиграфа ===
+-- apl_mapDiag() — временная команда (как apl_diag в Фазе 1): печатает
+-- состояние навиграфа, НИЧЕГО не чинит.
+-- Найдено по исходникам ПЕРЕД написанием: глобальное имя расширения `map` —
+-- это таблица API модуля (M), у НЕЁ нет поля nodes; структура с узлами —
+-- локальная переменная модуля (map.lua:25 `local map = {nodes = {}}`),
+-- наружу её отдаёт map.getMap() (map.lua:3793-3795); deprecated-ветка
+-- map.map (4001-4012) — только для ключа 'map'. Ленивая загрузка:
+-- map.load() = Mload с флагом loadedMap (map.lua:3642-3646), сброс флага —
+-- onMissionLoaded. Источники навиграфа: DecalRoad сцены (map.lua:587+)
+-- + map.json «manual road segments» (map.lua:786-795, отсутствие файла —
+-- не ошибка, просто без manual-сегментов).
+function apl_mapDiag()
+  local function countNodes(t)
+    if type(t) ~= 'table' then return -1 end
+    local c = 0
+    for _ in pairs(t) do c = c + 1 end
+    return c
+  end
+
+  print('--- apl_mapDiag: навиграф ---')
+
+  -- 1. Уровень
+  local missionFn = ''
+  pcall(function() missionFn = getMissionFilename() or '' end)
+  print('mission: ' .. (missionFn ~= '' and missionFn or '(getMissionFilename недоступен)'))
+  local levelDir = missionFn:match('^(.*[/\\])') or ''
+  print('levelDir: ' .. (levelDir ~= '' and levelDir or '(не вычислен)'))
+
+  -- 2. API модуля map (что доступно из GE-контекста)
+  print('map API: type=' .. type(map) ..
+    ', getMap=' .. tostring(type(map == 'table' and map.getMap or nil)) ..
+    ', findClosestRoad=' .. tostring(type(map == 'table' and map.findClosestRoad or nil)) ..
+    ', load=' .. tostring(type(map == 'table' and map.load or nil)))
+
+  -- 3. Прямой доступ map.nodes — ровно то, что использовал apl_exportGraph
+  local directNodes = nil
+  pcall(function() directNodes = map and map.nodes end)
+  print('map.nodes (прямой доступ): ' .. tostring(directNodes) ..
+    '  <-- если nil: nodes не поле API, нужен map.getMap()')
+
+  -- 4. map.getMap().nodes ДО ручной загрузки
+  local gm = nil
+  pcall(function() gm = map.getMap() end)
+  local nodesBefore = type(gm) == 'table' and gm.nodes or nil
+  print('nodes ДО map.load(): ' .. countNodes(nodesBefore) ..
+    ' узлов (buildSerial=' .. tostring(type(gm) == 'table' and gm.buildSerial or '?') .. ')')
+
+  -- 5. map.json (дополнительный источник manual segments, map.lua:786-795)
+  local mapJson = levelDir .. 'map.json'
+  local exists, size = nil, nil
+  pcall(function() exists = FS:fileExists(mapJson) end)
+  if exists then
+    pcall(function()
+      local f = io.open(mapJson, 'r')
+      if f then
+        local content = f:read('*all') or ''
+        f:close()
+        size = #content
+      end
+    end)
+  end
+  print('map.json (' .. mapJson .. '): exists=' .. tostring(exists) ..
+    (exists and (', байт=' .. tostring(size)) or ''))
+  print('  (map.json — ДОПОЛНИТЕЛЬНЫЙ источник manual road segments;' ..
+    ' основной навиграф — DecalRoad сцены, map.lua:587+)')
+
+  -- 6. findClosestRoad от позиции игрока (kd-дерево создаётся в loadMap)
+  local veh = getPlayerVehicle(0)
+  if veh then
+    local pos = veh:getPosition()
+    local ok, n1, n2, dist = pcall(map.findClosestRoad, pos)
+    if ok and n1 and n2 then
+      print(string.format('findClosestRoad(pos игрока): n1=%s n2=%s dist=%.2f м',
+        tostring(n1), tostring(n2), dist or -1))
+    else
+      print('findClosestRoad(pos игрока): nil (kd-дерева нет — карта не построена?)')
+    end
+  else
+    print('findClosestRoad: машина игрока не найдена — пропущено')
+  end
+
+  -- 7. Ручная ленивая загрузка: map.load() — no-op, если уже загружено
+  local okLoad, err = pcall(map.load)
+  print('map.load(): ' .. (okLoad and 'вызван' or ('ОШИБКА: ' .. tostring(err))))
+  pcall(function() gm = map.getMap() end)
+  local nodesAfter = type(gm) == 'table' and gm.nodes or nil
+  print('nodes ПОСЛЕ map.load(): ' .. countNodes(nodesAfter) ..
+    ' узлов (buildSerial=' .. tostring(type(gm) == 'table' and gm.buildSerial or '?') .. ')')
+
+  print('--- конец диагностики ---')
+  logLine('INFO', 'apl_mapDiag: после map.load() узлов ' .. countNodes(nodesAfter))
+  return true
+end
+
 -- === Консольные команды ===
 -- GE-Lua контекст консоли исполняет строку как Lua-код (windowsConsole.lua:13-14),
 -- поэтому объявляем глобальные функции с префиксом apl_ (решение пользователя).
