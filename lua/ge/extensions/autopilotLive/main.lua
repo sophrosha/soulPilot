@@ -19,6 +19,7 @@ local debugEnabled = false        -- дебаг вкл/выкл (apl_debug toggl
 local logFileHandle = nil         -- handle открытого txt-лога
 local logFilePath = nil           -- путь текущего лога (для apl_status)
 local csvActive = false           -- идёт ли сейчас CSV-запись в vehicle-слое
+local csvVehicleId = nil           -- id машины, начавшей CSV (fallback для stop)
 local dataDir = nil               -- выбранный базовый каталог данных (У2)
 local dirsTried = {}              -- какие варианты путей пробовали (для отчёта)
 
@@ -122,8 +123,9 @@ local function closeLogFile()
 end
 
 -- === Управление vehicle-слоем ===
--- ВНИМАНИЕ: обращения к vehicle идут ТОЛЬКО через getPlayerVehicle(0)
--- (машина игрока). Команды — глобальные функции vehicle-слоя autopilotLiveCmd.*,
+-- Основной путь — getPlayerVehicle(0) (машина игрока); fallback —
+-- getObjectByID(csvVehicleId), если машина не видна GE в момент команды.
+-- Команды — глобальные функции vehicle-слоя autopilotLiveCmd.*,
 -- которые определит lua/vehicle/extensions/auto/autopilotLive.lua (шаг 1.3).
 local function getVehicle()
   local veh = getPlayerVehicle and getPlayerVehicle(0)
@@ -133,12 +135,22 @@ end
 
 local function sendToVehicle(cmd)
   local veh = getVehicle()
+  -- Fallback: если машина игрока не видна GE (выход в меню/перезагрузка на
+  -- момент команды) — шлём тому объекту, с которого стартовала CSV-запись.
+  if not veh and csvVehicleId and getObjectByID then
+    local ok, byId = pcall(getObjectByID, csvVehicleId)
+    if ok and byId then veh = byId end
+  end
   if not veh then
     logLine('WARN', 'Машина игрока не найдена, команда не отправлена: ' .. cmd)
-    return false
+    return nil
   end
-  veh:queueLuaCommand(cmd)
-  return true
+  local ok, err = pcall(function() veh:queueLuaCommand(cmd) end)
+  if not ok then
+    logLine('WARN', 'queueLuaCommand упал: ' .. cmd .. ' : ' .. tostring(err))
+    return nil
+  end
+  return veh
 end
 
 local function startCsvRecording()
@@ -159,8 +171,13 @@ local function startCsvRecording()
   -- io.open не работают — см. диагностику apl_diag.
   local path = (dataDir.csv .. stamp .. '_drive.csv'):gsub('\\', '/')
   -- Передача строки: кавычки и обратные слэши безопасны после gsub на '/'
-  if sendToVehicle(string.format('autopilotLiveCmd.startCsv("%s")', path)) then
+  local vehSent = sendToVehicle(string.format('autopilotLiveCmd.startCsv("%s")', path))
+  if vehSent then
     csvActive = true
+    -- Запоминаем id машины: по нему уйдёт stopCsv, даже если к моменту
+    -- остановки getPlayerVehicle(0) уже пуст (меню/перезагрузка).
+    local okId, id = pcall(function() return vehSent:getID() end)
+    csvVehicleId = (okId and id) or nil
     -- Реальный (абсолютный) путь — сразу в консоль, чтобы не искать файл.
     -- Если файл ещё не создан vehicle-слоем, резолвим каталог (он уже есть).
     local realPath = ''
@@ -181,6 +198,7 @@ local function stopCsvRecording()
   if not csvActive then return end
   if sendToVehicle('autopilotLiveCmd.stopCsv()') then
     csvActive = false
+    csvVehicleId = nil
     logLine('INFO', 'CSV-запись остановлена')
   end
 end
