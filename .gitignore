@@ -11,6 +11,11 @@ ai/road/*
 !ai/logs/.gitkeep
 !ai/csv/.gitkeep
 !ai/road/.gitkeep
+# Фаза 2: схема и маленькие артефакты графа — коммитим, большой graph.json — нет
+!ai/road/graph_schema.md
+!ai/road/graph.example.json
+!ai/road/marks.csv
+ai/road/graph.json
 
 # === Служебное ===
 Thumbs.db
