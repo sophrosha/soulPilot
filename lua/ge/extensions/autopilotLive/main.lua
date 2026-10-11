@@ -655,6 +655,103 @@ function apl_exportGraph()
   return true
 end
 
+-- apl_mark("комментарий") — метка в ai/road/marks.csv (шаг 2.5).
+-- Схема: graph_schema.md, раздел «Файл меток» (8 колонок). Привязка к графу:
+-- ближайший узел (перебор map.nodes, min евклидовой дистанции) + ребро через
+-- map.findClosestRoad(pos) → edge_id в формате min_max как в graph.json.
+local MARKS_CSV = GRAPH_DIR .. 'marks.csv'
+local MARKS_HEADER = 'time,x,y,z,comment,nearest_node_id,node_dist_m,edge_id'
+
+-- Экранирование CSV-поля: всегда в кавычках, внутренние кавычки удваиваем
+local function csvQuote(s)
+  return '"' .. tostring(s):gsub('"', '""') .. '"'
+end
+
+-- Число в CSV: точка как разделитель независимо от локали C-runtime игры
+local function csvNum(v, digits)
+  if v == nil or v ~= v then return '' end
+  local s = string.format('%.' .. digits .. 'f', v)
+  return (s:gsub(',', '.'))
+end
+
+function apl_mark(comment)
+  comment = comment ~= nil and tostring(comment) or ''
+
+  local veh = getPlayerVehicle(0)
+  if not veh then
+    print('WARN apl_mark: машина игрока не найдена')
+    return false
+  end
+  local pos = veh:getPosition()
+  if pos == nil then
+    print('WARN apl_mark: у машины игрока нет позиции')
+    return false
+  end
+
+  local okMap, nodesMap = pcall(function() return map and map.nodes end)
+  if not okMap or type(nodesMap) ~= 'table' or next(nodesMap) == nil then
+    print('WARN apl_mark: карта не загружена — метка без привязки к графу невозможна')
+    return false
+  end
+
+  -- Ближайший узел: перебор map.nodes (min евклидовой дистанции)
+  local bestId, bestDist = nil, nil
+  for id, n in pairs(nodesMap) do
+    if n.pos then
+      local dx, dy, dz = n.pos.x - pos.x, n.pos.y - pos.y, n.pos.z - pos.z
+      local d = math.sqrt(dx * dx + dy * dy + dz * dz)
+      if bestDist == nil or d < bestDist then
+        bestId, bestDist = id, d
+      end
+    end
+  end
+
+  -- Ребро: map.findClosestRoad(pos) → (n1id, n2id, dist) или nil (map.lua:2691)
+  local edgeStr = ''
+  local okFc, n1, n2 = pcall(map.findClosestRoad, pos)
+  if okFc and n1 and n2 then
+    edgeStr = edgeIdOf(n1, n2) -- тот же формат min_max, что в graph.json
+  else
+    print('WARN apl_mark: map.findClosestRoad не вернул ребро — edge_id пуст')
+  end
+
+  -- Запись: путь относительный (sandbox io.open), шапка при первом добавлении
+  pcall(function() FS:directoryCreate(GRAPH_DIR, true) end)
+  local isNew = true
+  do
+    local probe = io.open(MARKS_CSV, 'r')
+    if probe then
+      probe:close()
+      isNew = false
+    end
+  end
+  local f = io.open(MARKS_CSV, 'a')
+  if not f then
+    print('ERROR apl_mark: не удалось открыть ' .. MARKS_CSV .. ' на запись')
+    return false
+  end
+  if isNew then
+    f:write(MARKS_HEADER .. '\r\n')
+  end
+  f:write(os.date('%Y-%m-%d %H:%M:%S') .. ',' ..
+    csvNum(pos.x, 3) .. ',' .. csvNum(pos.y, 3) .. ',' .. csvNum(pos.z, 3) .. ',' ..
+    csvQuote(comment) .. ',' ..
+    (bestId and tostring(bestId) or '') .. ',' ..
+    csvNum(bestDist, 2) .. ',' ..
+    edgeStr .. '\r\n')
+  f:close()
+
+  local real = ''
+  pcall(function() real = FS:getFileRealPath(MARKS_CSV) or '' end)
+  print('метка: узел=' .. (bestId and tostring(bestId) or 'нет') ..
+    ' (' .. (bestDist and string.format('%.1f м', bestDist) or '?') .. '), ребро=' ..
+    (edgeStr ~= '' and edgeStr or 'нет'))
+  print('marks.csv: ' .. (real ~= '' and real or MARKS_CSV))
+  logLine('INFO', 'apl_mark: узел=' .. tostring(bestId) ..
+    ' дист=' .. tostring(bestDist) .. ' ребро=' .. (edgeStr ~= '' and edgeStr or 'нет'))
+  return true
+end
+
 -- === Консольные команды ===
 -- GE-Lua контекст консоли исполняет строку как Lua-код (windowsConsole.lua:13-14),
 -- поэтому объявляем глобальные функции с префиксом apl_ (решение пользователя).
