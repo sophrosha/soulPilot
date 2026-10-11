@@ -33,6 +33,8 @@ local engineThermals = nil     -- device.thermals первого combustionEngin
 local thermalsWarned = false
 
 -- === CSV-колонки (ровно как в ai/notes/phase1_csv_schema.md, 24 шт.) ===
+-- *_smoothed: в Фазе 1 = raw (У4); в Фазах 3-4 сюда пойдёт
+-- наш конвейер lerp→ema→rate_limit.
 local CSV_HEADER = table.concat({
   'time', 'pos_x', 'pos_y', 'pos_z', 'speed', 'accel',
   'steer_raw', 'steer_smoothed', 'throttle_raw', 'throttle_smoothed',
@@ -86,17 +88,21 @@ local function buildRow(dt)
   local pos = obj:getPosition()
   local speed = obj:getVelocity():length()
 
-  -- ввод: raw из input.state.<k>.val, итог из input.<k> (У3)
-  -- В Фазе 1 *_smoothed читается из input.* — при AI это == raw (У4)
+  -- ввод: raw из input.state.<k>.val, итог из input.<k> (У3).
+  -- В Фазе 1 *_smoothed = raw (копии, У4): движок сам финализирует input.<k>
+  -- через цепочку фильтров (vehicle/input.lua:641-648), в т.ч. rate-limit
+  -- руля ИИ (строка 643) — поэтому читать «готовое» input.<k> как smoothed
+  -- в Фазе 1 нельзя, У4 требует грубого равенства.
+  -- В Фазах 3-4 сюда пойдёт наш конвейер lerp→ema→rate_limit.
   local steerRaw = (input.state and input.state.steering and input.state.steering.val) or 0
   local thrRaw = (input.state and input.state.throttle and input.state.throttle.val) or 0
   local brkRaw = (input.state and input.state.brake and input.state.brake.val) or 0
   local cltRaw = (input.state and input.state.clutch and input.state.clutch.val) or 0
 
-  local steerSm = input.steering or steerRaw
-  local thrSm = input.throttle or thrRaw
-  local brkSm = input.brake or brkRaw
-  local cltSm = input.clutch or cltRaw
+  local steerSm = steerRaw
+  local thrSm = thrRaw
+  local brkSm = brkRaw
+  local cltSm = cltRaw
 
   -- электроника (У1)
   local gear = tostring(electrics.values.gear or '')
@@ -170,7 +176,7 @@ function autopilotLiveCmd.startCsv(path)
     toGE('ERROR', 'startCsv: путь пуст')
     return false
   end
-  -- Нормализуем '\' → '/' (путь приходит абсолютным из GE, У2)
+  -- Нормализуем '\' → '/' (путь приходит относительным от userPath из GE, У2)
   local normalized = path:gsub('\\', '/')
   local f, err = io.open(normalized, 'w')
   if not f then
