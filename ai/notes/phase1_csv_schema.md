@@ -74,14 +74,14 @@ FILTER_KBD2 (637). **Для "FILTER_AI" (641-648) — НЕ вызывается.
 | 5 | `speed` | `obj:getVelocity():length()` — м/с | telemetryLogger.lua:21 |
 | 6 | `accel` | СВОЁ: d(speed)/dt по нашим 20 Гц-выборкам, м/с² (не sensors — чтобы избежать путаницы осей и единиц) | мод |
 | 7 | `steer_raw` | `input.state.steering.val` (структура — input.lua:89-97; запись event — 721) | input.lua |
-| 8 | `steer_smoothed` | `input.steering` (итог, = M.steering, input.lua:675). При AI это raw + rate-cap 4*rateMult (643). В Фазе 1 = raw (см. У4) | input.lua:643,675 |
+| 8 | `steer_smoothed` | Фаза 1: **копия `steer_raw`** (У4, не читается из input.<k>). Финал движка `input.steering` при AI = raw + rate-cap 4*rateMult — НЕ берём его как smoothed, т.к. он уже обработан (input.lua:643). Фазы 3-4: наш конвейер lerp→ema→rate_limit | input.lua:643,675 (только для справки) |
 | 9 | `throttle_raw` | `input.state.throttle.val` (структура — input.lua:98-105) | input.lua:721 |
-| 10 | `throttle_smoothed` | `input.throttle` (input.lua:675). При AI = raw байт-в-байт (646). В Фазе 1 = raw (У4) | input.lua:646,675 |
+| 10 | `throttle_smoothed` | Фаза 1: **копия `throttle_raw`** (У4). Финал `input.throttle` при AI = raw байт-в-байт (646) | input.lua:646,675 (справочно) |
 | 11 | `brake_raw` | `input.state.brake.val` (структура — input.lua:106-113) | input.lua:721 |
-| 12 | `brake_smoothed` | `input.brake` — при AI = raw (646). В Фазе 1 = raw (У4) | input.lua:646,675 |
+| 12 | `brake_smoothed` | Фаза 1: **копия `brake_raw`** (У4). Финал при AI = raw (646) | input.lua:646,675 (справочно) |
 | 13 | `clutch_raw` | `input.state.clutch.val` (структура — input.lua:122-129). При AI всегда ≈0 (AI clutch не пишет) | input.lua:721 |
-| 14 | `clutch_smoothed` | `input.clutch` (input.lua:675). В Фазе 1 = raw (У4) | input.lua:646,675 |
-| 15 | `gear` | `electrics.values.gear` — строка ("N","R","P","1"…) | vehicleController.lua:549 (запись); electrics.lua:12 (объявление M.values) |
+| 14 | `clutch_smoothed` | Фаза 1: **копия `clutch_raw`** (У4). Финал `input.clutch` может отличаться от raw, если на момент события стоял не-AI фильтр (KBD/PAD smoother) — empirия теста 1.6: 1 строка из 1657 (raw 1 vs финал 0.61) | input.lua:646,675 (справочно) |
+| 15 | `gear` | `electrics.values.gear` — строка, записывается в кавычках. **Допускает числовые имена** (тест 1.6: ['0'..'3']): manual/sequential возвращают `gearIndex` числом (0..N, R = −1), автоматы — режимы из jbeam `automaticModes` ("PRND"/"PRNDS21M": P,R,N,D,S,2,1), префиксы "M1"/"S2"…, dummy — "". Вне множества — WARN в check_csv (не FAIL) | vehicleController.lua:487,549 (getGearName→запись); shiftLogic/*Gearbox.getGearName; check_csv.py ALLOWED_GEAR |
 | 16 | `gear_index` | `electrics.values.gearIndex` — число (доп. к ТЗ, полезен для анализа) | vehicleController.lua:552 |
 | 17 | `rpm` | `electrics.values.rpm` | vehicleController.lua:555; electrics.lua:23 |
 | 18 | `engine_temp` | `engine.thermals.coolantTemperature` (сырое, движок напрямую): `powertrain.getDevicesByType('combustionEngine')[1].thermals.coolantTemperature` | combustionEngineThermals.lua:23 (объявление M.coolantTemperature); паттерн чтения — csvMetrics.lua:71-76 |
