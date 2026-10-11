@@ -21,3 +21,6 @@ ai/road/graph.json
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Фаза 2: полный список предупреждений экспорта графа (лимит 10 в meta.warnings)
+ai/road/warnings.txt

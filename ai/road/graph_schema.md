@@ -41,6 +41,7 @@
     "mu": 0.75,
     "node_count": 0,
     "edge_count": 0,
+    "isolated_count": 0,
     "warnings": ["isolated: id=..."]
   },
   "nodes": [ ... ],
@@ -50,6 +51,13 @@
 
 `build_serial` — `map.buildSerial` (map.lua:2667): если карта перезагрузилась,
 граф устарел — Фаза 4 сверяет.
+
+**Лимит `meta.warnings` (правка пользователя 2026-10-12):** не более **10**
+записей (иначе раздувается: isolated может быть тысячами); всегда ведётся
+`isolated_count` (общее число изолированных узлов — добавить в meta);
+полный список пишется в `ai/road/warnings.txt` (**НЕ коммитить**, добавить
+в .gitignore), в `meta.warnings` после 10-й — отсылка
+`"... (полный список: ai/road/warnings.txt)"`.
 
 ## Узел (nodes[])
 
@@ -100,10 +108,11 @@ angle_deg = deg(acos( clamp( dot(v_in, v_out) / (|v_in|·|v_out|), -1, 1 ) ))
 |---|---|---|---|
 | `edge_id` | string | `"<min(id)>_<max(id)>"` (детерминированный порядок, чтобы метки совпадали) | выводится |
 | `from_id, to_id` | string | узлы связи (как в `links`, порядок: от `from` к `to` по ключу) | links key |
-| `length_m` | number | `\|pos(to) − pos(from)\|` (учитывать inPos/outPos, если есть — длина дуги ≈ хорда; расхождение мало, но берём inPos/outPos если заданы: `length = \|outPos − inPos\|`) | map.lua:175-181 |
+| `length_m` | number | длина по КОНЦАМ ребра (map.lua:174-187): `pA` = конец у `from_id`, `pB` = конец у `to_id`, где конец узла `n` = `(edge.inNode == n) and (edge.inPos or pos[n]) or (edge.outPos or pos[n])`; `length_m = \|pB − pA\|`. Факт: `inPos/outPos` — это позиции концов ребра (привязки к inNode/outNode), НЕ дуги-хвосты: при построении = `pos[inNode]`/`pos[outNode]` (map.lua:697-698, 895-896), смещаются только merge-операциями (map.lua:1415-1436). Типичное расхождение с хордой 0; хорда `\|pos(to) − pos(from)\|` — НЕ используется (неточна, когда привязка смещена от центра узла) | map.lua:174-187 |
 | `direction_deg` | number | **азимут from→to: 0° = север (+Y), по часовой**: `(deg(atan2(dx, dy)) + 360) % 360`, dx = x_to − x_from, dy = y_to − y_from | выводится (решение пользователя) |
 | `direction` | string | `one-way` если `edge.oneWay` истино, иначе `both` | map.lua:161, links.oneWay |
-| `angle_deg` | number\|null | угол излома НА ВХОДЕ в ребро = `angle_deg` узла `from_id`, если degree(from)==2, иначе null (дубликат для удобства: «поворот перед этим ребром») | выводится |
+| `angle_from_deg` | number\|null | **дубликат `nodes[].angle_deg` узла `from_id`** (т.е. угол излома на входе в ребро): если `degree(from_id) == 2` → равен ему, иначе null. Два отдельных поля вместо одного `angle_deg` — потому что при `direction == "both"` угол на `from_id` НЕ равен углу на `to_id`, и одно поле давало бы Фазе 4 неверный угол при обратном движении (правка пользователя, 2026-10-12) | выводится |
+| `angle_to_deg` | number\|null | дубликат `nodes[].angle_deg` узла `to_id` (угол на ВЫХОДЕ из ребра): `degree(to_id) == 2` → равен ему, иначе null | выводится |
 | `radius_m` | number\|null | радиус описанной окружности по трём точкам `(prev, from, to)` (см. ниже); на прямых (S≈0) → **null** | выводится |
 | `curvature` | number\|null | `1 / radius_m`; на прямых → **null** | выводится |
 | `speed_limit_kph` | number | `edge.speedLimit` (м/с, map.lua:204-231) × 3.6, округлить вниз до `speed_round_kph` | links.speedLimit |
@@ -121,10 +130,16 @@ S < 1e-6 → radius_m = null, curvature = null   (коллинеарные = п�
 иначе: radius_m = a·b·c / (4·S), curvature = 1 / radius_m
 ```
 
-Примечание: для ребер с `inPos/outPos` (дуги навграфа) тройку точек берём
-от позиций концов: `(inPos_prev, inPos_from, outPos_from)` — уточнение
-реализации: считаем по pos узлов (дуги между узлами редки и малы), в
-`graph_check.py` — статистика по числу null.
+Примечание: дуги `inPos/outPos` (смещённые привязки) в радиус НЕ входят —
+`radius_m` считается по `pos` узлов (см. формулу выше); расхождение мало,
+в `graph_check.py` — статистика по числу null и по расхождению length vs хорда.
+
+## Отложено в Фазу 4 (зафиксировано, НЕ реализовывать в Фазе 2)
+
+- **Знаковый угол поворота (left/right)**: `angle_deg` сейчас беззнаковый
+  (0..180). Направление поворота (влево/вправо) — открытый вопрос Фазы 4:
+  считать из `cross(v_in, v_out)` знака z. В Фазе 2 не делаем (правка
+  пользователя 2026-10-12: «зафиксируй как отложено»).
 
 ## Файл меток: ai/road/marks.csv (CSV, коммитится)
 
@@ -149,12 +164,18 @@ time,x,y,z,comment,nearest_node_id,node_dist_m,edge_id
 
 ## Критично для Фазы 4 (зафиксировано пользователем)
 
-1. **`angle_deg` определён ТОЛЬКО для degree == 2**; для degree ≥ 3 —
-   `null`, используем `junction_type` + `direction_deg` рёбер
-   (своих и в `nodes[].links`) — углы любой пары считаются на лету.
+1. **`nodes[].angle_deg` определён ТОЛЬКО для degree == 2**; для degree ≥ 3 —
+   `null`, используем `junction_type` + азимуты рёбер (своих и в
+   `nodes[].links`) — углы любой пары считаются на лету.
+   На РЁБРАХ — два дубликата: `angle_from_deg` (узел from_id) и
+   `angle_to_deg` (узел to_id), оба — при degree==2 узла, иначе null:
+   при `direction == "both"` обратный проезд даёт другой угол, одно поле
+   врало бы (правка пользователя 2026-10-12).
 2. `direction_deg` — азимут: 0° = север (+Y), по часовой стрелке.
 3. Рекомендованная скорость = min(игровой лимит, физика μ из конфига);
    замер из CSV — Фаза 4.
 4. На прямых `radius_m = curvature = null` (не 0), если jsonWriteFile
    корректно пишет null — проверяется на первом же экспорте (иначе
    возврат к 0 с WARN в meta).
+5. **Отложено в Фазу 4:** знаковый угол поворота left/right (из знака
+   `cross(v_in, v_out)` по z) — в Фазе 2 не делаем.
