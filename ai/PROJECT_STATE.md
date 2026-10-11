@@ -15,7 +15,7 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 ## Текущая фаза
 
 **Фаза 0: Инициализация — ВЫПОЛНЕНА полностью.**
-**Фаза 1: Дебаг + CSV + логи (Экран 2) — ШАГИ 1.1–1.5 ВЫПОЛНЕНЫ, ждёт ТЕСТА (шаг 1.6).**
+**Фаза 1: Дебаг + CSV + логи (Экран 2) — ШАГИ 1.1–1.5 ВЫПОЛНЕНЫ; 1.6: sandbox диагностирован, writer исправлен (коммит 3dfc4d8), ждёт ТЕСТА в игре.**
 План утверждён пользователем с 5 условиями (У1–У5), ВСЕ 5 условий закрыты:
 - У1: точная таблица «колонка CSV ← источник (файл:строка)» →
   `ai/notes/phase1_csv_schema.md`.
@@ -82,13 +82,21 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - `writeFile` не годится для CSV (пишет файл целиком, нужен стриминг 20 Гц).
 - Проба [7] добавлена (коммит 73d291d): `mods/unpacked/AutopilotLive/ai/csv/`
   через `FS:directoryCreate` + относительный io.open — ждём подтверждения OK.
-- **План фикса writer'а (на утверждении):** в `resolveDataDir` только относительные
-  кандидаты: `mods/unpacked/AutopilotLive/ai/csv/` (приоритет) и
-  `autopilotLive_logs/csv/` (fallback); создание папок через `FS:directoryCreate(dir,true)`;
-  GE передаёт vehicle-слою **тот же относительный путь** (vehicle пишет как раньше,
-  полученный путь; CWD — свойство процесса ОС, общее для обеих VM).
-  Коммит: «Fix CSV path resolution: relative from userPath + FS:directoryCreate».
-  НЕ трогаем: vehicle-слой сбора данных, check_csv.py, формат (24 колонки).
+- **План фикса writer'а (утверждён пользователем) — ВЫПОЛНЕН, коммит 3dfc4d8**
+  «Fix CSV path resolution: relative from userPath + FS:directoryCreate»:
+  `resolveDataDir` → только относительные кандидаты: `mods/unpacked/AutopilotLive/ai/csv|logs/`
+  (приоритет), `autopilotLive_logs/csv|logs/` (fallback-страховка, создаётся только если
+  основной путь упал — resolveDataDir идёт до первого успеха);
+  `dirWritable` → `FS:directoryExists`/`FS:directoryCreate(dir,true)` + probe `io.open`
+  **с немедленным `os.remove`** (зонд не остаётся в папке мода);
+  `startCsvRecording` → vehicle-слой получает **относительный** путь (vehicle не менялся,
+  комментарий в нём «абсолютный» устарел — не трогаем по инструкции), в консоль печатается
+  `print('CSV: ' .. realPath)` через `FS:getFileRealPath` (fallback на каталог/относительный).
+  НЕ тронуто: vehicle-слой сбора данных, check_csv.py, формат (24 колонки).
+  Проба [7] подтверждена пользователем OK: real = userPath/mods/.../ai/csv/apl_test_mod.txt,
+  cleanup убрал 5/5 файлов.
+- **Следующий шаг:** реальный тест — `apl_debug()` → 30 сек с автопилотом → `apl_debug()`;
+  пользователь присылает лог консоли / путь CSV (строка `CSV: ...`).
 
 ## Сделано
 
