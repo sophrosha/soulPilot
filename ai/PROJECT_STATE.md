@@ -16,6 +16,7 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 
 **Фаза 0: Инициализация — ВЫПОЛНЕНА полностью.**
 **Фаза 1: Дебаг + CSV + логи (Экран 2) — ЗАКРЫТА (2026-10-12): тест 1.6 №2 → 17/17 PASS, отчёт `ai/notes/phase1_report.md`. Дальше — только по команде «делай Фазу 2».**
+**Фаза 2: Граф дорог из навиграфа (Экран 3) — В РАБОТЕ (2026-10-12): шаги 2.1–2.3 выполнены, следующий — 2.4 graph_check.py. После 2.7 — СТОП, ждать команду «делай Фазу 3».**
 План утверждён пользователем с 5 условиями (У1–У5), ВСЕ 5 условий закрыты:
 - У1: точная таблица «колонка CSV ← источник (файл:строка)» →
   `ai/notes/phase1_csv_schema.md`.
@@ -159,6 +160,32 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - [x] Фаза 1: **ЗАКРЫТА 2026-10-12** — шаги 1.1–1.7, тест 17/17 PASS,
       отчёт `ai/notes/phase1_report.md`; ключевые находки — sandbox путей
       (относительные от userPath) и FILTER_AI steering smoothing (input.lua:643).
+- [x] Фаза 2 (шаги 2.1–2.3): api_research_phase2.md, graph_schema.md (+правки),
+      apl_exportGraph() + ai/config/graph.json.
+
+### Статус шагов Фазы 2 (порядок 2.1→2.7, каждый шаг — отдельный коммит)
+
+- [x] 2.1 `ai/notes/api_research_phase2.md` — навиграф (map.nodes), API, решения
+      (коммит `f7ad155`)
+- [x] 2.2 `ai/road/graph_schema.md` — схема graph.json/marks.csv (коммит `40a4790`);
+      правки пользователя → коммит `3a22f8b`: edges.angle_from_deg/angle_to_deg
+      (вместо одного angle_deg — корректно для direction="both"), length_m по
+      КОНЦАМ ребра (inPos/outPos, map.lua:174-187, НЕ хорда), лимит
+      meta.warnings = 10 + isolated_count + полный список в
+      ai/road/warnings.txt (.gitignore)
+- [x] 2.3 `apl_exportGraph()` в GE main.lua + `ai/config/graph.json`
+      (μ=0.75, порог 20°, шаг 5 км/ч): защита «карта не загружена» (WARN),
+      детерминированный обход (сортировка id), явные null через JSON_NULL
+      (jsonEncodePretty пишет неизвестные типы как null, utils.lua:417),
+      graph.json + graph.example.json (срез 20 узлов) + warnings.txt,
+      отчёт в консоль: узлы/рёбра, % рёбер без radius_m (WARN если > 50%),
+      isolated, реальный путь через FS:getFileRealPath
+- [ ] 2.4 `ai/notes/graph_check.py` — чекер graph.json в ai/venv
+- [ ] 2.5 `apl_mark("комментарий")` → marks.csv (8 колонок, edge_id через
+      map.findClosestRoad)
+- [ ] 2.6 graph.example.json — коммит (уже пишется экспортёром из 2.3)
+- [ ] 2.7 ТЕСТ пользователем (60 с езды + 2–3 метки apl_mark) → phase2_report.md
+      → **СТОП: Фаза 3 только по команде «делай Фазу 3»**
 
 ## Принятые решения (утверждены пользователем)
 

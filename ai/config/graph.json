@@ -1,0 +1,5 @@
+{
+  "friction_mu": 0.75,
+  "turn_angle_threshold_deg": 20,
+  "speed_round_kph": 5
+}
