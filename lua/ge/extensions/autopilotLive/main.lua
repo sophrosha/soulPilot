@@ -163,6 +163,105 @@ local function stopCsvRecording()
   end
 end
 
+-- === Диагностика io.open / FS (часть Фазы 1.6) ===
+-- Временная команда: apl_diag() в консоли (GE-Lua).
+-- Печатает таблицу: какой вариант записи работает в sandbox BeamNG.
+-- Ничего не исправляет — только отчёт (кода минимум, отчёта максимум).
+function apl_diag()
+  local out = {}
+  local function p(s) out[#out + 1] = s print(s) end
+
+  local USER = (FS and FS:getUserPath() or ''):gsub('\\', '/')
+  if USER ~= '' and USER:sub(-1) ~= '/' then USER = USER .. '/' end
+
+  p('--- AutopilotLive diagnostics ---')
+  p('userPath = ' .. tostring(USER ~= '' and USER or '(FS:getUserPath() пуст/недоступен)'))
+
+  -- каждая проба: независимый pcall, свой файл, свой отчёт OK/FAIL
+  local function tryIo(label, path, mkdirPath)
+    local res, err = pcall(function()
+      -- опциональное создание папки штатным FS API
+      if mkdirPath then
+        local okDir, dirErr = pcall(function() return FS:directoryCreate(mkdirPath, true) end)
+        if not okDir then error('directoryCreate упал: ' .. tostring(dirErr)) end
+      end
+      local f, oerr = io.open(path, 'w')
+      if not f then error('io.open: ' .. tostring(oerr)) end
+      f:write('apl_diag')
+      f:close()
+    end)
+    if res then
+      -- верификация независимым API (не доверяем только io.open)
+      local exists = 'n/a'
+      pcall(function() exists = tostring(FS:fileExists(path)) end)
+      p('[' .. label .. '] OK (fileExists=' .. exists .. ') ' .. path)
+    else
+      p('[' .. label .. '] FAIL: ' .. tostring(err))
+    end
+  end
+
+  -- 1: относительный путь без папок (CWD)
+  tryIo('1 rel-nodir', 'apl_test.txt')
+
+  -- 2: относительный с папкой (папку создаёт FS:directoryCreate)
+  tryIo('2 rel-dir', 'autopilotLive_logs/apl_test.txt', 'autopilotLive_logs')
+
+  -- 3: абсолютный, прямые слэши
+  tryIo('3 abs-fwd', USER .. 'autopilotLive_logs/apl_test_abs.txt',
+        USER ~= '' and USER .. 'autopilotLive_logs' or nil)
+
+  -- 4: абсолютный, бэкслэши
+  local absBs = (USER:gsub('/', '\\')) .. 'autopilotLive_logs\\apl_test_bs.txt'
+  tryIo('4 abs-bs', absBs)
+
+  -- 5: writeFile с VFS-путём (паттерн ui/options.lua:46)
+  pcall(function()
+    local ok = writeFile('/autopilotLive_logs/apl_test_vfs.txt', 'apl_diag')
+    p('[5 writeFile-VFS] ' .. (ok and 'OK' or 'FAIL: writeFile вернул nil/false') ..
+      ' (fileExists=' .. tostring(FS:fileExists('autopilotLive_logs/apl_test_vfs.txt')) .. ')')
+  end)
+
+  -- 6: writeFile с относительным путём
+  pcall(function()
+    local ok = writeFile('autopilotLive_logs/apl_test_rel.txt', 'apl_diag')
+    p('[6 writeFile-rel] ' .. (ok and 'OK' or 'FAIL: writeFile вернул nil/false') ..
+      ' (fileExists=' .. tostring(FS:fileExists('autopilotLive_logs/apl_test_rel.txt')) .. ')')
+  end)
+
+  -- Блок Б: где реально лежают файлы (поиск CWD)
+  local function real(label, vp)
+    local r = ''
+    pcall(function() r = FS:getFileRealPath(vp) or '' end)
+    p('real(' .. label .. ') = ' .. (r ~= '' and r or '(пусто)'))
+  end
+  real('apl_test.txt', 'apl_test.txt')
+  real('autopilotLive_logs/apl_test.txt', 'autopilotLive_logs/apl_test.txt')
+  real('vfs', '/autopilotLive_logs/apl_test_vfs.txt')
+  real('abs', USER .. 'autopilotLive_logs/apl_test_abs.txt')
+
+  -- Блок В: уборка
+  local removed, left = 0, {}
+  local function cleanup(path)
+    local ok = pcall(function()
+      if FS:fileExists(path) or io.open(path, 'r') then
+        if os.remove(path) then removed = removed + 1 else left[#left+1] = path end
+      end
+    end)
+    if not ok then left[#left+1] = path .. ' (exception)' end
+  end
+  cleanup('apl_test.txt')
+  cleanup('autopilotLive_logs/apl_test.txt')
+  cleanup(USER .. 'autopilotLive_logs/apl_test_abs.txt')
+  cleanup(absBs)
+  cleanup('autopilotLive_logs/apl_test_vfs.txt')
+  cleanup('autopilotLive_logs/apl_test_rel.txt')
+  p('cleanup: удалено ' .. removed .. ', остались: ' ..
+    (#left > 0 and table.concat(left, '; ') or 'нет'))
+
+  p('--------------------------------')
+  return true
+end
+
 -- === Консольные команды ===
 -- GE-Lua контекст консоли исполняет строку как Lua-код (windowsConsole.lua:13-14),
 -- поэтому объявляем глобальные функции с префиксом apl_ (решение пользователя).
