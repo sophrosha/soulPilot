@@ -48,6 +48,24 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
    либо fallback `<userPath>autopilotLive_logs/` — какой выбрался, видно в логе).
 6. Я гоняю `ai/venv/Scripts/python.exe ai/notes/check_csv.py <файл>` → отчёт.
 
+### 1.6a: ДИАГНОСТИКА (2026-10-12) — CSV НЕ стартует
+- Симптом (лог пользователя): `apl_debug()` включается, но
+  «Ни один каталог данных не доступен на запись!» — probe-файл не создался
+  ни в mods/unpacked/.../ai/csv/ (папка существует!), ни в fallback.
+- Гипотеза подтверждена чтением исходников:
+  **io.open в GE sandbox ограничен CWD/относительными путями**
+  (мекомментарии: mcp/tools/fs.lua:11 «io.open is sandboxed to CWD (the game dir)»,
+  mcp/tools/system.lua:97 «sandboxed to relative paths») + io.open не создаёт папки.
+- Найден штатный образец записи: mcp/tools/fs.lua write_file —
+  `FS:directoryCreate(dir,true)` + `io.open(stripLeadingSlashes(p),"w")`;
+  и паттерн ui/options.lua:46 — `writeFile("/ui/...", data)` → попадает в user-папку.
+- **Решение: команда `apl_diag()`** (коммит 42eb720) — 6 проб записи
+  (rel/rel+mkdir/abs-fwd/abs-bs/writeFile-VFS/writeFile-rel) + реальные пути
+  через FS:getFileRealPath + уборка. Ждём вывод из beamng.console.
+- НЕ трогаем (по инструкции): vehicle-слой, check_csv.py, формат CSV (24 колонки).
+- Планы Б/В на случай полного отказа io.open: Б — запись из vehicle-слоя
+  (другая VM), В — print в beamng.log + PowerShell-выцепка.
+
 ## Сделано
 
 - [x] Фаза 0.1: структура папок создана (lua/ge, lua/vehicle, ui, ai/{logs,csv,road,notes,config}, mod_info).
