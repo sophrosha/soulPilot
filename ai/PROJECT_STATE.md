@@ -66,6 +66,30 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - Планы Б/В на случай полного отказа io.open: Б — запись из vehicle-слоя
   (другая VM), В — print в beamng.log + PowerShell-выцепка.
 
+### 1.6b: РЕЗУЛЬТАТЫ apl_diag() (2026-10-12) — вердикт по sandbox
+Прогон 6 проб пользователем (вывод beamng.console):
+| # | Проба | Результат |
+|---|---|---|
+| 1 | `io.open("apl_test.txt","w")` rel без папок | **OK**, лежит в `userPath/apl_test.txt` |
+| 2 | `FS:directoryCreate` + rel с папкой | **OK**, `userPath/autopilotLive_logs/...` |
+| 3 | абс. путь, прямые слэши | **FAIL** (io.open режет, «No error») |
+| 4 | абс. путь, бэкслэши | **FAIL** |
+| 5 | `writeFile` VFS `"/..."` | **OK**, попал в userPath |
+| 6 | `writeFile` rel | **OK** |
+- **Выводы (эмпирика > комментария mcp/fs.lua:11):** CWD фактически = **userPath**,
+  не game dir; абсолютные пути в GE-Lua io.open **не работают — забыты навсегда**;
+  `FS:directoryCreate` работает; `FS:getFileRealPath` резолвит относительные пути в userPath.
+- `writeFile` не годится для CSV (пишет файл целиком, нужен стриминг 20 Гц).
+- Проба [7] добавлена (коммит 73d291d): `mods/unpacked/AutopilotLive/ai/csv/`
+  через `FS:directoryCreate` + относительный io.open — ждём подтверждения OK.
+- **План фикса writer'а (на утверждении):** в `resolveDataDir` только относительные
+  кандидаты: `mods/unpacked/AutopilotLive/ai/csv/` (приоритет) и
+  `autopilotLive_logs/csv/` (fallback); создание папок через `FS:directoryCreate(dir,true)`;
+  GE передаёт vehicle-слою **тот же относительный путь** (vehicle пишет как раньше,
+  полученный путь; CWD — свойство процесса ОС, общее для обеих VM).
+  Коммит: «Fix CSV path resolution: relative from userPath + FS:directoryCreate».
+  НЕ трогаем: vehicle-слой сбора данных, check_csv.py, формат (24 колонки).
+
 ## Сделано
 
 - [x] Фаза 0.1: структура папок создана (lua/ge, lua/vehicle, ui, ai/{logs,csv,road,notes,config}, mod_info).
