@@ -402,12 +402,21 @@ local function edgeEndPos(edge, nid, nodePos)
 end
 
 function apl_exportGraph()
-  -- Защита: карта не загружена / map.json невалиден (схема, правка пользователя)
-  local okMap, nodesMap = pcall(function() return map and map.nodes end)
-  if not okMap or type(nodesMap) ~= 'table' or next(nodesMap) == nil then
-    print('WARN apl_exportGraph: карта не загружена или map.json невалиден, подожди загрузки уровня')
+  -- Доступ к графу ТОЛЬКО через map.getMap() (У1, 2026-10-12): map.nodes —
+  -- приватная переменная модуля (map.lua:25), у таблицы API расширения поля
+  -- nodes НЕТ; pcall(map.getMap) — вызов со скобками, поле не читаем напрямую.
+  -- map.load() — ТОЛЬКО если узлов 0 (У2: на East Coast 5439 уже построены
+  -- движком, ленивая загрузка перестраивает граф и меняет buildSerial).
+  local okMap, gm = pcall(map.getMap)
+  if not okMap or type(gm) ~= 'table' or type(gm.nodes) ~= 'table' or next(gm.nodes) == nil then
+    pcall(function() map.load() end) -- единственное разрешённое место map.load()
+    okMap, gm = pcall(map.getMap)
+  end
+  if not okMap or type(gm) ~= 'table' or type(gm.nodes) ~= 'table' or next(gm.nodes) == nil then
+    print('WARN apl_exportGraph: граф недоступен (map.getMap() пуст) — карта не загружена?')
     return false
   end
+  local nodesMap = gm.nodes
 
   local conf = loadGraphConfig()
   local warnings = {}
@@ -607,7 +616,9 @@ function apl_exportGraph()
       format_version = 1,
       created = os.date('%Y-%m-%d %H:%M:%S'),
       level = levelName,
-      build_serial = (map and map.buildSerial) or 0,
+      -- У3: build_serial — из АКТУАЛЬНОЙ структуры gm ПОСЛЕ возможного
+      -- map.load() в гварде (не предыдущее значение)
+      build_serial = tonumber(gm.buildSerial) or 0,
       mu = conf.friction_mu,
       node_count = #nodesArr,
       edge_count = #edgesArr,
@@ -688,11 +699,15 @@ function apl_mark(comment)
     return false
   end
 
-  local okMap, nodesMap = pcall(function() return map and map.nodes end)
-  if not okMap or type(nodesMap) ~= 'table' or next(nodesMap) == nil then
-    print('WARN apl_mark: карта не загружена — метка без привязки к графу невозможна')
+  -- Доступ к графу ТОЛЬКО через map.getMap() (У1, 2026-10-12); map.load() не
+  -- зовём: findClosestRoad ниже работает по kd-дереву, которое к моменту
+  -- консоли уже построено (диагностика 2.7a: 5439 узлов на East Coast).
+  local okMap, gm = pcall(map.getMap)
+  if not okMap or type(gm) ~= 'table' or type(gm.nodes) ~= 'table' or next(gm.nodes) == nil then
+    print('WARN apl_mark: граф недоступен (map.getMap() пуст) — метка без привязки невозможна')
     return false
   end
+  local nodesMap = gm.nodes
 
   -- Ближайший узел: перебор map.nodes (min евклидовой дистанции)
   local bestId, bestDist = nil, nil
@@ -706,9 +721,10 @@ function apl_mark(comment)
     end
   end
 
-  -- Ребро: map.findClosestRoad(pos) → (n1id, n2id, dist) или nil (map.lua:2691)
+  -- Ребро: map.findClosestRoad(pos) → (n1id, n2id, dist) или nil (map.lua:2691).
+  -- Вызов через замыкание (У1: поле не читаем напрямую, только вызов).
   local edgeStr = ''
-  local okFc, n1, n2 = pcall(map.findClosestRoad, pos)
+  local okFc, n1, n2 = pcall(function() return map.findClosestRoad(pos) end)
   if okFc and n1 and n2 then
     edgeStr = edgeIdOf(n1, n2) -- тот же формат min_max, что в graph.json
   else
@@ -781,11 +797,13 @@ function apl_mapDiag()
   local levelDir = missionFn:match('^(.*[/\\])') or ''
   print('levelDir: ' .. (levelDir ~= '' and levelDir or '(не вычислен)'))
 
-  -- 2. API модуля map (что доступно из GE-контекста)
+  -- 2. API модуля map (что доступно из GE-контекста).
+  -- Чтение полей здесь НАМЕРЕННОЕ (отчёт диагностики): показываем тип поля,
+  -- в рабочем коде поля читать нельзя — только вызовы (У1).
   print('map API: type=' .. type(map) ..
-    ', getMap=' .. tostring(type(map == 'table' and map.getMap or nil)) ..
-    ', findClosestRoad=' .. tostring(type(map == 'table' and map.findClosestRoad or nil)) ..
-    ', load=' .. tostring(type(map == 'table' and map.load or nil)))
+    ', getMap(поле)=' .. tostring(type(map) == 'table' and type(map.getMap) or 'nil') ..
+    ', findClosestRoad(поле)=' .. tostring(type(map) == 'table' and type(map.findClosestRoad) or 'nil') ..
+    ', load(поле)=' .. tostring(type(map) == 'table' and type(map.load) or 'nil'))
 
   -- 3. Прямой доступ map.nodes — ровно то, что использовал apl_exportGraph
   local directNodes = nil
@@ -819,11 +837,12 @@ function apl_mapDiag()
   print('  (map.json — ДОПОЛНИТЕЛЬНЫЙ источник manual road segments;' ..
     ' основной навиграф — DecalRoad сцены, map.lua:587+)')
 
-  -- 6. findClosestRoad от позиции игрока (kd-дерево создаётся в loadMap)
+  -- 6. findClosestRoad от позиции игрока (kd-дерево создаётся в loadMap);
+  -- вызов через замыкание (У1: поле не читаем напрямую)
   local veh = getPlayerVehicle(0)
   if veh then
     local pos = veh:getPosition()
-    local ok, n1, n2, dist = pcall(map.findClosestRoad, pos)
+    local ok, n1, n2, dist = pcall(function() return map.findClosestRoad(pos) end)
     if ok and n1 and n2 then
       print(string.format('findClosestRoad(pos игрока): n1=%s n2=%s dist=%.2f м',
         tostring(n1), tostring(n2), dist or -1))
@@ -835,7 +854,7 @@ function apl_mapDiag()
   end
 
   -- 7. Ручная ленивая загрузка: map.load() — no-op, если уже загружено
-  local okLoad, err = pcall(map.load)
+  local okLoad, err = pcall(function() map.load() end)
   print('map.load(): ' .. (okLoad and 'вызван' or ('ОШИБКА: ' .. tostring(err))))
   pcall(function() gm = map.getMap() end)
   local nodesAfter = type(gm) == 'table' and gm.nodes or nil
