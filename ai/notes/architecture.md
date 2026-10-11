@@ -10,7 +10,8 @@
         │  готовые сигналы: throttle, brake, steering, clutch
         ▼
 ┌─────────────────────────────────────────────────────┐
-│  VEHICLE-слой (lua/vehicle/autopilotLive/)          │
+│  VEHICLE-слой (lua/vehicle/extensions/auto/)        │
+│  (автозагрузка при спавне машины, vehicle/main.lua:314) │
 │  - перехват сигналов AI                             │
 │  - конвейер сглаживания: lerp → ema → rate_limit    │
 │  - прогрев, погладить-реакции                       │
@@ -21,6 +22,8 @@
 
 ┌─────────────────────────────────────────────────────┐
 │  GE-слой (lua/ge/extensions/autopilotLive/)         │
+│  (загрузка через scripts/modScript.lua →           │
+│   extensions.load('autopilotLive/main'))            │
 │  - регистрация консольных команд (apl_*)            │
 │  - менеджер сессии логирования, CSV-writer          │
 │  - дамп дорожного графа, фары (core_environment)    │
