@@ -429,7 +429,42 @@ function apl_exportGraph()
   for id in pairs(nodesMap) do ids[#ids + 1] = id end
   table.sort(ids, cmpId)
 
-  -- === Проход 1: узлы ===
+  -- === Проход A: рёбра (сырые пары) + НЕОРИЕНТИРОВАННАЯ смежность ===
+  -- ФИКС после теста 2.7 (East Coast, 2026-10-12): links в навиграфе хранятся
+  -- ОДНОСТОРОННЕ (цепочки next от DecalRoad): map.nodes[A].links[B] есть,
+  -- обратного map.nodes[B].links[A] может НЕ быть. Доказательство: сумма
+  -- |links| по всем узлам == число рёбер ровно (phantom == -E в чекере).
+  -- Поэтому НЕОРИЕНТИРОВАННАЯ степень узла = |{B: A.links[B] ИЛИ B.links[A]}| —
+  -- строим смежность из собранных рёбер (O(E)), а НЕ по links узла.
+  -- Без фикса: цепочка A->B->C даёт «все dead_end», а «приёмники» — isolated
+  -- (East Coast: 5098 dead_end, 91% рёбер без radius — артефакт такого degree).
+  local rawEdges = {} -- {a=id, b=toId, edge=таблица ребра links[...]}
+  local adj = {}      -- id -> set НЕОРИЕНТИРОВАННЫХ соседей
+  local seen = {}
+  for _, id in ipairs(ids) do
+    local n = nodesMap[id]
+    for toId in pairs(n.links or {}) do
+      local eid = edgeIdOf(id, toId)
+      if not seen[eid] then
+        seen[eid] = true
+        if nodesMap[toId] then
+          rawEdges[#rawEdges + 1] = { a = id, b = toId, edge = n.links[toId] }
+          adj[id] = adj[id] or {}
+          adj[toId] = adj[toId] or {}
+          adj[id][toId] = true
+          adj[toId][id] = true
+        else
+          warn('битая ссылка ребра: ' .. tostring(id) .. '->' .. tostring(toId))
+        end
+      end
+    end
+  end
+  -- Детерминизм JSON: стабильный порядок рёбер по edge_id
+  table.sort(rawEdges, function(x, y)
+    return edgeIdOf(x.a, x.b) < edgeIdOf(y.a, y.b)
+  end)
+
+  -- === Проход B: узлы (degree — НЕОРИЕНТИРОВАННЫЙ, из adj) ===
   local nodeInfo = {} -- id -> {pos, degree, angle, sibs}
   local nodesArr = {}
   local isolatedCount = 0
@@ -441,7 +476,7 @@ function apl_exportGraph()
       pos = nil -- страховка: ниже все обращения защищены проверкой pos
     end
     local sibs = {}
-    for toId in pairs(n.links or {}) do sibs[#sibs + 1] = toId end
+    for toId in pairs(adj[id] or {}) do sibs[#sibs + 1] = toId end
     table.sort(sibs, cmpId)
     local degree = #sibs
 
@@ -509,82 +544,72 @@ function apl_exportGraph()
     nodeInfo[id] = { pos = pos, degree = degree, angle = angle, sibs = sibs }
   end
 
-  -- === Проход 2: рёбра (дедуп по edge_id: связь может лежать у обоих концов) ===
+  -- === Проход C: рёбра (по сырым парам из прохода A; дедуп уже там) ===
   local edgesArr = {}
   local exampleIds = {}
   for i = 1, math.min(20, #ids) do exampleIds[tostring(ids[i])] = true end
   local exampleEdges = {}
-  local seen = {}
   local noRadius, noSpeed = 0, 0
 
-  for _, id in ipairs(ids) do
-    local n = nodesMap[id]
-    local toList = {}
-    for toId in pairs(n.links or {}) do toList[#toList + 1] = toId end
-    table.sort(toList, cmpId)
-    for _, toId in ipairs(toList) do
-      local edge = n.links[toId]
-      local eid = edgeIdOf(id, toId)
-      if not seen[eid] and nodesMap[toId] then
-        seen[eid] = true
-        local fi, ti = nodeInfo[id], nodeInfo[toId]
-        if fi.pos == nil or ti.pos == nil then
-          warn('ребро с узлом без pos: edge=' .. eid)
-        else
-          local pA = edgeEndPos(edge, id, fi.pos)
-          local pB = edgeEndPos(edge, toId, ti.pos)
-          local length = vecLen(vecSub(pB, pA))
+  for _, re in ipairs(rawEdges) do
+    local id, toId, edge = re.a, re.b, re.edge
+    local eid = edgeIdOf(id, toId)
+    local fi, ti = nodeInfo[id], nodeInfo[toId]
+    if fi.pos == nil or ti.pos == nil then
+      warn('ребро с узлом без pos: edge=' .. eid)
+    else
+      local pA = edgeEndPos(edge, id, fi.pos)
+      local pB = edgeEndPos(edge, toId, ti.pos)
+      local length = vecLen(vecSub(pB, pA))
 
-          -- радиус: только если degree(from) == 2 — prev = второй сосед from
-          local radius = nil
-          if fi.degree == 2 then
-            local prevId = (fi.sibs[1] == toId) and fi.sibs[2] or fi.sibs[1]
-            local prevNode = nodesMap[prevId]
-            if prevNode and prevNode.pos and fi.pos and ti.pos then
-              radius = circumradius(prevNode.pos, fi.pos, ti.pos)
-            end
-          end
-          if radius == nil then noRadius = noRadius + 1 end
-
-          -- скорость: игровой лимит (м/с → км/ч) и физика sqrt(μ·g·R)
-          local limitKph = nil
-          if edge.speedLimit ~= nil then
-            limitKph = floorToStep(edge.speedLimit * 3.6, conf.speed_round_kph)
-          else
-            noSpeed = noSpeed + 1
-            warn('нет speedLimit: edge=' .. eid)
-          end
-          local physKph = nil
-          if radius ~= nil then
-            physKph = floorToStep(math.sqrt(conf.friction_mu * 9.81 * radius) * 3.6, conf.speed_round_kph)
-          end
-          local recKph = JSON_NULL
-          if limitKph and physKph then recKph = math.min(limitKph, physKph)
-          elseif limitKph then recKph = limitKph
-          elseif physKph then recKph = physKph end
-
-          local eOut = {
-            edge_id = eid,
-            from_id = tostring(id),
-            to_id = tostring(toId),
-            length_m = length,
-            -- азимут from→to по pos узлов (схема): 0° = север (+Y), по часовой
-            direction_deg = azimuthDeg(ti.pos.x - fi.pos.x, ti.pos.y - fi.pos.y),
-            direction = edge.oneWay and 'one-way' or 'both',
-            radius_m = radius or JSON_NULL,
-            curvature = radius and (1 / radius) or JSON_NULL,
-            speed_limit_kph = limitKph or JSON_NULL,
-            recommended_speed_kph = recKph,
-          }
-          -- угол на входе/выходе (дубликаты nodes[].angle_deg, правка схемы)
-          eOut.angle_from_deg = (fi.degree == 2) and fi.angle or JSON_NULL
-          eOut.angle_to_deg = (ti.degree == 2) and ti.angle or JSON_NULL
-          edgesArr[#edgesArr + 1] = eOut
-
-          if exampleIds[tostring(id)] and exampleIds[tostring(toId)] then
-            exampleEdges[#exampleEdges + 1] = eOut
-          end
+      -- радиус: только если degree(from) == 2 — prev = второй сосед from
+      local radius = nil
+      if fi.degree == 2 then
+        local prevId = (fi.sibs[1] == toId) and fi.sibs[2] or fi.sibs[1]
+        local prevNode = nodesMap[prevId]
+        if prevNode and prevNode.pos and fi.pos and ti.pos then
+          radius = circumradius(prevNode.pos, fi.pos, ti.pos)
         end
+      end
+      if radius == nil then noRadius = noRadius + 1 end
+
+      -- скорость: игровой лимит (м/с → км/ч) и физика sqrt(μ·g·R)
+      local limitKph = nil
+      if edge.speedLimit ~= nil then
+        limitKph = floorToStep(edge.speedLimit * 3.6, conf.speed_round_kph)
+      else
+        noSpeed = noSpeed + 1
+        warn('нет speedLimit: edge=' .. eid)
+      end
+      local physKph = nil
+      if radius ~= nil then
+        physKph = floorToStep(math.sqrt(conf.friction_mu * 9.81 * radius) * 3.6, conf.speed_round_kph)
+      end
+      local recKph = JSON_NULL
+      if limitKph and physKph then recKph = math.min(limitKph, physKph)
+      elseif limitKph then recKph = limitKph
+      elseif physKph then recKph = physKph end
+
+      local eOut = {
+        edge_id = eid,
+        from_id = tostring(id),
+        to_id = tostring(toId),
+        length_m = length,
+        -- азимут from→to по pos узлов (схема): 0° = север (+Y), по часовой
+        direction_deg = azimuthDeg(ti.pos.x - fi.pos.x, ti.pos.y - fi.pos.y),
+        direction = edge.oneWay and 'one-way' or 'both',
+        radius_m = radius or JSON_NULL,
+        curvature = radius and (1 / radius) or JSON_NULL,
+        speed_limit_kph = limitKph or JSON_NULL,
+        recommended_speed_kph = recKph,
+      }
+      -- угол на входе/выходе (дубликаты nodes[].angle_deg, правка схемы)
+      eOut.angle_from_deg = (fi.degree == 2) and fi.angle or JSON_NULL
+      eOut.angle_to_deg = (ti.degree == 2) and ti.angle or JSON_NULL
+      edgesArr[#edgesArr + 1] = eOut
+
+      if exampleIds[tostring(id)] and exampleIds[tostring(toId)] then
+        exampleEdges[#exampleEdges + 1] = eOut
       end
     end
   end
@@ -635,12 +660,17 @@ function apl_exportGraph()
     return false
   end
 
-  -- Пример формата (срез первых 20 узлов + рёбра между ними) — коммитится
+  -- Пример формата (срез первых 20 узлов + рёбра между ними) — коммитится.
+  -- meta example — полная копия meta графа + note: чекер --example требует
+  -- mu/warnings и т.п., срез должен демонстрировать ВСЮ схему.
   do
     local exNodes = {}
     for i = 1, math.min(20, #nodesArr) do exNodes[#exNodes + 1] = nodesArr[i] end
+    local exMeta = {}
+    for k, v in pairs(data.meta) do exMeta[k] = v end
+    exMeta.note = 'срез первых 20 узлов graph.json для примера формата'
     jsonWriteFile(GRAPH_DIR .. 'graph.example.json', {
-      meta = { format_version = 1, note = 'срез первых 20 узлов graph.json для примера формата' },
+      meta = exMeta,
       nodes = exNodes,
       edges = exampleEdges,
     }, true)

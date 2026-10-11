@@ -2,7 +2,12 @@
 """Проверка graph.json (Фаза 2, шаг 2.4) — граф дорог AutopilotLive.
 
 Запуск (только через venv проекта!):
-    ai/venv/Scripts/python.exe ai/notes/graph_check.py <путь/к/graph.json> [--example]
+    ai/venv/Scripts/python.exe ai/notes/graph_check.py <путь/к/graph.json> [--example] [--stats]
+
+Флаг --stats: расширенная статистика — распределение radius_m по классам
+(measured/straight/junction + баг-индикатор turn_no_radius), измеренные
+радиусы (перцентили/бины/выбросы > 1000 м), зона isolated-узлов,
+связность графа (число компонент BFS, наибольшая).
 
 Что проверяет (по ai/road/graph_schema.md):
   1. JSON парсится, есть meta/nodes/edges.
@@ -300,19 +305,141 @@ def validate(data, relaxed: bool = False):
     return results, warns, stats
 
 
-def run_one(path: Path, relaxed: bool) -> int:
+def print_stats(data) -> None:
+    """Расширенная статистика (--stats): распределение radius_m, isolated, связность."""
+    nodes = data.get('nodes') if isinstance(data, dict) else None
+    edges = data.get('edges') if isinstance(data, dict) else None
+    if not isinstance(nodes, list) or not isinstance(edges, list):
+        print('--- stats: nodes/edges не списки, статистика невозможна ---')
+        return
+    node_by_id = {nd.get('id'): nd for nd in nodes if isinstance(nd, dict)}
+    TURN_DEG = 20.0  # порог type turn из конфига (ai/config/graph.json)
+
+    print('--- статистика graph.json (--stats) ---')
+
+    # 1. Распределение radius_m по классам (классификация по УЗЛУ from: radius
+    # считается по трём точкам (prev, from, to), т.е. угол in-node = angle_from_deg)
+    classes: dict[str, int] = {}
+    radii: list[float] = []
+    outliers: list[tuple] = []
+    for e in edges:
+        if not isinstance(e, dict):
+            continue
+        rad = e.get('radius_m')
+        af = e.get('angle_from_deg')
+        af_num = af if is_num(af) else None
+        if rad is not None:
+            classes['measured (radius измерен)'] = classes.get('measured (radius измерен)', 0) + 1
+            if is_num(rad):
+                radii.append(float(rad))
+                if rad > 1000:
+                    outliers.append((e.get('edge_id'), rad))
+        elif af_num is not None and af_num > TURN_DEG:
+            classes['turn_no_radius  <-- БАГ-ИНДИКАТОР (излом, а radius null)'] = \
+                classes.get('turn_no_radius  <-- БАГ-ИНДИКАТОР (излом, а radius null)', 0) + 1
+        elif af_num is not None:
+            classes['straight (angle_from<=20, null — ОЖИДАЕМО: три точки коллинеарны)'] = \
+                classes.get('straight (angle_from<=20, null — ОЖИДАЕМО: три точки коллинеарны)', 0) + 1
+        else:
+            classes['junction (degree(from)!=2 — по дизайну null)'] = \
+                classes.get('junction (degree(from)!=2 — по дизайну null)', 0) + 1
+    total = sum(classes.values()) or 1
+    print(f'Распределение radius_m ({len(edges)} рёбер):')
+    for k in sorted(classes, key=lambda x: -classes[x]):
+        print(f'  {classes[k]:5d} ({100.0 * classes[k] / total:5.1f}%)  {k}')
+
+    # 2. Распределение измеренных радиусов (метры) + выбросы > 1000 м
+    if radii:
+        radii.sort()
+
+        def pct(p: float) -> float:
+            return radii[min(len(radii) - 1, int(p * len(radii)))]
+
+        print(f'Измеренные radius_m (n={len(radii)}): min={radii[0]:.1f}, '
+              f'p10={pct(0.10):.1f}, медиана={pct(0.50):.1f}, p90={pct(0.90):.1f}, max={radii[-1]:.1f}')
+        bins = [(0, 10), (10, 20), (20, 50), (50, 100), (100, 300), (300, 1000), (1000, float('inf'))]
+        for lo, hi in bins:
+            c = sum(1 for r in radii if lo <= r < hi)
+            label = f'>= {lo} м' if hi == float('inf') else f'{lo}..{hi} м'
+            print(f'  {c:5d}  {label}')
+        if outliers:
+            print(f'  ВЫБРОСЫ > 1000 м: {len(outliers)} — первые: {outliers[:10]}')
+        else:
+            print('  Выбросов > 1000 м: нет')
+
+    # 3. Isolated-узлы: где они (bbox vs bbox карты, дистанция до ближайшего обычного)
+    isolated = [nd for nd in nodes if isinstance(nd, dict) and nd.get('type') == 'isolated']
+    if isolated:
+        xs = [nd['x'] for nd in isolated if is_num(nd.get('x'))]
+        ys = [nd['y'] for nd in isolated if is_num(nd.get('y'))]
+        allx = [nd['x'] for nd in node_by_id.values() if is_num(nd.get('x'))]
+        ally = [nd['y'] for nd in node_by_id.values() if is_num(nd.get('y'))]
+        if xs and allx:
+            print(f'Isolated: {len(isolated)} узлов; bbox x[{min(xs):.0f}..{max(xs):.0f}] '
+                  f'y[{min(ys):.0f}..{max(ys):.0f}] vs карта x[{min(allx):.0f}..{max(allx):.0f}] '
+                  f'y[{min(ally):.0f}..{max(ally):.0f}]')
+        normal = [nd for nd in node_by_id.values() if nd.get('type') != 'isolated' and is_num(nd.get('x'))]
+        dists = []
+        for nd in isolated[:200]:  # кап на перебор
+            if not is_num(nd.get('x')):
+                continue
+            best = None
+            for od in normal:
+                dx = od['x'] - nd['x']
+                dy = od.get('y', 0) - nd.get('y', 0)
+                d = dx * dx + dy * dy
+                if best is None or d < best:
+                    best = d
+            if best is not None:
+                dists.append(best ** 0.5)
+        if dists:
+            dists.sort()
+            print(f'  Дистанция isolated → ближайший НЕ-isolated узел (м): '
+                  f'мин={dists[0]:.1f}, медиана={dists[len(dists) // 2]:.1f}, макс={dists[-1]:.1f}')
+
+    # 4. Связность: BFS по рёбрам (неориентированный), число компонент и наибольшая
+    adj: dict = {nid: [] for nid in node_by_id}
+    for e in edges:
+        if isinstance(e, dict):
+            a, b = e.get('from_id'), e.get('to_id')
+            if a in adj and b in adj:
+                adj[a].append(b)
+                adj[b].append(a)
+    seen: set = set()
+    comps = []
+    for nid in adj:
+        if nid in seen:
+            continue
+        stack = [nid]
+        size = 0
+        seen.add(nid)
+        while stack:
+            cur = stack.pop()
+            size += 1
+            for nb in adj[cur]:
+                if nb not in seen:
+                    seen.add(nb)
+                    stack.append(nb)
+        comps.append(size)
+    comps.sort(reverse=True)
+    print(f'Связность: компонент {len(comps)}, наибольшая {comps[0] if comps else 0} узлов '
+          f'({100.0 * (comps[0] if comps else 0) / (len(node_by_id) or 1):.1f}% от всех); '
+          f'топ-5 размеров: {comps[:5]}')
+
+
+def run_one(path: Path, relaxed: bool, stats: bool = False) -> int:
     try:
         data = json.loads(path.read_text(encoding='utf-8'))
     except Exception as e:  # noqa: BLE001
         print(f"FAIL: не смог прочитать JSON: {e}")
         return 1
-    results, warns, stats = validate(data, relaxed=relaxed)
+    results, warns, base_stats = validate(data, relaxed=relaxed)
     print(f"Файл: {path}{' (полулярный контроль среза)' if relaxed else ''}")
-    if stats:
-        pct = (100.0 * stats['no_radius'] / stats['edges']) if stats['edges'] else 0.0
-        print(f"Узлов: {stats['nodes']}, рёбер: {stats['edges']}, "
-              f"без radius_m: {stats['no_radius']} ({pct:.1f}%), one-way: {stats['one_way']}")
-        print(f"Типы узлов: {stats['types']}")
+    if base_stats:
+        pct = (100.0 * base_stats['no_radius'] / base_stats['edges']) if base_stats['edges'] else 0.0
+        print(f"Узлов: {base_stats['nodes']}, рёбер: {base_stats['edges']}, "
+              f"без radius_m: {base_stats['no_radius']} ({pct:.1f}%), one-way: {base_stats['one_way']}")
+        print(f"Типы узлов: {base_stats['types']}")
     print()
     fails = 0
     for ok, msg in results:
@@ -322,6 +449,9 @@ def run_one(path: Path, relaxed: bool) -> int:
         print(f"  [{mark}] {msg}")
     for w in warns:
         print(f"  {w}")
+    if stats:
+        print()
+        print_stats(data)
     print()
     if fails == 0:
         print(f"ИТОГ: все {len(results)} проверок пройдены.")
@@ -338,7 +468,8 @@ def main() -> int:
     if not path.exists():
         print(f"FAIL: файл не найден: {path}")
         return 2
-    code = run_one(path, relaxed=False)
+    stats_flag = '--stats' in sys.argv[2:]
+    code = run_one(path, relaxed=False, stats=stats_flag)
     if '--example' in sys.argv[2:]:
         example = path.parent / 'graph.example.json'
         if not example.exists():
