@@ -228,6 +228,11 @@ function apl_diag()
       ' (fileExists=' .. tostring(FS:fileExists('autopilotLive_logs/apl_test_rel.txt')) .. ')')
   end)
 
+  -- 7: ГЛАВНЫЙ кандидат writer'а — папка мода, относительный от userPath,
+  -- папка создаётся FS:directoryCreate (будет ли работать CSV в ai/csv/)
+  tryIo('7 mod-csv', 'mods/unpacked/AutopilotLive/ai/csv/apl_test_mod.txt',
+        'mods/unpacked/AutopilotLive/ai/csv')
+
   -- Блок Б: где реально лежают файлы (поиск CWD)
   local function real(label, vp)
     local r = ''
@@ -238,6 +243,7 @@ function apl_diag()
   real('autopilotLive_logs/apl_test.txt', 'autopilotLive_logs/apl_test.txt')
   real('vfs', '/autopilotLive_logs/apl_test_vfs.txt')
   real('abs', USER .. 'autopilotLive_logs/apl_test_abs.txt')
+  real('mod-csv', 'mods/unpacked/AutopilotLive/ai/csv/apl_test_mod.txt')
 
   -- Блок В: уборка
   local removed, left = 0, {}
@@ -255,6 +261,7 @@ function apl_diag()
   cleanup(absBs)
   cleanup('autopilotLive_logs/apl_test_vfs.txt')
   cleanup('autopilotLive_logs/apl_test_rel.txt')
+  cleanup('mods/unpacked/AutopilotLive/ai/csv/apl_test_mod.txt')
   p('cleanup: удалено ' .. removed .. ', остались: ' ..
     (#left > 0 and table.concat(left, '; ') or 'нет'))
 
