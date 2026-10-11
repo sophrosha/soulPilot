@@ -7,6 +7,9 @@
 Что проверяет (по ТЗ Фазы 1 и ai/notes/phase1_csv_schema.md):
   1. Все 24 колонки на месте, порядок как в схеме.
   2. Нет NaN/пустот там, где не должно (кроме gear — строка).
+  2b. gear записан в КАВЫЧКАХ в тексте CSV (контракт «Lua пишет строку»,
+      phase1_csv_schema.md) + значения gear из допустимого множества
+      (иначе WARN — не FAIL; множество по vehicleController.getGearName).
   3. Дискретизация ~20 Гц: медианный dt между строками ≈ 0.05 c.
   4. Производные d_*/dt консистентны: |d_steer_dt| согласовано
      с численной производной steer_raw по времени.
@@ -50,6 +53,23 @@ SMOOTHED_PAIRS = [
 # но НЕ NaN: числовые, кроме gear
 NUMERIC_EXCEPT_GEAR = [c for c in EXPECTED_COLUMNS if c != 'gear']
 
+GEAR_IDX = EXPECTED_COLUMNS.index('gear')  # 14-я колонка (с 0)
+
+# Допустимые значения gear (источник: vehicleController/shiftLogic getGearName):
+#   manualGearbox/sequentialGearbox: gearIndex — ЧИСЛО (R = -1, N = 0, 1..N);
+#   automaticGearbox/cvt/electricMotor: automaticHandling.mode из jbeam
+#     automaticModes ("PRND" / "PRNDS21M"), плюс префиксы "M"+idx и "S"+idx;
+#   dctGearbox: mode или префикс+индекс при включённой передаче;
+#   dummy: "" (пустая строка).
+# Всё, что вне этого множества, — WARN (не FAIL): новые машины не должны
+# ломать прогон теста.
+ALLOWED_GEAR = (
+    {str(i) for i in range(-1, 11)}       # -1..10 как строки: '0', '1', ..., '-1'
+    | {'', 'P', 'R', 'N', 'D', 'S', 'L', '2', '1'}
+    | {f'M{i}' for i in range(1, 11)}      # M1..M10
+    | {f'S{i}' for i in range(1, 11)}      # S1..S10
+)
+
 
 def main() -> int:
     if len(sys.argv) < 2:
@@ -87,10 +107,50 @@ def main() -> int:
     nan_cols = {c: int(df[c].isna().sum()) for c in df.columns if df[c].isna().any()}
     check(not nan_cols, f"отсутствие NaN (найдены NaN: {nan_cols or 'нет'})")
 
-    # 2b. gear — строка (pandas 3.0 даёт dtype 'str'; в старых — 'object')
-    gear_dtype = str(df['gear'].dtype) if 'gear' in df.columns else 'N/A'
-    check(gear_dtype in ('str', 'object', 'string'),
-          f"gear — строковый тип (dtype={gear_dtype})")
+    # 2b. gear — строка: Lua пишет значение в кавычках (schema У1).
+    # pandas НЕ отличает Lua-строку "1" от числа 1 (dtype выводится по
+    # содержимому, кавычки в CSV он игнорирует) — поэтому проверяем кавычки
+    # напрямую в тексте: наш писатель всегда ставит их (autopilotLive.lua,
+    # строка '"' .. gear .. '"').
+    # Примечание: строка CSV не содержит запятых внутри полей (только gear
+    # закавычен, а он не бывает с запятой) — split(',') безопасен.
+    gear_quoted, gear_unquoted = 0, 0
+    gear_values: set[str] = set()
+    gear_note = ''
+    try:
+        with path.open('r', encoding='utf-8', newline='') as fh:
+            fh.readline()  # заголовок
+            for line in fh:
+                line = line.rstrip('\r\n')
+                if not line:
+                    continue
+                parts = line.split(',')
+                if len(parts) != len(EXPECTED_COLUMNS):
+                    continue  # чужая структура — не гадаем
+                g = parts[GEAR_IDX]
+                if len(g) >= 2 and g.startswith('"') and g.endswith('"'):
+                    gear_quoted += 1
+                    gear_values.add(g[1:-1])
+                else:
+                    gear_unquoted += 1
+                    gear_values.add(g)
+    except Exception as e:  # noqa: BLE001
+        gear_quoted, gear_unquoted = 0, 0
+        gear_note = f"[WARN] не смог разобрать текст CSV для проверки gear: {e}"
+    check(gear_quoted > 0 and gear_unquoted == 0,
+          f"gear в кавычках во всех строках "
+          f"(с кавычками: {gear_quoted}, без: {gear_unquoted})")
+
+    # 2c. gear из допустимого множества — иначе WARN (не FAIL), не чек
+    # (при ошибке разбора gear_note уже установлен в except)
+    if gear_quoted + gear_unquoted > 0:
+        outside = sorted(v for v in gear_values if v not in ALLOWED_GEAR)
+        if outside:
+            gear_note = (f"[WARN] gear вне допустимого множества {sorted(outside)} "
+                         f"(встречено: {sorted(gear_values)})")
+        else:
+            gear_note = (f"[info] gear все из допустимого множества "
+                         f"(встречено: {sorted(gear_values)})")
 
     # 3. дискретизация ~20 Гц
     if len(df) >= 3:
@@ -155,6 +215,8 @@ def main() -> int:
         if not ok:
             fails += 1
         print(f"  [{mark}] {msg}")
+    if gear_note:
+        print(f"  {gear_note}")
     print()
     if fails == 0:
         print(f"ИТОГ: все {len(results)} проверок пройдены.")
