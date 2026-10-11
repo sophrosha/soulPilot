@@ -814,6 +814,28 @@ function M.onExtensionUnloaded()
   closeLogFile()
 end
 
+-- === TODO Фазы 2: авто-stopCsv (2026-10-12) ===
+-- Защита от закрытия игры/смены миссии без явного apl_debug() (в тесте №2
+-- Фазы 1 стоп не дёрнулся, спас только flush каждые ~2 с в vehicle-слое).
+function M.onShutdown()
+  -- На выключении машины ещё живы: команда может успеть; если нет — спасёт
+  -- flush vehicle-слоя. Лог закрываем всегда.
+  stopCsvRecording()
+  closeLogFile()
+end
+
+function M.onClientPostStartMission()
+  -- Смена миссии: машина игрока уходит, vehicle-слой перезагружается целиком
+  if not csvActive then return end
+  stopCsvRecording()
+  if csvActive then
+    -- машина уже недоступна — команда не долетела; сбрасываем состояние сами
+    csvActive = false
+    csvVehicleId = nil
+    logLine('WARN', 'Смена миссии: машина недоступна, состояние CSV сброшено принудительно')
+  end
+end
+
 -- Данные мода не сериализуем (переживают CTRL+L без восстановления) —
 -- состояние всегда чистое после перезагрузки Lua.
 function M.onSerialize() return nil end
