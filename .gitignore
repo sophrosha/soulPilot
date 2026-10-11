@@ -1,0 +1,18 @@
+# === Python venv и кэш ===
+ai/venv/
+__pycache__/
+*.pyc
+
+# === Рабочие данные проекта: по умолчанию в git НЕ идут ===
+# Маленькие примеры можно добавить принудительно: git add -f ai/csv/example.csv
+ai/logs/*
+ai/csv/*
+ai/road/*
+!ai/logs/.gitkeep
+!ai/csv/.gitkeep
+!ai/road/.gitkeep
+
+# === Служебное ===
+Thumbs.db
+Desktop.ini
+.DS_Store
