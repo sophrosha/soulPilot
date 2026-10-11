@@ -5,7 +5,7 @@
 -- Ответственность GE-слоя (Фаза 1):
 --   * консольные команды: apl_debug(), apl_status();
 --   * txt-лог событий мода ai/logs/*.txt (уровни INFO/WARN/ERROR);
---   * вычисление абсолютных путей записи (У2: с fallback);
+--   * вычисление относительных путей записи от userPath (У2: с fallback);
 --   * запуск/остановка CSV-записи в vehicle-слое (через queueLuaCommand);
 --   * приём сообщений об ошибках от vehicle-слоя (obj:queueGameEngineLua).
 -- НЕ содержит логики сглаживания — это Экраны 3-4 (Фазы 3-4).
@@ -23,33 +23,42 @@ local dataDir = nil               -- выбранный базовый ката�
 local dirsTried = {}              -- какие варианты путей пробовали (для отчёта)
 
 -- === Утилиты путей (У2) ===
--- Абсолютный userPath: C:\Users\...\BeamNG.drive\current\ (с завершающим sep)
-local function getUserRoot()
-  return (FS:getUserPath() or ''):gsub('\\', '/')
-end
+-- Диагностика apl_diag (2026-10-12): io.open в GE-Lua sandbox принимает
+-- ТОЛЬКО пути, относительные от userPath (CWD фактически = userPath);
+-- абсолютные 'C:/...' — FAIL (пробы 3-4). Поэтому все пути здесь
+-- относительные и с '/'; CWD — свойство процесса ОС, общее для GE и
+-- vehicle-VM, поэтому vehicle-слой откроет тот же файл.
 
 -- Каталоги данных по приоритету (У2):
---   A: mods/unpacked/AutopilotLive/ai/...   (папка мода, основной)
---   B: autopilotLive_logs/...               (fallback: главное — чтобы писалось)
+--   A: mods/unpacked/AutopilotLive/ai/...   (папка мода, основной путь)
+--   B: autopilotLive_logs/...               (fallback-страховка: папка мода
+--      недоступна — например, удалена; главное — чтобы писалось)
 local function getDataDirs()
-  local root = getUserRoot()
   return {
     {
       name = 'mod',
-      csv = root .. 'mods/unpacked/AutopilotLive/ai/csv/',
-      logs = root .. 'mods/unpacked/AutopilotLive/ai/logs/',
+      csv = 'mods/unpacked/AutopilotLive/ai/csv/',
+      logs = 'mods/unpacked/AutopilotLive/ai/logs/',
     },
     {
       name = 'fallback',
-      csv = root .. 'autopilotLive_logs/csv/',
-      logs = root .. 'autopilotLive_logs/logs/',
+      csv = 'autopilotLive_logs/csv/',
+      logs = 'autopilotLive_logs/logs/',
     },
   }
 end
 
--- Проверка, что каталог доступен на запись: пробуем создать файл-заглушку.
--- io.open в Lua на Windows принимает пути с '/', нормализуем перед вызовом.
+-- Проверка, что каталог доступен на запись:
+-- 1) создаём папку штатным FS API — io.open папки сам не создаёт;
+-- 2) пробный файл-зонд через io.open (реальная проверка записи);
+-- 3) зонд удаляется сразу после проверки — в папке ничего не валяется.
 local function dirWritable(dir)
+  local created = pcall(function()
+    if not FS:directoryExists(dir) then
+      FS:directoryCreate(dir, true)
+    end
+  end)
+  if not created then return false end
   local probe = dir .. '.__apl_probe'
   local f = io.open(probe, 'w')
   if not f then return false end
@@ -145,13 +154,26 @@ local function startCsvRecording()
     end
   end
   local stamp = os.date('%Y-%m-%d_%H-%M-%S')
-  -- Абсолютный путь отдаём vehicle-слою ГОТОВЫМ (нормализованным на '/'),
-  -- vehicle-слой сам путь не вычисляет (У2).
+  -- Относительный от userPath путь отдаём vehicle-слою ГОТОВЫМ (на '/'),
+  -- vehicle-слой сам путь не вычисляет (У2). Абсолютные пути в sandbox
+  -- io.open не работают — см. диагностику apl_diag.
   local path = (dataDir.csv .. stamp .. '_drive.csv'):gsub('\\', '/')
   -- Передача строки: кавычки и обратные слэши безопасны после gsub на '/'
   if sendToVehicle(string.format('autopilotLiveCmd.startCsv("%s")', path)) then
     csvActive = true
-    logLine('INFO', 'CSV-запись запрошена: ' .. path)
+    -- Реальный (абсолютный) путь — сразу в консоль, чтобы не искать файл.
+    -- Если файл ещё не создан vehicle-слоем, резолвим каталог (он уже есть).
+    local realPath = ''
+    pcall(function()
+      realPath = FS:getFileRealPath(path) or ''
+      if realPath == '' then
+        local realDir = FS:getFileRealPath(dataDir.csv) or ''
+        if realDir ~= '' then realPath = realDir .. stamp .. '_drive.csv' end
+      end
+    end)
+    if realPath == '' then realPath = path end
+    print('CSV: ' .. realPath)
+    logLine('INFO', 'CSV-запись запрошена: ' .. path .. ' (real: ' .. realPath .. ')')
   end
 end
 
