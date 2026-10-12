@@ -17,7 +17,7 @@ FAIL при непригодных данных, а не красивые циф
   4. «Резкое торможение»: d_brk_sm/dt > 60% капа (1.5 ед/с).
   5. Кап газа: где |thr_raw−thr_sm| > 0.15 (время от включения, скорость).
   6. Дёрганья газа: пики d_thr_sm/dt в engaged.
-  7. Контроль predictive (добавка к raw) и clutch (не вылез ли в engaged).
+  7. Контроль predictive (добавка к raw) и clutch (passthrough: sm == raw).
 """
 import sys
 from pathlib import Path
@@ -80,14 +80,16 @@ def main(path: str) -> int:
             share = len(work) / len(df)
             return (share > 0.3, f'доля engaged: {share:.0%}')
         if 'clutch' in item:
-            cm = float(work.clutch_raw.max()) if len(work) else 0.0
-            return (cm < 1e-6, f'max clutch_raw в engaged = {cm:.3f}')
+            dev = float((work.clutch_smoothed - work.clutch_raw).abs().max()) \
+                if len(work) else 0.0
+            return (dev <= 1e-9,
+                    f'макс |clutch_sm - raw| в engaged = {dev:.3g} (passthrough)')
         return None
 
     res = run_checklist('интерпретируемость данных', [
         'сегменты engaged найдены (>= 2: вкл/выкл)',
         'доля engaged > 30% (есть что анализировать)',
-        'clutch_raw в engaged == 0 (AI не шлёт сцепление — ожидание §7)',
+        'clutch passthrough: |clutch_sm - raw| == 0 в engaged (AI не пишет clutch — §15)',
     ], validator)
     print(res.report())
     fails.extend(m for ok, m in res.items if not ok)
@@ -185,8 +187,8 @@ def main(path: str) -> int:
     print(f'  predictive: строк с добавкой к raw > 0.05: {len(pred_rows)}'
           + (f', макс. добавка {float(add.max()):.2f}, t {float(pred_rows.time.iloc[0]):.1f}..{float(pred_rows.time.iloc[-1]):.1f} с'
              if len(pred_rows) else ''))
-    print(f'  clutch: max raw в engaged = {float(work.clutch_raw.max()):.3f}, '
-          f'max smoothed = {float(work.clutch_smoothed.max()):.3f}')
+    print(f'  clutch passthrough: max raw в engaged = {float(work.clutch_raw.max()):.3f}, '
+          f'max |sm - raw| = {float((work.clutch_smoothed - work.clutch_raw).abs().max()):.3g} (ожидание 0)')
 
     # --- сводка для тюнинга ---
     brk_delays = [e['d05'] for e in events if not pd.isna(e['d05'])]

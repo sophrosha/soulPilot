@@ -1,25 +1,21 @@
 {
-  "_comment": "AutopilotLive Фаза 3: параметры сглаживания педалей. Единицы: rate_* — единиц значения/секунду (полный ход 0..1 за 1/rate сек); *_tau — секунды (time-constant, конвейер frame-rate независим); пороги — значения педали 0..1; *_mps — метры/секунду. Порядок конвейера: rate_limit -> ema -> lerp (утверждён, см. api_research_phase3.md).",
+  "_comment": "AutopilotLive Фаза 3: параметры сглаживания педалей. Единицы: rate_* — единиц значения/секунду (полный ход 0..1 за 1/rate сек); *_tau — секунды (time-constant, конвейер frame-rate независим); пороги — значения педали 0..1; *_mps — метры/секунду. Порядок конвейера: rate_limit -> ema -> lerp для throttle/brake (утверждён, см. api_research_phase3.md); clutch — ТОЛЬКО passthrough без конвейера (§15). Правки от 2026-10-12 по данным прогонов #1/#2 (phase3_report.md): predictive 0.55/0.25/0.35 (порог 0.8 не срабатывал — 1 кадр из 6057), brake_rise 1.7 (пики d_sm/dt до 1.88 ед/с), throttle_fall 3.0 (джерк -3.70 ед/с), throttle_rise 2.0 (мягче подъём газа).",
 
   "rate_limit": {
-    "throttle_rise": 2.5,
-    "throttle_fall": 5.0,
-    "brake_rise": 2.5,
-    "brake_fall": 2.5,
-    "clutch_rise": 3.0,
-    "clutch_fall": 5.0
+    "throttle_rise": 2.0,
+    "throttle_fall": 3.0,
+    "brake_rise": 1.7,
+    "brake_fall": 2.5
   },
 
   "ema_tau": {
     "throttle": 0.10,
-    "brake": 0.08,
-    "clutch": 0.10
+    "brake": 0.08
   },
 
   "lerp_tau": {
     "throttle": 0.15,
-    "brake": 0.12,
-    "clutch": 0.15
+    "brake": 0.12
   },
 
   "arbitration": {
@@ -43,10 +39,10 @@
   },
 
   "predictive": {
-    "_comment": "мягкая предиктивность: raw brake >= brake_threshold -> цель тормоза += lead (кап 1.0); снятие при < release_hyst; lead только при speed > min_speed_mps (против «в горке»)",
-    "brake_threshold": 0.8,
-    "lead": 0.12,
-    "release_hyst": 0.5,
+    "_comment": "мягкая предиктивность: raw brake >= brake_threshold -> цель тормоза += lead (кап 1.0); снятие при < release_hyst; lead только при speed > min_speed_mps (против «в горке»). Порог 0.55 (0.8 не срабатывал: raw>=0.8 — 1 кадр из 6057); lead 0.25 (0.12 тонул в инерции конвейера)",
+    "brake_threshold": 0.55,
+    "lead": 0.25,
+    "release_hyst": 0.35,
     "min_speed_mps": 1.5
   }
 }

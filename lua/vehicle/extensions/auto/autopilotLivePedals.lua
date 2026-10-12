@@ -3,11 +3,12 @@
 -- extensions.loadModulesInDirectory("lua/vehicle/extensions/auto")).
 --
 -- Ответственность (Фаза 3):
---   * перехват throttle/brake/clutch от ванильного AI через штатный Override-
---     механизм (electrics.values.*Override, vehicleController.lua:454-457;
---     ванильный прецедент — cruiseControl.lua);
---   * конвейер rate_limit → ema → lerp (порядок утверждён; обоснование и
---     схема кадра: ai/notes/api_research_phase3.md);
+--   * перехват throttle/brake от ванильного AI через штатный Override-механизм
+--     (electrics.values.*Override, vehicleController.lua:454-457; ванильный
+--     прецедент — cruiseControl.lua); clutch — ТОЛЬКО passthrough ввода игрока
+--     (AI его не пишет — api_research §15);
+--   * конвейер rate_limit → ema → lerp для throttle/brake (порядок утверждён;
+--     обоснование и схема кадра: ai/notes/api_research_phase3.md);
 --   * арбитраж brake > throttle, детект нейтрали, плавный старт, мягкая
 --     предиктивность — все пороги из ai/config/pedals.json;
 --   * сброс Override в NIL при off / когда ИИ не ведёт машину (У1: именно nil,
@@ -24,12 +25,14 @@ local FALLBACK_CONF = 'mods/unpacked/AutopilotLive/ai/config/pedals.json'
 
 -- === Дефолты конфига (дубль pedals.json — ТОЛЬКО fallback при отсутствии/
 -- битом конфиге; источник истины — файл, как у graph.json/loadGraphConfig) ===
+-- clutch-ключей НЕТ: clutch — только passthrough (решение 2026-10-12,
+-- api_research_phase3.md §15): AI никогда не пишет clutch — input.state.clutch
+-- всегда ввод игрока, его нажатие должно действовать мгновенно.
 local DEFAULTS = {
   rate_limit   = { throttle_rise = 2.5, throttle_fall = 5.0,
-                   brake_rise = 2.5, brake_fall = 2.5,
-                   clutch_rise = 3.0, clutch_fall = 5.0 },
-  ema_tau      = { throttle = 0.10, brake = 0.08, clutch = 0.10 },
-  lerp_tau     = { throttle = 0.15, brake = 0.12, clutch = 0.15 },
+                   brake_rise = 2.5, brake_fall = 2.5 },
+  ema_tau      = { throttle = 0.10, brake = 0.08 },
+  lerp_tau     = { throttle = 0.15, brake = 0.12 },
   arbitration  = { brake_start = 0.1, brake_full = 0.5 },
   neutral      = { speed_max_mps = 0.5, throttle_min = 0.05, brake = 0.3 },
   smooth_start = { time_s = 3.0, speed_mps = 5.0, throttle_cap = 0.45 },
@@ -43,16 +46,16 @@ local cfgFromFile = false       -- конфиг реально прочитан 
 local active = false            -- apl_pedals("on") включён
 local needInit = true           -- У2: синхронизировать конвейер с raw на первом кадре
 local overridesWritten = false  -- Override писался в прошлый кадр (для nil-сброса)
-local clutchWritten = false     -- clutchOverride писался хоть раз (ленивая запись)
+local clutchWritten = false     -- clutchOverride писался (passthrough raw>0 → снять nil при 0)
 local predictiveOn = false      -- флаг предиктивности (гистерезис 0.8/0.5)
 local startT = 0                -- накопленное время engaged (для плавного старта)
 local smoothStartSkipped = true -- плавный старт снят (уже едем в момент on)
 
 -- Конвейер по каналам: rl — rate-limited цель, ema — инерция, out — дотягивание
+-- (clutch в конвейере НЕТ — passthrough, см. DEFAULTS-комментарий)
 local pipe = {
   throttle = { rl = 0, ema = 0, out = 0 },
   brake    = { rl = 0, ema = 0, out = 0 },
-  clutch   = { rl = 0, ema = 0, out = 0 },
 }
 
 -- Последние значения для статуса/CSV
@@ -115,14 +118,10 @@ local function validateConfig(c)
   pos('rate_limit', 'throttle_fall', D.rate_limit.throttle_fall)
   pos('rate_limit', 'brake_rise', D.rate_limit.brake_rise)
   pos('rate_limit', 'brake_fall', D.rate_limit.brake_fall)
-  pos('rate_limit', 'clutch_rise', D.rate_limit.clutch_rise)
-  pos('rate_limit', 'clutch_fall', D.rate_limit.clutch_fall)
   pos('ema_tau', 'throttle', D.ema_tau.throttle)
   pos('ema_tau', 'brake', D.ema_tau.brake)
-  pos('ema_tau', 'clutch', D.ema_tau.clutch)
   pos('lerp_tau', 'throttle', D.lerp_tau.throttle)
   pos('lerp_tau', 'brake', D.lerp_tau.brake)
-  pos('lerp_tau', 'clutch', D.lerp_tau.clutch)
   unit01('arbitration', 'brake_start', D.arbitration.brake_start)
   unit01('arbitration', 'brake_full', D.arbitration.brake_full)
   if c.arbitration.brake_full <= c.arbitration.brake_start then
@@ -255,10 +254,8 @@ function M.updateGFX(dt)
   -- У2: первый кадр после on/резюме — конвейер СИНХРОНИЗИРУЕМ с raw
   -- (иначе включение на скорости с газом 0.7 дало бы прыжок 0 → 0.7)
   if needInit then
-    for _, k in ipairs({ 'throttle', 'brake', 'clutch' }) do
-      local raw = (k == 'throttle' and thrRaw) or (k == 'brake' and brkRaw) or cltRaw
-      pipe[k].rl, pipe[k].ema, pipe[k].out = raw, raw, raw
-    end
+    pipe.throttle.rl, pipe.throttle.ema, pipe.throttle.out = thrRaw, thrRaw, thrRaw
+    pipe.brake.rl, pipe.brake.ema, pipe.brake.out = brkRaw, brkRaw, brkRaw
     needInit = false
   end
 
@@ -290,11 +287,10 @@ function M.updateGFX(dt)
   startT = startT + dt
   thrT = thrT * smoothStartFactor(speed)
 
-  -- === Конвейер ===
+  -- === Конвейер (только throttle/brake — clutch passthrough ниже) ===
   local rl, et, lt = cfg.rate_limit, cfg.ema_tau, cfg.lerp_tau
   stepChannel(pipe.throttle, thrT, dt, rl.throttle_rise, rl.throttle_fall, et.throttle, lt.throttle)
   stepChannel(pipe.brake, brkT, dt, rl.brake_rise, rl.brake_fall, et.brake, lt.brake)
-  stepChannel(pipe.clutch, cltRaw, dt, rl.clutch_rise, rl.clutch_fall, et.clutch, lt.clutch)
 
   -- === Арбитраж brake > throttle (ПОСЛЕ сглаживания, непрерывно) ===
   local bs, bf = cfg.arbitration.brake_start, cfg.arbitration.brake_full
@@ -308,14 +304,21 @@ function M.updateGFX(dt)
   -- === Запись Override — КАЖДЫЙ кадр при engaged (У1) ===
   electrics.values.throttleOverride = thrOut
   electrics.values.brakeOverride = pipe.brake.out
-  -- clutch — лениво: под ИИ raw всегда 0 (AI не шлёт clutch, api_research §7);
-  -- если smoothed < 0.001 и раньше не писали — не трогаем штатную КПП
-  if pipe.clutch.out > 0.001 or clutchWritten then
-    electrics.values.clutchOverride = pipe.clutch.out
+  -- Clutch — ТОЛЬКО passthrough (решение 2026-10-12, api_research §15): AI
+  -- НИКОГДА не пишет clutch (ai.lua:427-436, scriptai, КПП не шлют input
+  -- clutch) — input.state.clutch всегда ввод игрока: raw > 0 → пишем ровно raw
+  -- БЕЗ инерции конвейера («нажал — получил сразу»; латентность только
+  -- архитектурная 1 кадр, main.lua:88 vs :90), raw == 0 → снимаем в nil
+  -- (КПП снова штатная). Никаких «плавных 0.3 с» — иначе машина едет «внатяг».
+  if cltRaw > 0 then
+    electrics.values.clutchOverride = cltRaw
     clutchWritten = true
+  elseif clutchWritten then
+    electrics.values.clutchOverride = nil
+    clutchWritten = false
   end
   overridesWritten = true
-  lastOut = { engaged = true, throttle = thrOut, brake = pipe.brake.out, clutch = pipe.clutch.out }
+  lastOut = { engaged = true, throttle = thrOut, brake = pipe.brake.out, clutch = cltRaw }
 end
 
 -- === Публичные команды (GE шлёт через queueLuaCommand) ===

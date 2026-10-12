@@ -195,3 +195,39 @@ vehicle-слой свободно зовёт глобальный `jsonDecode`. 
    только при скорости > min_speed; молчит «в горке».
 5. **CSV `*_smoothed` = финальные значения модуля** (после арбитража) при
    engaged, иначе копия raw (Фаза-1 поведение).
+
+## 15. Решение по clutch: ТОЛЬКО passthrough (2026-10-12, утверждено пользователем)
+
+**Решение:** clutch ИСКЛЮЧЁН из конвейера сглаживания (rate_limit → ema → lerp).
+Поведение: `raw clutch == 0` → модуль не пишет `clutchOverride` вовсе (штатная КПП
+работает сама); `raw clutch > 0` → мгновенный passthrough ровно raw (без инерции,
+без «плавных 0.3 с»).
+
+**Обоснование — почему clutch всегда игрок, а не AI:**
+- `ai.lua:427-436` — `driveCar(steering, throttle, brake, parkingbrake)`: аргумента
+  clutch НЕТ (§7). AI никогда не пишет clutch.
+- `ai.lua:5098`, `scriptai`, КПП (`gearbox*`) — clutch только читается/пишется
+  штатной логикой трансмиссии, но НЕ из ветки AI-управления.
+- ⇒ `input.state.clutch` в engaged — это всегда ввод ИГРОКА (нажатие сцепления).
+
+**Почему passthrough, а не сглаживание (данные прогона #1, `phase3_report.md`):**
+- Прогон #1: 8 clutch-импульсов, `clutchOverride` до 1.0, спад −2.63 ед/с при
+  7400 об/мин. Сглаживание clutch растягивает нажатие игрока → машина едет
+  «внатяг» дольше, чем игрок задумал, и ощущается как «резкая подача газа с
+ цеплением после поворота».
+- Мод НИКОГДА не дёргает `input.event` (дизайн-инвариант Фаз 1–2) и не трогает
+  КПП/ручник (У3, parkingbrake-override в ванилле не существует — §6). Passthrough
+  clutch через `clutchOverride` это подтверждает: игрок выжимает/отпускает сразу,
+  латентность только архитектурная 1 кадр (`main.lua:88` контроллер vs `:90` наш
+  хук, §1).
+
+**Реализация:** `autopilotLivePedals.lua` — clutch-канал убран из `pipe`/`DEFAULTS`/
+`validateConfig`/`stepChannel`; в `updateGFX` блок: `if cltRaw > 0 →
+clutchOverride = cltRaw; else if писали → clutchOverride = nil`.
+
+**Следствие для тестов:** кап `clutch_rise/fall` не применим → чекер `check_csv.py`
+заменяет проверку 5г-clutch на 5г′ `|clutch_smoothed − clutch_raw| == 0` в engaged
+(ожидание passthrough). Смоук `smoke_pedals_csv.py`: clutch-пульсы генерируются
+нормально (good), и негативный файл `apl_smoke_badclutch.csv` ловится ровно 1 FAIL
+по 5г′. `phase3_csv_analysis.py` — clutch-пункт чек-листа тоже переключён на
+passthrough-равенство.

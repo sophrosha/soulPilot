@@ -84,7 +84,7 @@ ALLOWED_GEAR = (
 # торможении срез газа добавляет к скорости изменения throttle сверх
 # throttle_fall: dcut/dt ≤ brake_rise/(brake_full−brake_start) — учитываем.
 def load_rate_caps() -> dict:
-    caps = {'throttle': 5.0 + 6.25, 'brake': 2.5, 'clutch': 5.0,
+    caps = {'throttle': 5.0 + 6.25, 'brake': 2.5,
             'arbitration': 6.25, 'src': 'дефолты чекера'}
     conf_path = Path(__file__).resolve().parent.parent / 'config' / 'pedals.json'
     try:
@@ -96,7 +96,6 @@ def load_rate_caps() -> dict:
         caps = {
             'throttle': max(rl['throttle_rise'], rl['throttle_fall']) + arb,
             'brake': max(rl['brake_rise'], rl['brake_fall']),
-            'clutch': max(rl['clutch_rise'], rl['clutch_fall']),
             'arbitration': arb,
             'src': str(conf_path),
         }
@@ -251,8 +250,7 @@ def main() -> int:
         same_run = engaged & prev_engaged
         d_t_all = df['time'].diff()
         for raw, sm, cap in (('throttle_raw', 'throttle_smoothed', caps['throttle']),
-                             ('brake_raw', 'brake_smoothed', caps['brake']),
-                             ('clutch_raw', 'clutch_smoothed', caps['clutch'])):
+                             ('brake_raw', 'brake_smoothed', caps['brake'])):
             valid = same_run & (d_t_all > 1e-6)
             if valid.any():
                 rates = (df[sm].diff()[valid].abs() / d_t_all[valid])
@@ -261,6 +259,17 @@ def main() -> int:
                 r_max, n_viol = 0.0, 0
             check(n_viol == 0,
                   f"5г {sm}: кап {cap:.2f} ед/с ×1.2 (нарушений {n_viol}, макс {r_max:.2f})")
+
+        # 5г': clutch — passthrough (решение 2026-10-12, api_research §15):
+        # конвейера нет, в engaged clutch_smoothed ДОЛЖЕН быть ровно raw
+        if same_run.any():
+            clt_dev = float((df.loc[same_run, 'clutch_smoothed']
+                             - df.loc[same_run, 'clutch_raw']).abs().max())
+        else:
+            clt_dev = 0.0
+        check(clt_dev <= 1e-9,
+              f"5г' clutch passthrough: |sm - raw| <= 1e-9 в engaged "
+              f"(кап не применим; макс {clt_dev:.3g})")
 
         # 5д: конвейер реально отличается от raw (иначе модуль не работал)
         devs = []
@@ -276,7 +285,7 @@ def main() -> int:
         print(f"  [info] режим: pedals ON — engaged строк {n_engaged}/{len(df)}, "
               f"переходов вкл/выкл: {switches}")
         print(f"  [info] капы (из {caps['src']}): thr {caps['throttle']:.2f}, "
-              f"brk {caps['brake']:.2f}, clt {caps['clutch']:.2f} ед/с")
+              f"brk {caps['brake']:.2f} ед/с (clutch — passthrough, кап не применим)")
         for c_r, c_s in (('throttle_raw', 'throttle_smoothed'),
                          ('brake_raw', 'brake_smoothed')):
             dev = (df.loc[engaged, c_s] - df.loc[engaged, c_r]).abs()
