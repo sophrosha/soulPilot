@@ -28,8 +28,14 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
   ванильный прецедент cruiseControl.lua/escMeasurement.lua), латентность 1 кадр,
   `ai.isDriving()` (ai.lua:6167-6169, экспорт 6216), parkingbrake-override НЕ существует
   (grep = 0), AI не шлёт clutch, jsonDecode доступен в vehicle-VM, нейтраль = gear "N"|"0".
-- [ ] 3.2 `ai/config/pedals.json` — все пороги конвейера (секунды/единицы)
-- [ ] 3.3 `lua/vehicle/extensions/auto/autopilotLivePedals.lua` — ядро конвейера
+- [x] 3.2 `ai/config/pedals.json` — все пороги конвейера (секунды/единицы) (коммит `a40b8ab`)
+- [x] 3.3 `lua/vehicle/extensions/auto/autopilotLivePedals.lua` — ядро конвейера
+      (коммит `74185ca`): rate_limit→ema→lerp (time-constant коэффициенты, frame-rate
+      независимые), арбитраж brake>throttle ПОСЛЕ сглаживания, нейтраль gear "N"|"0",
+      плавный старт min(time, speed) с обеими рампами, предиктивность с гистерезисом,
+      У1: nil-сброс при off/ai-stop/onReset, У2: needInit=sync с raw, ленивый clutch
+      (< 0.001 не пишем). Lua интерпретатора нет — баланс блоков проверен эвристикой
+      (эталон autopilotLive.lua сходится), логика вычитана вручную.
 - [ ] 3.4 GE: `apl_pedals("on"|"off"|"status")`
 - [ ] 3.5 CSV: `*_smoothed` из нашего конвейера
 - [ ] 3.6 ТЕСТ пользователем (3 сценария A/B/C) + check_csv.py с новыми чеками
@@ -50,6 +56,10 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
   конфликтует за throttleOverride (штатно не встречается); датчики-читатели
   input.throttle (postCrashBrake, controlModes, telemetryLogger и т.д.) видят RAW;
   controller=dummy без override-ветки не перехватывается.
+- **Микро-решения Фазы 3 (api_research_phase3.md §14, для ВЕТО в тесте 3.6):**
+  плавный старт снимается, если машина уже едет в момент on; нейтраль = gear
+  "N" ИЛИ "0"; арбитраж — после сглаживания; predictive — флаг с гистерезисом;
+  CSV smoothed = финальные значения (после арбитража) при engaged, иначе копия raw.
 План утверждён пользователем с 5 условиями (У1–У5), ВСЕ 5 условий закрыты:
 - У1: точная таблица «колонка CSV ← источник (файл:строка)» →
   `ai/notes/phase1_csv_schema.md`.
