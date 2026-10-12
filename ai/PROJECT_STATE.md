@@ -36,8 +36,12 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
       У1: nil-сброс при off/ai-stop/onReset, У2: needInit=sync с raw, ленивый clutch
       (< 0.001 не пишем). Lua интерпретатора нет — баланс блоков проверен эвристикой
       (эталон autopilotLive.lua сходится), логика вычитана вручную.
-- [ ] 3.4 GE: `apl_pedals("on"|"off"|"status")`
-- [ ] 3.5 CSV: `*_smoothed` из нашего конвейера
+- [x] 3.4 GE: `apl_pedals("on"|"off"|"status")` (коммит `7de3504`): sendToVehicle
+      команд в autopilotLivePedalsCmd, проверка конфига FS:fileExists, pedalsRequested
+      в apl_status, сброс при смене миссии
+- [x] 3.5 CSV: `*_smoothed` из нашего конвейера (коммит `e283622`): в buildRow —
+      autopilotLivePedalsGetState(); берём значения только при engaged (Override
+      реально пишется), иначе копии raw; steer не трогаем; 24 колонки без изменений
 - [ ] 3.6 ТЕСТ пользователем (3 сценария A/B/C) + check_csv.py с новыми чеками
 - [ ] 3.7 `phase3_report.md` + PROJECT_STATE → СТОП
 
