@@ -17,7 +17,39 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 **Фаза 0: Инициализация — ВЫПОЛНЕНА полностью.**
 **Фаза 1: Дебаг + CSV + логи (Экран 2) — ЗАКРЫТА (2026-10-12): тест 1.6 №2 → 17/17 PASS, отчёт `ai/notes/phase1_report.md`. Дальше — только по команде «делай Фазу 2».**
 **Фаза 2: Граф дорог из навиграфа (Экспорт 3) — ЗАКРЫТА (2026-10-12): тест 2.7 на East Coast → фикс бага односторонних links → повторный экспорт → 28/28 PASS (полный) + 24/24 PASS (example), отчёт `ai/notes/phase2_report.md`.**
-**Фаза 2.5: Визуализация графа — ЗАКРЫТА (2026-10-12): `ai/notes/graph_viz.py` (graph_full.png + graph_zoom.png + graph.html), тест пользователя — визуализация работает, цели достигнуты (HTML-чекбоксы для фильтрации типов узлов — основной инструмент для Фазы 4). Дальше — только по команде «делай Фазу 3».**
+**Фаза 2.5: Визуализация графа — ЗАКРЫТА (2026-10-12): `ai/notes/graph_viz.py` (graph_full.png + graph_zoom.png + graph.html), тест пользователя — визуализация работает, цели достигнуты (HTML-чекбоксы для фильтрации типов узлов — основной инструмент для Фазы 4).**
+**Фаза 3: Сглаживание педалей (Экран 4, vehicle-слой) — В РАБОТЕ (план утверждён пользователем с условиями У1-У5, порядок: 3.1→3.5 → СТОП перед 3.6).**
+
+### Статус шагов Фазы 3 (порядок 3.1→3.7, каждый шаг — отдельный коммит)
+
+- [x] 3.1 `ai/notes/api_research_phase3.md` — находки по исходникам (коммит `dc35779`):
+  порядок кадра main.lua:85-90 (ai → input → controller → extensions), Override-механизм
+  `electrics.values.throttleOverride/brakeOverride/clutchOverride` (vehicleController.lua:454-457,
+  ванильный прецедент cruiseControl.lua/escMeasurement.lua), латентность 1 кадр,
+  `ai.isDriving()` (ai.lua:6167-6169, экспорт 6216), parkingbrake-override НЕ существует
+  (grep = 0), AI не шлёт clutch, jsonDecode доступен в vehicle-VM, нейтраль = gear "N"|"0".
+- [ ] 3.2 `ai/config/pedals.json` — все пороги конвейера (секунды/единицы)
+- [ ] 3.3 `lua/vehicle/extensions/auto/autopilotLivePedals.lua` — ядро конвейера
+- [ ] 3.4 GE: `apl_pedals("on"|"off"|"status")`
+- [ ] 3.5 CSV: `*_smoothed` из нашего конвейера
+- [ ] 3.6 ТЕСТ пользователем (3 сценария A/B/C) + check_csv.py с новыми чеками
+- [ ] 3.7 `phase3_report.md` + PROJECT_STATE → СТОП
+
+### Известные факты Фазы 3 (для Фазы 4 — НЕ переоткрывать)
+
+- **Override-механизм для педалей AI найден**, используется ванильным cruiseControl
+  (`throttleOverride`): контроллер читает `electrics.values.*Override or input.<k>`
+  (vehicleController.lua:454-457); **латентность 1 кадр** (наш хук идёт после
+  контроллера: main.lua:90 vs :88); **сброс в nil критичен** (не 0, не последнее
+  значение — иначе педаль залипает; nil = возврат на штатный вход).
+- Запись в `input.throttle` БЕССМЫСЛЕННА: строка main.lua:86 (input.updateGFX)
+  перезатирает его свежим AI-значением до контроллера (:88).
+- AI не читает input.* обратно (ai.lua:434-436 — lastCommand из аргументов) →
+  петли «перекрыли и AI увидел» нет.
+- Известные ограничения (НЕ чинить в Фазе 3): cruiseControl при активном моде
+  конфликтует за throttleOverride (штатно не встречается); датчики-читатели
+  input.throttle (postCrashBrake, controlModes, telemetryLogger и т.д.) видят RAW;
+  controller=dummy без override-ветки не перехватывается.
 План утверждён пользователем с 5 условиями (У1–У5), ВСЕ 5 условий закрыты:
 - У1: точная таблица «колонка CSV ← источник (файл:строка)» →
   `ai/notes/phase1_csv_schema.md`.
