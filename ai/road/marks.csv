@@ -3,3 +3,7 @@ time,x,y,z,comment,nearest_node_id,node_dist_m,edge_id
 2026-10-12 04:16:23,824.337,-771.261,42.081,"заворот",a_s_outer12,6.10,a_s_outer12_a_south_water_c5
 2026-10-12 07:30:15,821.146,228.399,66.835,"откл педали",a_e_a15,7.43,a_e_a15_a_e_a16
 2026-10-12 12:01:21,-44.169,-241.080,33.922,"откл педали",a_bigstraight_a130,2.43,a_bigstraight_a130_a_bigstraight_a131
+2026-10-12 14:17:51,903.511,-235.249,40.021,"markirovka",DR269_3,1.78,DR269_2_DR269_3
+2026-10-12 14:18:09,909.274,-287.683,40.302,"markirovka",a_e_straight_c3,16.75,a_e_straight_b2_a_e_straight_c3
+2026-10-12 14:20:20,-244.074,495.515,33.848,"markirovka",DR201_1,3.99,DR201_1_a_town_ridge_g113
+2026-10-12 14:20:38,-122.825,607.483,33.963,"откл педали",a_mid_forest_b19,13.98,a_mid_forest_b18_a_mid_forest_b19

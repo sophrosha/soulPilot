@@ -63,6 +63,8 @@ ALLOWED_DIRTY = {
     'ai/notes/quality_framework.py',
     'ai/notes/quality_gate_phase3.py',
     'ai/notes/smoke_pedals_csv.py',
+    'ai/notes/phase3_report.md',      # отчёт закрывающего коммита Фазы 3
+    'ai/road/marks.csv',              # маркеры прогона #3 (clutch, «откл педали»)
     'ai/PROJECT_STATE.md',
 }
 
