@@ -1,0 +1,5 @@
+# Зависимости для ai/notes/graph_viz.py (визуализация graph.json).
+# Точные версии — воспроизводимость среды: pip install -r ai/requirements.txt
+# Установлено и проверено 2026-10-12 (ai/venv, Python 3.13).
+matplotlib==3.11.2
+plotly==7.1.0
