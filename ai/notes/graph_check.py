@@ -186,8 +186,15 @@ def validate(data, relaxed: bool = False):
     check(not bad_links, f'links: пуст при degree<3, длина == degree при >=3 (проблемы: {bad_links[:5] or "нет"})')
     check(not bad_azimuth, f'links: edge_id/to_id/direction_deg [0..360) (проблемы: {bad_azimuth[:5] or "нет"})')
     if bad_link_ref:
-        warns.append(f'[WARN] битые ссылки в links (нет узла): {bad_link_ref[:5]}'
-                     + (f' ... всего {len(bad_link_ref)}' if len(bad_link_ref) > 5 else ''))
+        if relaxed:
+            # Срез (--example): links[] узлов degree>=3 хранит полных соседей
+            # ПОЛНОГО графа, а срез (20 узлов из тысяч) всегда режет несколько
+            # junction'ов — ссылки на узлы вне среза СТРУКТУРНО ожидаемы.
+            warns.append(f'[INFO] ссылки на узлы вне среза (ожидаемо для среза): {bad_link_ref[:5]}'
+                         + (f' ... всего {len(bad_link_ref)}' if len(bad_link_ref) > 5 else ''))
+        else:
+            warns.append(f'[WARN] битые ссылки в links (нет узла): {bad_link_ref[:5]}'
+                         + (f' ... всего {len(bad_link_ref)}' if len(bad_link_ref) > 5 else ''))
 
     # --- 8-12. рёбра ---
     edge_ids_seen: set = set()
