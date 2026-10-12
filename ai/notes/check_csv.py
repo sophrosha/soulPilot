@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Проверка CSV-лога вождения AutopilotLive (Фаза 1, критерии успеха).
+"""Проверка CSV-лога вождения AutopilotLive (Фазы 1 + 3).
 
 Запуск (только через venv проекта!):
     ai/venv/Scripts/python.exe ai/notes/check_csv.py <путь/к/файлу.csv>
@@ -13,12 +13,19 @@
   3. Дискретизация ~20 Гц: медианный dt между строками ≈ 0.05 c.
   4. Производные d_*/dt консистентны: |d_steer_dt| согласовано
      с численной производной steer_raw по времени.
-  5. *_smoothed == *_raw (В Фазе 1 это ОЖИДАЕМО — У4).
+  5. РЕЖИМ ОПРЕДЕЛЯЕТСЯ ПО ДАННЫМ (Фаза 3):
+     - pedals off (все *_smoothed == *_raw): 5а — равенство по всем каналам
+       (сценарии A/C теста 3.6: модуль не вмешивается / мгновенный возврат);
+     - pedals on: 5б — строки ВНЕ работы модуля = точные копии raw;
+       5в — *_smoothed в [0,1]; 5г — кап скорости изменения из pedals.json
+       (rate×1.2, переходы между сегментами исключены); 5д — конвейер
+       реально отличается от raw.
   6. Длительность × 20 ≈ число строк.
   7. Скорость/pos читаются, gear — строка, rpm — число.
 
 Выход: список PASS/FAIL, код возврата 0 если всё ок, 1 если есть FAIL.
 """
+import json
 import sys
 from pathlib import Path
 
@@ -69,6 +76,33 @@ ALLOWED_GEAR = (
     | {f'M{i}' for i in range(1, 11)}      # M1..M10
     | {f'S{i}' for i in range(1, 11)}      # S1..S10
 )
+
+
+# === Фаза 3: капы rate_limit из ai/config/pedals.json (источник истины) ===
+# Кап скорости изменения сглаженного: |Δsmoothed|/Δt ≤ rate (в секундах).
+# Тонкость арбитража: thr_out = thr * cut(brake_smoothed) — при быстром
+# торможении срез газа добавляет к скорости изменения throttle сверх
+# throttle_fall: dcut/dt ≤ brake_rise/(brake_full−brake_start) — учитываем.
+def load_rate_caps() -> dict:
+    caps = {'throttle': 5.0 + 6.25, 'brake': 2.5, 'clutch': 5.0,
+            'arbitration': 6.25, 'src': 'дефолты чекера'}
+    conf_path = Path(__file__).resolve().parent.parent / 'config' / 'pedals.json'
+    try:
+        with conf_path.open(encoding='utf-8') as fh:
+            conf = json.load(fh)
+        rl = conf['rate_limit']
+        arb = rl['brake_rise'] / max(
+            conf['arbitration']['brake_full'] - conf['arbitration']['brake_start'], 1e-6)
+        caps = {
+            'throttle': max(rl['throttle_rise'], rl['throttle_fall']) + arb,
+            'brake': max(rl['brake_rise'], rl['brake_fall']),
+            'clutch': max(rl['clutch_rise'], rl['clutch_fall']),
+            'arbitration': arb,
+            'src': str(conf_path),
+        }
+    except Exception as e:  # noqa: BLE001
+        caps['src'] = f'дефолты чекера (pedals.json не прочитан: {e})'
+    return caps
 
 
 def main() -> int:
@@ -172,14 +206,93 @@ def main() -> int:
         check(0.8 <= ratio <= 1.25,
               f"строк = {len(df)}, длительность = {dur:.1f} c, ожидание ~{expected:.0f} (ratio {ratio:.2f})")
 
-    # 5. *_smoothed == *_raw (ОЖИДАЕМО в Фазе 1 — У4)
-    for raw, sm in SMOOTHED_PAIRS:
-        if raw in df.columns and sm in df.columns:
-            max_diff = (df[raw] - df[sm]).abs().max()
-            check(float(max_diff) < 1e-9,
-                  f"{sm} == {raw} (макс. расхождение {max_diff:.3g}; в Фазе 1 обязано быть 0)")
+    # === 5. Фаза 3: режим определяется ПО ДАННЫМ ===
+    # engaged = модуль реально писал Override в этот кадр. Определяем по
+    # расхождению throttle/brake (clutch не участвует — ленивая запись).
+    engaged = ((df['throttle_smoothed'] - df['throttle_raw']).abs() > 1e-9) | \
+              ((df['brake_smoothed'] - df['brake_raw']).abs() > 1e-9)
+    n_engaged = int(engaged.sum())
+    caps = load_rate_caps()
+
+    if n_engaged == 0:
+        # 5а: pedals off — все пары обязаны быть копиями raw (сценарии A/C)
+        for raw, sm in SMOOTHED_PAIRS:
+            if raw in df.columns and sm in df.columns:
+                max_diff = (df[raw] - df[sm]).abs().max()
+                check(float(max_diff) < 1e-9,
+                      f"5а {sm} == {raw} (макс. расхождение {max_diff:.3g}; pedals off)")
+            else:
+                check(False, f"нет колонок {raw}/{sm}")
+        print("  [info] режим: pedals OFF (все *_smoothed == *_raw)")
+    else:
+        # 5б: строки ВНЕ работы модуля = точные копии raw (сценарии A/C)
+        idle = ~engaged
+        idle_rows = int(idle.sum())
+        if idle_rows > 0:
+            worst = 0.0
+            for raw, sm in SMOOTHED_PAIRS:
+                if raw in df.columns and sm in df.columns:
+                    worst = max(worst, float((df.loc[idle, raw] - df.loc[idle, sm]).abs().max()))
+            check(worst < 1e-9,
+                  f"5б строки вне engaged = raw (строк: {idle_rows}, макс. расхождение {worst:.3g})")
         else:
-            check(False, f"нет колонок {raw}/{sm}")
+            print("  [info] 5б пропущено: весь файл в режиме engaged")
+
+        # 5в: диапазон [0,1] у сглаженных
+        for sm in ('throttle_smoothed', 'brake_smoothed', 'clutch_smoothed'):
+            lo, hi = float(df[sm].min()), float(df[sm].max())
+            check(-0.001 <= lo and hi <= 1.001,
+                  f"5в {sm} в [0,1] (min {lo:.3g}, max {hi:.3g})")
+
+        # 5г: кап скорости изменения ВНУТРИ непрерывных сегментов engaged.
+        # Границы сегментов ИСКЛЮЧЕНЫ: включение = синхронизация к raw (У2),
+        # выключение = шаг к raw — это дизайн (nil/копия raw), не rate-limit.
+        prev_engaged = engaged.shift(1).fillna(False).astype(bool)
+        same_run = engaged & prev_engaged
+        d_t_all = df['time'].diff()
+        for raw, sm, cap in (('throttle_raw', 'throttle_smoothed', caps['throttle']),
+                             ('brake_raw', 'brake_smoothed', caps['brake']),
+                             ('clutch_raw', 'clutch_smoothed', caps['clutch'])):
+            valid = same_run & (d_t_all > 1e-6)
+            if valid.any():
+                rates = (df[sm].diff()[valid].abs() / d_t_all[valid])
+                r_max, n_viol = float(rates.max()), int((rates > cap * 1.2).sum())
+            else:
+                r_max, n_viol = 0.0, 0
+            check(n_viol == 0,
+                  f"5г {sm}: кап {cap:.2f} ед/с ×1.2 (нарушений {n_viol}, макс {r_max:.2f})")
+
+        # 5д: конвейер реально отличается от raw (иначе модуль не работал)
+        devs = []
+        for c_r, c_s in SMOOTHED_PAIRS:
+            if c_r != 'steer_raw' and c_r in df.columns and c_s in df.columns:
+                devs.append(float((df.loc[engaged, c_s] - df.loc[engaged, c_r]).abs().max()))
+        max_dev = max(devs) if devs else 0.0
+        check(max_dev > 1e-9,
+              f"5д конвейер отличается от raw (макс. расхождение {max_dev:.3g})")
+
+        # INFO: сегменты работы и расхождения (для отчёта теста 3.6)
+        switches = int((engaged != engaged.shift()).sum()) - 1  # без перехода NaN→bool
+        print(f"  [info] режим: pedals ON — engaged строк {n_engaged}/{len(df)}, "
+              f"переходов вкл/выкл: {switches}")
+        print(f"  [info] капы (из {caps['src']}): thr {caps['throttle']:.2f}, "
+              f"brk {caps['brake']:.2f}, clt {caps['clutch']:.2f} ед/с")
+        for c_r, c_s in (('throttle_raw', 'throttle_smoothed'),
+                         ('brake_raw', 'brake_smoothed')):
+            dev = (df.loc[engaged, c_s] - df.loc[engaged, c_r]).abs()
+            print(f"  [info] |{c_s} - {c_r}| на engaged: среднее {float(dev.mean()):.4f}, "
+                  f"макс {float(dev.max()):.4f}")
+
+        # INFO: строки нейтрали (gear N|0 + газ > 0.05 + почти стоим)
+        gear_neutral = df['gear'].astype(str).isin(['N', '0'])
+        neutral_rows = gear_neutral & (df['throttle_raw'] > 0.05) & (df['speed'] < 0.5)
+        n_nr = int(neutral_rows.sum())
+        if n_nr > 0:
+            print(f"  [info] нейтраль: строк {n_nr}, max throttle_smoothed там = "
+                  f"{float(df.loc[neutral_rows, 'throttle_smoothed'].max()):.3f} "
+                  f"(ожидание ~0 после ~0.5 с стабилизации)")
+        else:
+            print("  [info] нейтраль: строк с газом на N|0 нет")
 
     # 4. производные
     if len(df) >= 3 and 'd_steer_dt' in df.columns:
