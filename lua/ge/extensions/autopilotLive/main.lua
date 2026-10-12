@@ -2,13 +2,13 @@
 -- Загружается из scripts/modScript.lua: extensions.load('autopilotLive/main')
 -- Имя расширения после загрузки: autopilotLive_main (luaPathToExtName, extensions.lua:55-62).
 --
--- Ответственность GE-слоя (Фаза 1):
---   * консольные команды: apl_debug(), apl_status();
+-- Ответственность GE-слоя (Фаза 1 + Фаза 3):
+--   * консольные команды: apl_debug(), apl_status(), apl_pedals("on"|"off"|"status");
 --   * txt-лог событий мода ai/logs/*.txt (уровни INFO/WARN/ERROR);
 --   * вычисление относительных путей записи от userPath (У2: с fallback);
 --   * запуск/остановка CSV-записи в vehicle-слое (через queueLuaCommand);
 --   * приём сообщений об ошибках от vehicle-слоя (obj:queueGameEngineLua).
--- НЕ содержит логики сглаживания — это Экраны 3-4 (Фазы 3-4).
+-- НЕ содержит логики сглаживания — она в vehicle-слое (autopilotLivePedals.lua).
 
 local M = {}
 
@@ -20,6 +20,7 @@ local logFileHandle = nil         -- handle открытого txt-лога
 local logFilePath = nil           -- путь текущего лога (для apl_status)
 local csvActive = false           -- идёт ли сейчас CSV-запись в vehicle-слое
 local csvVehicleId = nil           -- id машины, начавшей CSV (fallback для stop)
+local pedalsRequested = false      -- Фаза 3: запрошено ли apl_pedals("on") (для apl_status)
 local dataDir = nil               -- выбранный базовый каталог данных (У2)
 local dirsTried = {}              -- какие варианты путей пробовали (для отчёта)
 
@@ -952,9 +953,53 @@ function apl_status()
   print('debug: ' .. tostring(debugEnabled))
   print('log: ' .. tostring(logFilePath or '(закрыт)'))
   print('csv active: ' .. tostring(csvActive))
+  print('pedals: ' .. tostring(pedalsRequested))
   print('data dir: ' .. tostring(dataDir and dataDir.csv or '(не выбран)'))
   print('vehicle: ' .. (veh and ('ID=' .. tostring(veh:getID())) or '(нет)'))
   print('---------------------------')
+  return true
+end
+
+-- === Фаза 3: apl_pedals — сглаживание педалей (шаг 3.4) ===
+-- Логика сглаживания живёт в vehicle-слое (autopilotLivePedals.lua); GE-слой
+-- только шлёт команду и конфиг. Педали 0..1, конвейер rate_limit→ema→lerp,
+-- перехват через electrics.values.*Override (api_research_phase3.md).
+local PEDALS_CONF = 'mods/unpacked/AutopilotLive/ai/config/pedals.json'
+
+function apl_pedals(mode)
+  mode = tostring(mode or ''):lower()
+  if mode == 'on' then
+    -- Диагностика ДО отправки: конфиг читается vehicle-слоем по тому же
+    -- относительному пути (CWD общий для GE и vehicle-VM, см. 1.6b)
+    local confOk = FS and FS:fileExists(PEDALS_CONF) or false
+    if not confOk then
+      print('WARN apl_pedals: конфиг не найден (' .. PEDALS_CONF .. ') — vehicle использует дефолты кода')
+    end
+    local veh = sendToVehicle(string.format('autopilotLivePedalsCmd.on("%s")', PEDALS_CONF))
+    if veh then
+      pedalsRequested = true
+      print('apl_pedals: ON (конфиг: ' .. PEDALS_CONF .. ')')
+      print('apl_pedals: статус — apl_pedals("status"); остановка — apl_pedals("off")')
+      logLine('INFO', 'apl_pedals ON, conf=' .. PEDALS_CONF .. ', confExists=' .. tostring(confOk))
+    end
+  elseif mode == 'off' then
+    local veh = sendToVehicle('autopilotLivePedalsCmd.off()')
+    if veh then
+      pedalsRequested = false
+      print('apl_pedals: OFF (Override снят vehicle-слоем)')
+      logLine('INFO', 'apl_pedals OFF')
+    end
+  elseif mode == 'status' then
+    print('apl_pedals GE: запрошено=' .. tostring(pedalsRequested) ..
+      ', конфиг=' .. PEDALS_CONF ..
+      ' (существует=' .. tostring(FS and FS:fileExists(PEDALS_CONF) or false) .. ')')
+    if not sendToVehicle('autopilotLivePedalsCmd.status()') then
+      print('WARN apl_pedals: машина игрока не найдена — статус vehicle-слоя недоступен')
+    end
+  else
+    print('Использование: apl_pedals("on") | apl_pedals("off") | apl_pedals("status")')
+    return false
+  end
   return true
 end
 
@@ -1002,6 +1047,8 @@ end
 
 function M.onClientPostStartMission()
   -- Смена миссии: машина игрока уходит, vehicle-слой перезагружается целиком
+  -- (autopilotLivePedals.active=false по умолчанию — Override'ов не остаётся)
+  pedalsRequested = false
   if not csvActive then return end
   stopCsvRecording()
   if csvActive then
