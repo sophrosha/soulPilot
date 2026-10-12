@@ -3,12 +3,14 @@
 --   vehicle/main.lua:314 → extensions.loadModulesInDirectory("lua/vehicle/extensions/auto")
 --   loadAtRoot(file, "") даёт имя расширения = имя файла: "autopilotLive".
 --
--- Ответственность (Фаза 1):
+-- Ответственность (Фаза 1 + Фаза 3):
 --   * сбор данных CSV с дискретизацией 20 Гц (схема: ai/notes/phase1_csv_schema.md);
 --   * запись CSV в файл, буферизация + flush каждые ~2 сек;
 --   * приём команд от GE-слоя через глобальную таблицу autopilotLiveCmd.*;
 --   * отправка событий/ошибок в GE-лог: obj:queueGameEngineLua(...).
--- НЕ сглаживает ничего (Фаза 1): *_smoothed = *_raw (У4).
+-- Фаза 3: *_smoothed берутся из нашего конвейера (autopilotLivePedals.lua,
+-- глобальная autopilotLivePedalsGetState), когда модуль реально пишет Override;
+-- иначе — копии raw, как в Фазе 1. Руль НЕ трогаем (Фаза 4).
 -- НЕ трогает input.event, КПП, электронику.
 
 local M = {}
@@ -33,8 +35,8 @@ local engineThermals = nil     -- device.thermals первого combustionEngin
 local thermalsWarned = false
 
 -- === CSV-колонки (ровно как в ai/notes/phase1_csv_schema.md, 24 шт.) ===
--- *_smoothed: в Фазе 1 = raw (У4); в Фазах 3-4 сюда пойдёт
--- наш конвейер lerp→ema→rate_limit.
+-- Фаза 3: *_smoothed — наш конвейер rate_limit→ema→lerp (autopilotLivePedals),
+-- steer — копия raw до Фазы 4.
 local CSV_HEADER = table.concat({
   'time', 'pos_x', 'pos_y', 'pos_z', 'speed', 'accel',
   'steer_raw', 'steer_smoothed', 'throttle_raw', 'throttle_smoothed',
@@ -88,21 +90,31 @@ local function buildRow(dt)
   local pos = obj:getPosition()
   local speed = obj:getVelocity():length()
 
-  -- ввод: raw из input.state.<k>.val, итог из input.<k> (У3).
-  -- В Фазе 1 *_smoothed = raw (копии, У4): движок сам финализирует input.<k>
-  -- через цепочку фильтров (vehicle/input.lua:641-648), в т.ч. rate-limit
-  -- руля ИИ (строка 643) — поэтому читать «готовое» input.<k> как smoothed
-  -- в Фазе 1 нельзя, У4 требует грубого равенства.
-  -- В Фазах 3-4 сюда пойдёт наш конвейер lerp→ema→rate_limit.
+  -- ввод: raw из input.state.<k>.val (У3) — цель AI (или ввод игрока, когда
+  -- ИИ не ведёт). Строку input.<k> как smoothed НЕ читаем (движок сам
+  -- финализирует input через цепочку фильтров, vehicle/input.lua:641-648).
   local steerRaw = (input.state and input.state.steering and input.state.steering.val) or 0
   local thrRaw = (input.state and input.state.throttle and input.state.throttle.val) or 0
   local brkRaw = (input.state and input.state.brake and input.state.brake.val) or 0
   local cltRaw = (input.state and input.state.clutch and input.state.clutch.val) or 0
 
+  -- Фаза 3: *_smoothed из нашего конвейера (autopilotLivePedals), если модуль
+  -- СЕЙЧАС пишет Override (engaged: ИИ ведёт + модуль включён) — иначе копии
+  -- raw (Фаза-1 поведение: ручное вождение, pedals off, пауза ИИ).
+  -- steer НЕ трогаем (руль — Фаза 4). Хук порядка: этот модуль обновляется
+  -- раньше autopilotLivePedals (alphabetical) → берём прошлый кадр (≈50 мс).
   local steerSm = steerRaw
   local thrSm = thrRaw
   local brkSm = brkRaw
   local cltSm = cltRaw
+  if autopilotLivePedalsGetState then
+    local ps = autopilotLivePedalsGetState()
+    if ps and ps.engaged then
+      thrSm = ps.throttle
+      brkSm = ps.brake
+      cltSm = ps.clutch
+    end
+  end
 
   -- электроника (У1)
   local gear = tostring(electrics.values.gear or '')
