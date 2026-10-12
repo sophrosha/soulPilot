@@ -1,3 +1,4 @@
 time,x,y,z,comment,nearest_node_id,node_dist_m,edge_id
 2026-10-12 04:15:53,908.250,-311.671,40.653,"начинает ехать",a_e_straight_c3,8.09,a_e_straight_c2_a_e_straight_c3
 2026-10-12 04:16:23,824.337,-771.261,42.081,"заворот",a_s_outer12,6.10,a_s_outer12_a_south_water_c5
+2026-10-12 07:30:15,821.146,228.399,66.835,"откл педали",a_e_a15,7.43,a_e_a15_a_e_a16
