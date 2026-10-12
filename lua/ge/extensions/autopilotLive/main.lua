@@ -983,11 +983,23 @@ function apl_pedals(mode)
       logLine('INFO', 'apl_pedals ON, conf=' .. PEDALS_CONF .. ', confExists=' .. tostring(confOk))
     end
   elseif mode == 'off' then
-    local veh = sendToVehicle('autopilotLivePedalsCmd.off()')
+    -- Round-trip подтверждение (находка Н1, 2026-10-12): off и status — ОДНОЙ
+    -- строкой в vehicle-очередь (FIFO, один тик VM). pcall ловит падение off,
+    -- print из VM показывает vehId той машины, где исполнение реально произошло,
+    -- status — состояние модуля после off. Если off потеряется — видно ТОЧНО
+    -- на каком этапе (отправка GE / исполнение VM / состояние active).
+    local offCmd = 'local ok, err = pcall(function() return autopilotLivePedalsCmd.off() end); '
+      .. 'print("aplPedals: off round-trip: ok=" .. tostring(ok) .. " err=" .. tostring(err) .. " vehId=" .. tostring(obj and obj:getId() or -1)); '
+      .. 'local ok2, err2 = pcall(function() return autopilotLivePedalsCmd.status() end); '
+      .. 'if not ok2 then print("aplPedals: status после off упал: " .. tostring(err2)) end'
+    local veh = sendToVehicle(offCmd)
     if veh then
       pedalsRequested = false
-      print('apl_pedals: OFF (Override снят vehicle-слоем)')
-      logLine('INFO', 'apl_pedals OFF')
+      local okId, vehId = pcall(function() return veh:getID() end)
+      local idStr = tostring((okId and vehId) or '?')
+      print('apl_pedals: OFF отправлен (vehId=' .. idStr .. ')')
+      print('apl_pedals: жду round-trip в консоли: "off round-trip: ok=true ... vehId=N" и статус с active=false')
+      logLine('INFO', 'apl_pedals OFF отправлен (vehId=' .. idStr .. '), round-trip status в vehicle')
     end
   elseif mode == 'status' then
     print('apl_pedals GE: запрошено=' .. tostring(pedalsRequested) ..
