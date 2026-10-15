@@ -327,6 +327,21 @@ local function diagBad(x) -- мусор «последнего рубежа»: n
   return x == nil or x ~= x or x == math.huge or x == -math.huge or x < 0 or x > 1
 end
 
+-- Косметика DIAG-печати (2026-10-15, по заказу): человек не должен читать
+-- асимптотические хвосты ema (2.45e-59, 1e-222 — это ФАКТИЧЕСКИ ноль, но не
+-- ноль в double: после сброса brake до 0 ema подходит к нулю экспоненциально).
+-- |v| < 1e-6 → печатаем 0.000000. НО реальный мусор НЕ глушим: nil/NaN/±inf/
+-- вне [0,1] печатаем как есть + маркер «<МУСОР>» (ловушка ~1e17 не ослепнет).
+local function diagFmt(x)
+  if x == nil or x ~= x or x == math.huge or x == -math.huge or x < 0 or x > 1 then
+    return tostring(x) .. ' <МУСОР>'
+  end
+  if math.abs(x) < 1e-6 then
+    return '0.000000'
+  end
+  return tostring(x)
+end
+
 -- === Кадровый цикл ===
 function M.updateGFX(dt)
   if not active then return end
@@ -505,14 +520,15 @@ function autopilotLivePedalsCmd.status()
       lastRaw.clutch, lastOut.clutch, tostring(clutchWritten)),
     string.format('predictive=%s smoothStartCap=%.2f startT=%.1fс',
       tostring(predictiveOn), cap, startT),
-    -- ЛОВУШКА (диагностика 2026-10-15): ДУБЛЬ тех же значений через tostring()
-    -- (%.14g — точное представление double). Если строка %.3f выше покажет ~1e17,
-    -- а эта — 0.0x, мусор рождается в форматировании LuaJIT, НЕ в конвейере:
-    -- lastOut пишется только из sanitizeOut ∈ [0,1] (по кадру 8.67e17: throttle
-    -- out=1.000 ⇒ cut=1 ⇒ pipe.brake.out ≤ 0.1 в момент записи lastOut).
+    -- ЛОВУШКА (диагностика 2026-10-15): ДУБЛЬ тех же значений. Если строка
+    -- %.3f выше покажет ~1e17, а эта — 0.0x, мусор рождается в форматировании
+    -- LuaJIT, НЕ в конвейере: lastOut пишется только из sanitizeOut ∈ [0,1]
+    -- (по кадру 8.67e17: throttle out=1.000 ⇒ cut=1 ⇒ pipe.brake.out ≤ 0.1).
+    -- Печать через diagFmt (косметика 2026-10-15): хвосты ema < 1e-6 →
+    -- 0.000000; мусор (вне [0,1]/NaN/inf) — как есть + «<МУСОР>».
     string.format('DIAG exact: thr=%s brk=%s clt=%s | pipe.brake rl=%s ema=%s out=%s',
-      tostring(lastOut.throttle), tostring(lastOut.brake), tostring(lastOut.clutch),
-      tostring(pipe.brake.rl), tostring(pipe.brake.ema), tostring(pipe.brake.out)),
+      diagFmt(lastOut.throttle), diagFmt(lastOut.brake), diagFmt(lastOut.clutch),
+      diagFmt(pipe.brake.rl), diagFmt(pipe.brake.ema), diagFmt(pipe.brake.out)),
   }
   if diagBad(lastOut.brake) or diagBad(lastOut.throttle) or diagBad(lastOut.clutch) then
     diagDump('STATUS поймал мусор в lastOut — сравнить DIAG exact (tostring) со строкой %.3f',
