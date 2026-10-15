@@ -97,6 +97,22 @@ local function clamp01(v)
   return v
 end
 
+-- Печать pipeline-значений: ВЕСЬ status/WARN/эхо идёт через %s (2026-10-16,
+-- фикс аномалии brake.out ~1e17: string.format('%.3f', ...) в LuaJIT при
+-- большом числе аргументов ЧИТАЕТ НЕ ТОТ СЛОТ СТЕКА — доказано кадром
+-- 6.7e17 при чистом lastOut). |v| < 1e-6 → 0.000000 (хвосты ema —
+-- асимптотика, не баг); мусор (nil/NaN/±inf/вне [0,1]) — как есть +
+-- «<МУСОР>» (НЕ глушим — ловушка не ослепнет).
+local function diagFmt(x)
+  if x == nil or x ~= x or x == math.huge or x == -math.huge or x < 0 or x > 1 then
+    return tostring(x) .. ' <МУСОР>'
+  end
+  if math.abs(x) < 1e-6 then
+    return '0.000000'
+  end
+  return tostring(x)
+end
+
 -- Fix 2: жёсткий кламп в [0,1] с детектом мусора на ВЫХОДЕ конвейера.
 -- Возвращает безопасное значение и пишет WARN один раз на канал (не спамит),
 -- если исходное было NaN/±inf/вне [0,1]. rawFallback — что подставить при мусоре
@@ -109,8 +125,8 @@ local function sanitizeOut(v, rawFallback, tag)
     if not outGarbageWarned[tag] then
       outGarbageWarned[tag] = true
       toGE('WARN', string.format(
-        'pedals: МУСОР на выходе %s = %s -> fallback raw %.3f (кламп в [0,1])',
-        tag, tostring(v), clamp01(safeVal(rawFallback))))
+        'pedals: МУСОР на выходе %s = %s -> fallback raw %s (кламп в [0,1])',
+        tag, tostring(v), diagFmt(clamp01(safeVal(rawFallback)))))
     end
     return clamp01(safeVal(rawFallback))
   end
@@ -253,8 +269,9 @@ local function stepChannel(st, target, dt, rateUp, rateDown, tauEma, tauLerp, ta
   if badPre and not stepGarbageWarned[tag] then
     stepGarbageWarned[tag] = true
     toGE('WARN', string.format(
-      'pedals: МУСОР в конвейере [%s] ДО клампа: rl=%.4g ema=%.4g out=%.4g target=%.4g dt=%.4g rate=%.4g',
-      tag, st.rl, st.ema, st.out, target, dt, rate))
+      'pedals: МУСОР в конвейере [%s] ДО клампа: rl=%s ema=%s out=%s target=%s dt=%s rate=%s',
+      tag, diagFmt(st.rl), diagFmt(st.ema), diagFmt(st.out), diagFmt(target),
+      tostring(dt), tostring(rate)))
   elseif not badPre then
     stepGarbageWarned[tag] = nil -- канал чист — WARN сработает заново при новом мусоре
   end
@@ -325,21 +342,6 @@ end
 
 local function diagBad(x) -- мусор «последнего рубежа»: nil/NaN/±inf/вне [0,1]
   return x == nil or x ~= x or x == math.huge or x == -math.huge or x < 0 or x > 1
-end
-
--- Косметика DIAG-печати (2026-10-15, по заказу): человек не должен читать
--- асимптотические хвосты ema (2.45e-59, 1e-222 — это ФАКТИЧЕСКИ ноль, но не
--- ноль в double: после сброса brake до 0 ema подходит к нулю экспоненциально).
--- |v| < 1e-6 → печатаем 0.000000. НО реальный мусор НЕ глушим: nil/NaN/±inf/
--- вне [0,1] печатаем как есть + маркер «<МУСОР>» (ловушка ~1e17 не ослепнет).
-local function diagFmt(x)
-  if x == nil or x ~= x or x == math.huge or x == -math.huge or x < 0 or x > 1 then
-    return tostring(x) .. ' <МУСОР>'
-  end
-  if math.abs(x) < 1e-6 then
-    return '0.000000'
-  end
-  return tostring(x)
 end
 
 -- === Кадровый цикл ===
@@ -462,9 +464,14 @@ function M.updateGFX(dt)
 
   -- ЛОВУШКА: буфер кадра + «последний рубеж» (см. блок комментария выше updateGFX)
   diagN = diagN + 1
-  diagHist[((diagN - 1) % 5) + 1] = string.format(
-    'dt=%.4f tgt=%.3f raw.brk=%.3f | rl=%.17g ema=%.17g out=%.17g | thrOut=%.17g brkOut=%.17g',
-    dt, brkT, brkRaw, pipe.brake.rl, pipe.brake.ema, pipe.brake.out, thrOut, brkOut)
+  -- Конкатенация вместо string.format: forensic-точность (tostring ≈ 14 значащих
+  -- цифр double) и НЕТ уязвимого числового форматтера (баг слота стека при
+  -- большом числе аргументов — аномалия brake.out ~1e17).
+  diagHist[((diagN - 1) % 5) + 1] =
+    'dt=' .. tostring(dt) .. ' tgt=' .. tostring(brkT) .. ' raw.brk=' .. tostring(brkRaw) ..
+    ' | rl=' .. tostring(pipe.brake.rl) .. ' ema=' .. tostring(pipe.brake.ema) ..
+    ' out=' .. tostring(pipe.brake.out) .. ' | thrOut=' .. tostring(thrOut) ..
+    ' brkOut=' .. tostring(brkOut)
   if diagBad(brkOut) or diagBad(thrOut) then
     diagDump('ПОСЛЕДНИЙ РУБЕЖ поймал мусор ДО записи electrics/lastOut',
       string.format('brkOut=%s thrOut=%s', tostring(brkOut), tostring(thrOut)))
@@ -486,11 +493,11 @@ function autopilotLivePedalsCmd.on(confPath)
   -- Плавный старт: если машина уже едет — кап бессмысленен, снимаем сразу
   smoothStartSkipped = getSpeed() >= cfg.smooth_start.speed_mps
   local r = cfg.rate_limit
-  toGE('INFO', string.format(
-    'pedals ON (%s): rate thr %.1f/%.1f brk %.1f/%.1f, ema %.2f/%.2f с, старт-кап %.2f',
-    cfgFromFile and 'конфиг из файла' or 'ДЕФОЛТЫ',
-    r.throttle_rise, r.throttle_fall, r.brake_rise, r.brake_fall,
-    cfg.ema_tau.throttle, cfg.ema_tau.brake, cfg.smooth_start.throttle_cap))
+  toGE('INFO', 'pedals ON (' .. (cfgFromFile and 'конфиг из файла' or 'ДЕФОЛТЫ') ..
+    '): rate thr ' .. tostring(r.throttle_rise) .. '/' .. tostring(r.throttle_fall) ..
+    ' brk ' .. tostring(r.brake_rise) .. '/' .. tostring(r.brake_fall) ..
+    ', ema ' .. tostring(cfg.ema_tau.throttle) .. '/' .. tostring(cfg.ema_tau.brake) ..
+    ' с, старт-кап ' .. tostring(cfg.smooth_start.throttle_cap))
   return true
 end
 
@@ -515,31 +522,32 @@ function autopilotLivePedalsCmd.status()
     string.format('active=%s engaged=%s aiDriving=%s конфиг=%s',
       tostring(active), tostring(lastOut.engaged), tostring(aiDriving),
       cfgFromFile and 'файл' or (cfg and 'ДЕФОЛТЫ' or 'не загружен')),
-    string.format('throttle: raw %.3f -> out %.3f | brake: raw %.3f -> out %.3f | clutch: raw %.3f -> out %.3f (пишется: %s)',
-      lastRaw.throttle, lastOut.throttle, lastRaw.brake, lastOut.brake,
-      lastRaw.clutch, lastOut.clutch, tostring(clutchWritten)),
-    string.format('predictive=%s smoothStartCap=%.2f startT=%.1fс',
-      tostring(predictiveOn), cap, startT),
-    -- ЛОВУШКА (диагностика 2026-10-15): ДУБЛЬ тех же значений. Если строка
-    -- %.3f выше покажет ~1e17, а эта — 0.0x, мусор рождается в форматировании
-    -- LuaJIT, НЕ в конвейере: lastOut пишется только из sanitizeOut ∈ [0,1]
+    -- Все числовые поля через diagFmt/%s (фикс 2026-10-16: аномалия brake.out
+    -- ~1e17 = артефакт %.3f в LuaJIT string.format при большом числе аргументов
+    -- — доказано кадром: %.3f = 6.7e17 при DIAG exact = 0.0 и чистом lastOut).
+    string.format('throttle: raw %s -> out %s | brake: raw %s -> out %s | clutch: raw %s -> out %s (пишется: %s)',
+      diagFmt(lastRaw.throttle), diagFmt(lastOut.throttle), diagFmt(lastRaw.brake), diagFmt(lastOut.brake),
+      diagFmt(lastRaw.clutch), diagFmt(lastOut.clutch), tostring(clutchWritten)),
+    'predictive=' .. tostring(predictiveOn) .. ' smoothStartCap=' .. diagFmt(cap) ..
+    ' startT=' .. tostring(startT) .. 'с',
+    -- ЛОВУШКА (диагностика 2026-10-15, доказательство 2026-10-16): независимый
+    -- ДУБЛЬ тех же значений. lastOut пишется только из sanitizeOut ∈ [0,1]
     -- (по кадру 8.67e17: throttle out=1.000 ⇒ cut=1 ⇒ pipe.brake.out ≤ 0.1).
-    -- Печать через diagFmt (косметика 2026-10-15): хвосты ema < 1e-6 →
-    -- 0.000000; мусор (вне [0,1]/NaN/inf) — как есть + «<МУСОР>».
+    -- Осталась как страховка от РЕАЛЬНОГО бага кода (мусор в конвейере).
     string.format('DIAG exact: thr=%s brk=%s clt=%s | pipe.brake rl=%s ema=%s out=%s',
       diagFmt(lastOut.throttle), diagFmt(lastOut.brake), diagFmt(lastOut.clutch),
       diagFmt(pipe.brake.rl), diagFmt(pipe.brake.ema), diagFmt(pipe.brake.out)),
   }
   if diagBad(lastOut.brake) or diagBad(lastOut.throttle) or diagBad(lastOut.clutch) then
-    diagDump('STATUS поймал мусор в lastOut — сравнить DIAG exact (tostring) со строкой %.3f',
+    diagDump('STATUS поймал мусор в lastOut — сравнить с DIAG exact (обе строки через diagFmt, форматтер %.3f исключён)',
       string.format('lastOut.brk=%s thr=%s clt=%s',
         tostring(lastOut.brake), tostring(lastOut.throttle), tostring(lastOut.clutch)))
   end
   for _, l in ipairs(lines) do print('aplPedals: ' .. l) end
   toGE('INFO', 'pedals status: active=' .. tostring(active) ..
     ' engaged=' .. tostring(lastOut.engaged) ..
-    ' thr ' .. string.format('%.2f->%.2f', lastRaw.throttle, lastOut.throttle) ..
-    ' brk ' .. string.format('%.2f->%.2f', lastRaw.brake, lastOut.brake))
+    ' thr ' .. diagFmt(lastRaw.throttle) .. '->' .. diagFmt(lastOut.throttle) ..
+    ' brk ' .. diagFmt(lastRaw.brake) .. '->' .. diagFmt(lastOut.brake))
   return true
 end
 

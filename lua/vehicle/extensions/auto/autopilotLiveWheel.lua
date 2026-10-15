@@ -53,6 +53,23 @@ local function toGE(level, msg)
   end)
 end
 
+-- Печать pipeline-значений через %s (фикс 2026-10-16, аномалия brake.out:
+-- %.3f в LuaJIT string.format при большом числе аргументов читает не тот
+-- слот стека). Дубль хелпера из autopilotLivePedals.lua — модули
+-- независимы, общий util не вводим (архитектура загрузки).
+-- |v| < 1e-6 → 0.000000; мусор (nil/NaN/±inf/вне [-1,1] для руля считаем
+-- через общий [0,1]-предикат не будем — здесь значения нормированы [-1,1],
+-- поэтому сверяем только финитность и кламп-допуск ±1.0001).
+local function diagFmt(x)
+  if x == nil or x ~= x or x == math.huge or x == -math.huge or x < -1.0001 or x > 1.0001 then
+    return tostring(x) .. ' <МУСОР>'
+  end
+  if math.abs(x) < 1e-6 then
+    return '0.000000'
+  end
+  return tostring(x)
+end
+
 -- === Утилиты ===
 local function safeVal(v)
   v = tonumber(v) or 0
@@ -198,10 +215,9 @@ function autopilotLiveWheelCmd.on(confPath)
   active = true
   needInit = true
   local r = cfg.rate_limit
-  toGE('INFO', string.format(
-    'wheel ON (%s): rate rise/fall %.1f/%.1f ед/сек, ema %.2fс, lerp %.2fс',
-    cfgFromFile and 'конфиг из файла' or 'ДЕФОЛТЫ',
-    r.steer_rise, r.steer_fall, cfg.ema_tau.steer, cfg.lerp_tau.steer))
+  toGE('INFO', 'wheel ON (' .. (cfgFromFile and 'конфиг из файла' or 'ДЕФОЛТЫ') ..
+    '): rate rise/fall ' .. tostring(r.steer_rise) .. '/' .. tostring(r.steer_fall) ..
+    ' ед/сек, ema ' .. tostring(cfg.ema_tau.steer) .. 'с, lerp ' .. tostring(cfg.lerp_tau.steer) .. 'с')
   return true
 end
 
@@ -222,15 +238,17 @@ function autopilotLiveWheelCmd.status()
     string.format('active=%s engaged=%s aiDriving=%s конфиг=%s',
       tostring(active), tostring(lastOut.engaged), tostring(ad),
       cfgFromFile and 'файл' or (cfg and 'ДЕФОЛТЫ' or 'не загружен')),
-    string.format('steer: clipped-raw %.3f -> out %.3f (ед. нормир. [-1,1], 1.0=упор)',
-      lastRaw, lastOut.steer),
-    string.format('pipe: rl %.3f ema %.3f out %.3f',
-      pipe.rl, pipe.ema, pipe.out),
+    -- Все числовые поля через diagFmt/%s (фикс 2026-10-16, аномалия brake.out:
+    -- %.3f в LuaJIT читал не тот слот стека — аналогичная уязвимость и тут).
+    string.format('steer: clipped-raw %s -> out %s (ед. нормир. [-1,1], 1.0=упор)',
+      diagFmt(lastRaw), diagFmt(lastOut.steer)),
+    string.format('pipe: rl %s ema %s out %s',
+      diagFmt(pipe.rl), diagFmt(pipe.ema), diagFmt(pipe.out)),
   }
   for _, l in ipairs(lines) do print('aplWheel: ' .. l) end
   toGE('INFO', 'wheel status: active=' .. tostring(active) ..
     ' engaged=' .. tostring(lastOut.engaged) ..
-    ' steer ' .. string.format('%.2f->%.2f', lastRaw, lastOut.steer))
+    ' steer ' .. diagFmt(lastRaw) .. '->' .. diagFmt(lastOut.steer))
   return true
 end
 
