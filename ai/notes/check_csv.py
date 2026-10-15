@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Проверка CSV-лога вождения AutopilotLive (Фазы 1 + 3).
+"""Проверка CSV-лога вождения AutopilotLive (Фазы 1 + 3 + 4).
 
 Запуск (только через venv проекта!):
     ai/venv/Scripts/python.exe ai/notes/check_csv.py <путь/к/файлу.csv>
@@ -13,15 +13,17 @@
   3. Дискретизация ~20 Гц: медианный dt между строками ≈ 0.05 c.
   4. Производные d_*/dt консистентны: |d_steer_dt| согласовано
      с численной производной steer_raw по времени.
-  5. РЕЖИМ ОПРЕДЕЛЯЕТСЯ ПО ДАННЫМ (Фаза 3):
-     - pedals off (все *_smoothed == *_raw): 5а — равенство по всем каналам
-       (сценарии A/C теста 3.6: модуль не вмешивается / мгновенный возврат);
-     - pedals on: 5б — строки ВНЕ работы модуля = точные копии raw;
-       5в — *_smoothed в [0,1]; 5г — кап скорости изменения из pedals.json
-       (rate×1.2, переходы между сегментами исключены); 5д — конвейер
-       реально отличается от raw.
+  5. РЕЖИМ ОПРЕДЕЛЯЕТСЯ ПО ДАННЫМ, педали и руль — РАЗДЕЛЬНО (Фаза 3/4):
+     pedals off (throttle/brake/clutch *_smoothed == *_raw): 5а;
+     pedals on: 5б (вне engaged = raw), 5в (диапазон [0,1]), 5г (кап rate
+       из pedals.json), 5г' (clutch passthrough), 5д (конвейер отличается);
+     wheel off (steer_smoothed == steer_raw): 5а';
+     wheel on: 5б' (вне engaged = raw), 5в' (steer в [-1,1]), 5е (кап rate
+       из wheel.json), 5ж (установившийся => |sm-raw| <= 1e-3, «не срезаем
+       углы»), 5з (конвейер реально отстаёт от raw при повороте).
+     Единицы руля НОРМИРОВАННЫЕ [-1,1] (api_research_phase4.md §1), НЕ рад/с.
   6. Длительность × 20 ≈ число строк.
-  7. Скорость/pos читаются, gear — строка, rpm — число.
+  7. Скорость/pos читаются, gear — строка, rpm — число, steer в [-1,1].
 
 Выход: список PASS/FAIL, код возврата 0 если всё ок, 1 если есть FAIL.
 """
@@ -47,13 +49,6 @@ EXPECTED_COLUMNS = [
     'gear', 'gear_index', 'rpm',
     'engine_temp', 'oil_temp', 'water_temp', 'engine_thermal',
     'd_steer_dt', 'd_throttle_dt', 'd_brake_dt',
-]
-
-SMOOTHED_PAIRS = [
-    ('steer_raw', 'steer_smoothed'),
-    ('throttle_raw', 'throttle_smoothed'),
-    ('brake_raw', 'brake_smoothed'),
-    ('clutch_raw', 'clutch_smoothed'),
 ]
 
 # Колонки, которые в Фазе 1 обязаны быть нулями/пустыми, если данных нет,
@@ -101,6 +96,27 @@ def load_rate_caps() -> dict:
         }
     except Exception as e:  # noqa: BLE001
         caps['src'] = f'дефолты чекера (pedals.json не прочитан: {e})'
+    return caps
+
+
+# === Фаза 4: капы rate_limit руля из ai/config/wheel.json ===
+# Единицы: НОРМИРОВАННЫЕ [-1,1] ед/сек (1.0 = полный упор) — НЕ рад/с
+# (api_research_phase4.md §1: AI шлёт радианы, движок CLIP'ит к [-1,1] на
+# input.lua:613). steer_rise = от центра к упору, steer_fall = возврат в центр.
+def load_wheel_caps() -> dict:
+    caps = {'steer_rise': 3.5, 'steer_fall': 5.0, 'src': 'дефолты чекера'}
+    conf_path = Path(__file__).resolve().parent.parent / 'config' / 'wheel.json'
+    try:
+        with conf_path.open(encoding='utf-8') as fh:
+            conf = json.load(fh)
+        rl = conf['rate_limit']
+        caps = {
+            'steer_rise': float(rl['steer_rise']),
+            'steer_fall': float(rl['steer_fall']),
+            'src': str(conf_path),
+        }
+    except Exception as e:  # noqa: BLE001
+        caps['src'] = f'дефолты чекера (wheel.json не прочитан: {e})'
     return caps
 
 
@@ -205,31 +221,40 @@ def main() -> int:
         check(0.8 <= ratio <= 1.25,
               f"строк = {len(df)}, длительность = {dur:.1f} c, ожидание ~{expected:.0f} (ratio {ratio:.2f})")
 
-    # === 5. Фаза 3: режим определяется ПО ДАННЫМ ===
-    # engaged = модуль реально писал Override в этот кадр. Определяем по
-    # расхождению throttle/brake (clutch не участвует — ленивая запись).
-    engaged = ((df['throttle_smoothed'] - df['throttle_raw']).abs() > 1e-9) | \
+    # === 5. Фаза 3/4: режим определяется ПО ДАННЫМ ===
+    # Pedals engaged (Фаза 3): модуль писал Override — по расхождению throttle/brake.
+    pedals_engaged = ((df['throttle_smoothed'] - df['throttle_raw']).abs() > 1e-9) | \
               ((df['brake_smoothed'] - df['brake_raw']).abs() > 1e-9)
-    n_engaged = int(engaged.sum())
+    # Wheel engaged (Фаза 4): по расхождению steer (нормированный [-1,1], §8).
+    # Это «транзиент» (конвейер реально отстаёт от raw). В установившемся режиме
+    # smoothed сходится к raw → маска гаснет (это ок, проверяется чеком 5ж).
+    wheel_engaged = (df['steer_smoothed'] - df['steer_raw']).abs() > 1e-9
+    n_pedals = int(pedals_engaged.sum())
+    n_wheel = int(wheel_engaged.sum())
     caps = load_rate_caps()
+    wcaps = load_wheel_caps()
 
-    if n_engaged == 0:
-        # 5а: pedals off — все пары обязаны быть копиями raw (сценарии A/C)
-        for raw, sm in SMOOTHED_PAIRS:
+    # --- Фаза 3: PEDALS (5а/5б/5в/5г/5г'/5д) — ТОЛЬКО педали (руль отдельно) ---
+    PEDAL_PAIRS = [('throttle_raw', 'throttle_smoothed'),
+                   ('brake_raw', 'brake_smoothed'),
+                   ('clutch_raw', 'clutch_smoothed')]
+    if n_pedals == 0:
+        # 5а: pedals off — педали обязаны быть копиями raw (сценарии A/C)
+        for raw, sm in PEDAL_PAIRS:
             if raw in df.columns and sm in df.columns:
                 max_diff = (df[raw] - df[sm]).abs().max()
                 check(float(max_diff) < 1e-9,
                       f"5а {sm} == {raw} (макс. расхождение {max_diff:.3g}; pedals off)")
             else:
                 check(False, f"нет колонок {raw}/{sm}")
-        print("  [info] режим: pedals OFF (все *_smoothed == *_raw)")
+        print("  [info] режим: pedals OFF (throttle/brake/clutch *_smoothed == *_raw)")
     else:
         # 5б: строки ВНЕ работы модуля = точные копии raw (сценарии A/C)
-        idle = ~engaged
+        idle = ~pedals_engaged
         idle_rows = int(idle.sum())
         if idle_rows > 0:
             worst = 0.0
-            for raw, sm in SMOOTHED_PAIRS:
+            for raw, sm in PEDAL_PAIRS:
                 if raw in df.columns and sm in df.columns:
                     worst = max(worst, float((df.loc[idle, raw] - df.loc[idle, sm]).abs().max()))
             check(worst < 1e-9,
@@ -237,7 +262,7 @@ def main() -> int:
         else:
             print("  [info] 5б пропущено: весь файл в режиме engaged")
 
-        # 5в: диапазон [0,1] у сглаженных
+        # 5в: диапазон [0,1] у сглаженных педалей
         for sm in ('throttle_smoothed', 'brake_smoothed', 'clutch_smoothed'):
             lo, hi = float(df[sm].min()), float(df[sm].max())
             check(-0.001 <= lo and hi <= 1.001,
@@ -246,8 +271,8 @@ def main() -> int:
         # 5г: кап скорости изменения ВНУТРИ непрерывных сегментов engaged.
         # Границы сегментов ИСКЛЮЧЕНЫ: включение = синхронизация к raw (У2),
         # выключение = шаг к raw — это дизайн (nil/копия raw), не rate-limit.
-        prev_engaged = engaged.shift(1).fillna(False).astype(bool)
-        same_run = engaged & prev_engaged
+        prev_engaged = pedals_engaged.shift(1).fillna(False).astype(bool)
+        same_run = pedals_engaged & prev_engaged
         d_t_all = df['time'].diff()
         for raw, sm, cap in (('throttle_raw', 'throttle_smoothed', caps['throttle']),
                              ('brake_raw', 'brake_smoothed', caps['brake'])):
@@ -273,22 +298,22 @@ def main() -> int:
 
         # 5д: конвейер реально отличается от raw (иначе модуль не работал)
         devs = []
-        for c_r, c_s in SMOOTHED_PAIRS:
-            if c_r != 'steer_raw' and c_r in df.columns and c_s in df.columns:
-                devs.append(float((df.loc[engaged, c_s] - df.loc[engaged, c_r]).abs().max()))
+        for c_r, c_s in PEDAL_PAIRS:
+            if c_r in df.columns and c_s in df.columns:
+                devs.append(float((df.loc[pedals_engaged, c_s] - df.loc[pedals_engaged, c_r]).abs().max()))
         max_dev = max(devs) if devs else 0.0
         check(max_dev > 1e-9,
               f"5д конвейер отличается от raw (макс. расхождение {max_dev:.3g})")
 
         # INFO: сегменты работы и расхождения (для отчёта теста 3.6)
-        switches = int((engaged != engaged.shift()).sum()) - 1  # без перехода NaN→bool
-        print(f"  [info] режим: pedals ON — engaged строк {n_engaged}/{len(df)}, "
+        switches = int((pedals_engaged != pedals_engaged.shift()).sum()) - 1  # без перехода NaN→bool
+        print(f"  [info] режим: pedals ON — engaged строк {n_pedals}/{len(df)}, "
               f"переходов вкл/выкл: {switches}")
         print(f"  [info] капы (из {caps['src']}): thr {caps['throttle']:.2f}, "
               f"brk {caps['brake']:.2f} ед/с (clutch — passthrough, кап не применим)")
         for c_r, c_s in (('throttle_raw', 'throttle_smoothed'),
                          ('brake_raw', 'brake_smoothed')):
-            dev = (df.loc[engaged, c_s] - df.loc[engaged, c_r]).abs()
+            dev = (df.loc[pedals_engaged, c_s] - df.loc[pedals_engaged, c_r]).abs()
             print(f"  [info] |{c_s} - {c_r}| на engaged: среднее {float(dev.mean()):.4f}, "
                   f"макс {float(dev.max()):.4f}")
 
@@ -302,6 +327,75 @@ def main() -> int:
                   f"(ожидание ~0 после ~0.5 с стабилизации)")
         else:
             print("  [info] нейтраль: строк с газом на N|0 нет")
+
+    # --- Фаза 4: WHEEL (5а'/5б'/5в'/5е/5ж/5з) — руль, нормированный [-1,1] ---
+    d_t_w = df['time'].diff()
+    if n_wheel == 0:
+        # wheel off — steer passthrough (строгое равенство, как 5а для педалей)
+        max_diff = (df['steer_raw'] - df['steer_smoothed']).abs().max()
+        check(float(max_diff) < 1e-9,
+              f"5а' steer_smoothed == steer_raw (wheel off/passthrough, макс {max_diff:.3g})")
+        print("  [info] режим: wheel OFF (steer_smoothed == steer_raw)")
+    else:
+        # 5б': строки ВНЕ транзиента = raw (converged + wheel-off регионы)
+        idle_w = ~wheel_engaged
+        worst_w = float((df.loc[idle_w, 'steer_smoothed'] - df.loc[idle_w, 'steer_raw']).abs().max()) \
+            if idle_w.any() else 0.0
+        check(worst_w < 1e-9,
+              f"5б' steer вне engaged = raw (строк {int(idle_w.sum())}, макс {worst_w:.3g})")
+
+        # 5в': steer_smoothed в [-1,1] (руль знаковый, не [0,1])
+        lo, hi = float(df['steer_smoothed'].min()), float(df['steer_smoothed'].max())
+        check(-1.001 <= lo and hi <= 1.001,
+              f"5в' steer_smoothed в [-1,1] (min {lo:.3g}, max {hi:.3g})")
+
+        # 5е: кап скорости изменения steer_smoothed ВНУТРИ непрерывных сегментов
+        # engaged (границы исключены — вкл = синхронизация, выкл = шаг к raw).
+        prev_w = wheel_engaged.shift(1).fillna(False).astype(bool)
+        same_run_w = wheel_engaged & prev_w
+        cap_w = max(wcaps['steer_rise'], wcaps['steer_fall']) * 1.2
+        valid_w = same_run_w & (d_t_w > 1e-6)
+        if valid_w.any():
+            rates_w = (df['steer_smoothed'].diff()[valid_w].abs() / d_t_w[valid_w])
+            r_max_w, n_viol_w = float(rates_w.max()), int((rates_w > cap_w).sum())
+        else:
+            r_max_w, n_viol_w = 0.0, 0
+        check(n_viol_w == 0,
+              f"5е steer_smoothed: кап {cap_w:.2f} ед/с ×1.2 (из {wcaps['src']}; "
+              f"нарушений {n_viol_w}, макс {r_max_w:.2f})")
+
+        # 5ж: установившийся режим (>=0.5 с после последнего изменения raw) =>
+        # |steer_smoothed - steer_raw| <= 1e-3 (гарантия «не срезаем углы» —
+        # дотягиваемся до raw). Снап-конвейер сходится за ~0.3 с (api_research §7).
+        raw_s = df['steer_raw']
+        changed = (raw_s.diff().abs() > 1e-6)
+        seg = changed.cumsum()
+        seg_start = df['time'].groupby(seg).transform('first')
+        age = df['time'] - seg_start
+        settled = age >= 0.5
+        dev_settled = float((df.loc[settled, 'steer_smoothed'] - df.loc[settled, 'steer_raw']).abs().max()) \
+            if settled.any() else 0.0
+        check(dev_settled <= 1e-3,
+              f"5ж установившийся: |sm - raw| <= 1e-3 (строк {int(settled.sum())}, "
+              f"макс {dev_settled:.3g})")
+
+        # 5з: конвейер РЕАЛЬНО работает (не passthrough) — в моменты изменения
+        # raw smoothed отстаёт от raw. Нужен поворот (DR201_1) — иначе FAIL.
+        changing_engaged = changed.fillna(False) & wheel_engaged
+        dev_change = float((df.loc[changing_engaged, 'steer_smoothed']
+                            - df.loc[changing_engaged, 'steer_raw']).abs().max()) \
+            if changing_engaged.any() else 0.0
+        check(dev_change > 1e-3,
+              f"5з конвейер работает: |sm - raw| > 1e-3 при изменении raw "
+              f"(строк {int(changing_engaged.sum())}, макс {dev_change:.3g}; нужен поворот)")
+
+        print(f"  [info] режим: wheel ON — транзиент строк {n_wheel}/{len(df)}, "
+              f"переходов: {int((wheel_engaged != wheel_engaged.shift()).sum()) - 1}")
+        print(f"  [info] капы руля (из {wcaps['src']}): rise/fall "
+              f"{wcaps['steer_rise']:.1f}/{wcaps['steer_fall']:.1f} ед/сек (нормир. [-1,1])")
+        devw = (df.loc[wheel_engaged, 'steer_smoothed'] - df.loc[wheel_engaged, 'steer_raw']).abs()
+        print(f"  [info] |steer_smoothed - steer_raw| на транзиенте: "
+              f"среднее {float(devw.mean()):.4f}, макс {float(devw.max()):.4f}")
 
     # 4. производные
     if len(df) >= 3 and 'd_steer_dt' in df.columns:

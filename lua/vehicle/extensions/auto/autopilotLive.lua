@@ -35,8 +35,9 @@ local engineThermals = nil     -- device.thermals первого combustionEngin
 local thermalsWarned = false
 
 -- === CSV-колонки (ровно как в ai/notes/phase1_csv_schema.md, 24 шт.) ===
--- Фаза 3: *_smoothed — наш конвейер rate_limit→ema→lerp (autopilotLivePedals),
--- steer — копия raw до Фазы 4.
+-- Фаза 3: *_smoothed педалей — наш конвейер rate_limit→ema→lerp (autopilotLivePedals).
+-- Фаза 4: steer_raw/steer_smoothed — руль; steer_raw = CLIPPED нормированный
+-- [-1,1] (не радианы!), steer_smoothed — наш конвейер руля (autopilotLiveWheel).
 local CSV_HEADER = table.concat({
   'time', 'pos_x', 'pos_y', 'pos_z', 'speed', 'accel',
   'steer_raw', 'steer_smoothed', 'throttle_raw', 'throttle_smoothed',
@@ -93,20 +94,29 @@ local function buildRow(dt)
   -- ввод: raw из input.state.<k>.val (У3) — цель AI (или ввод игрока, когда
   -- ИИ не ведёт). Строку input.<k> как smoothed НЕ читаем (движок сам
   -- финализирует input через цепочку фильтров, vehicle/input.lua:641-648).
+  -- СТЕЕР: raw от AI — РАДИАНЫ ±1.57 (ai.lua:483). CLIP к [-1,1] (репликация
+  -- input.lua:613) => нормированный clipped-raw, ЕДИНА единица со steer_smoothed
+  -- (чек 5ж). Это и есть цель конвейера руля (Фаза 4, api_research_phase4.md §8).
   local steerRaw = (input.state and input.state.steering and input.state.steering.val) or 0
+  if steerRaw > 1 then steerRaw = 1 elseif steerRaw < -1 then steerRaw = -1 end
   local thrRaw = (input.state and input.state.throttle and input.state.throttle.val) or 0
   local brkRaw = (input.state and input.state.brake and input.state.brake.val) or 0
   local cltRaw = (input.state and input.state.clutch and input.state.clutch.val) or 0
 
-  -- Фаза 3: *_smoothed из нашего конвейера (autopilotLivePedals), если модуль
-  -- СЕЙЧАС пишет Override (engaged: ИИ ведёт + модуль включён) — иначе копии
-  -- raw (Фаза-1 поведение: ручное вождение, pedals off, пауза ИИ).
-  -- steer НЕ трогаем (руль — Фаза 4). Хук порядка: этот модуль обновляется
-  -- раньше autopilotLivePedals (alphabetical) → берём прошлый кадр (≈50 мс).
+  -- Фаза 3/4: *_smoothed из нашего конвейера, если модуль СЕЙЧАС пишет
+  -- (engaged: ИИ ведёт + модуль включён) — иначе копии raw (ручное вождение,
+  -- off, пауза ИИ). Хук порядка по алфавиту: autopilotLive (CSV) →
+  -- autopilotLivePedals → autopilotLiveWheel → берём ПРОШЛЫЙ кадр (≈50 мс).
   local steerSm = steerRaw
   local thrSm = thrRaw
   local brkSm = brkRaw
   local cltSm = cltRaw
+  if autopilotLiveWheelGetState then
+    local ws = autopilotLiveWheelGetState()
+    if ws and ws.engaged then
+      steerSm = ws.steer
+    end
+  end
   if autopilotLivePedalsGetState then
     local ps = autopilotLivePedalsGetState()
     if ps and ps.engaged then

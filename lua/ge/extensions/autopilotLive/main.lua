@@ -21,6 +21,7 @@ local logFilePath = nil           -- путь текущего лога (для 
 local csvActive = false           -- идёт ли сейчас CSV-запись в vehicle-слое
 local csvVehicleId = nil           -- id машины, начавшей CSV (fallback для stop)
 local pedalsRequested = false      -- Фаза 3: запрошено ли apl_pedals("on") (для apl_status)
+local wheelRequested = false       -- Фаза 4: запрошено ли apl_wheel("on") (для apl_status)
 local dataDir = nil               -- выбранный базовый каталог данных (У2)
 local dirsTried = {}              -- какие варианты путей пробовали (для отчёта)
 
@@ -954,6 +955,7 @@ function apl_status()
   print('log: ' .. tostring(logFilePath or '(закрыт)'))
   print('csv active: ' .. tostring(csvActive))
   print('pedals: ' .. tostring(pedalsRequested))
+  print('wheel: ' .. tostring(wheelRequested))
   print('data dir: ' .. tostring(dataDir and dataDir.csv or '(не выбран)'))
   print('vehicle: ' .. (veh and ('ID=' .. tostring(veh:getID())) or '(нет)'))
   print('---------------------------')
@@ -1015,6 +1017,57 @@ function apl_pedals(mode)
   return true
 end
 
+-- === Фаза 4: apl_wheel — сглаживание руля AI ===
+-- Логика сглаживания живёт в vehicle-слое (autopilotLiveWheel.lua); GE-слой
+-- только шлёт команду и конфиг. Руль нормированный [-1,1], конвейер
+-- rate_limit→ema→lerp, ЗАМЕНА движкового FILTER_AI своим (api_research_phase4.md).
+local WHEEL_CONF = 'mods/unpacked/AutopilotLive/ai/config/wheel.json'
+
+function apl_wheel(mode)
+  mode = tostring(mode or ''):lower()
+  if mode == 'on' then
+    local confOk = FS and FS:fileExists(WHEEL_CONF) or false
+    if not confOk then
+      print('WARN apl_wheel: конфиг не найден (' .. WHEEL_CONF .. ') — vehicle использует дефолты кода')
+    end
+    local veh = sendToVehicle(string.format('autopilotLiveWheelCmd.on("%s")', WHEEL_CONF))
+    if veh then
+      wheelRequested = true
+      print('apl_wheel: ON (конфиг: ' .. WHEEL_CONF .. ')')
+      print('apl_wheel: статус — apl_wheel("status"); остановка — apl_wheel("off")')
+      logLine('INFO', 'apl_wheel ON, conf=' .. WHEEL_CONF .. ', confExists=' .. tostring(confOk))
+    end
+  elseif mode == 'off' then
+    -- Round-trip подтверждение (паттерн Н1 Фазы 3): off и status — ОДНОЙ строкой
+    -- в vehicle-очередь (FIFO). steering_input движок затирает сам — залипания
+    -- не будет, но подтверждаем исполнение (У4).
+    local offCmd = 'local ok, offRet = pcall(function() return autopilotLiveWheelCmd.off() end); '
+      .. 'print("aplWheel: off round-trip: ok=" .. tostring(ok) .. " off=" .. tostring(offRet) .. " vehId=" .. tostring(obj and obj:getId() or -1)); '
+      .. 'local ok2, err2 = pcall(function() return autopilotLiveWheelCmd.status() end); '
+      .. 'if not ok2 then print("aplWheel: status после off упал: " .. tostring(err2)) end'
+    local veh = sendToVehicle(offCmd)
+    if veh then
+      wheelRequested = false
+      local okId, vehId = pcall(function() return veh:getID() end)
+      local idStr = tostring((okId and vehId) or '?')
+      print('apl_wheel: OFF отправлен (vehId=' .. idStr .. ')')
+      print('apl_wheel: жду round-trip в консоли: "off round-trip: ok=true ... vehId=N" и статус с active=false')
+      logLine('INFO', 'apl_wheel OFF отправлен (vehId=' .. idStr .. '), round-trip status в vehicle')
+    end
+  elseif mode == 'status' then
+    print('apl_wheel GE: запрошено=' .. tostring(wheelRequested) ..
+      ', конфиг=' .. WHEEL_CONF ..
+      ' (существует=' .. tostring(FS and FS:fileExists(WHEEL_CONF) or false) .. ')')
+    if not sendToVehicle('autopilotLiveWheelCmd.status()') then
+      print('WARN apl_wheel: машина игрока не найдена — статус vehicle-слоя недоступен')
+    end
+  else
+    print('Использование: apl_wheel("on") | apl_wheel("off") | apl_wheel("status")')
+    return false
+  end
+  return true
+end
+
 -- === Приём сообщений от vehicle-слоя ===
 -- vehicle вызывает: obj:queueGameEngineLua('autopilotLive_main.onVehicleLog("W","текст")')
 function M.onVehicleLog(level, msg)
@@ -1061,6 +1114,7 @@ function M.onClientPostStartMission()
   -- Смена миссии: машина игрока уходит, vehicle-слой перезагружается целиком
   -- (autopilotLivePedals.active=false по умолчанию — Override'ов не остаётся)
   pedalsRequested = false
+  wheelRequested = false
   if not csvActive then return end
   stopCsvRecording()
   if csvActive then
