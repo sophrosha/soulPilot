@@ -5,8 +5,9 @@
 -- Ответственность (Фаза 3):
 --   * перехват throttle/brake от ванильного AI через штатный Override-механизм
 --     (electrics.values.*Override, vehicleController.lua:454-457; ванильный
---     прецедент — cruiseControl.lua); clutch — ТОЛЬКО passthrough ввода игрока
---     (AI его не пишет — api_research §15);
+--     прецедент — cruiseControl.lua); clutch — ТОЛЬКО passthrough: raw > 0 →
+--     raw, raw = 0 → nil (AI сам не пишет, но ванильная КПП-автоматика пишет
+--     clutch — данные P1 2026-10-15, §15 api_research; ноль вреда);
 --   * конвейер rate_limit → ema → lerp для throttle/brake (порядок утверждён;
 --     обоснование и схема кадра: ai/notes/api_research_phase3.md);
 --   * арбитраж brake > throttle, детект нейтрали, плавный старт, мягкая
@@ -26,8 +27,12 @@ local FALLBACK_CONF = 'mods/unpacked/AutopilotLive/ai/config/pedals.json'
 -- === Дефолты конфига (дубль pedals.json — ТОЛЬКО fallback при отсутствии/
 -- битом конфиге; источник истины — файл, как у graph.json/loadGraphConfig) ===
 -- clutch-ключей НЕТ: clutch — только passthrough (решение 2026-10-12,
--- api_research_phase3.md §15): AI никогда не пишет clutch — input.state.clutch
--- всегда ввод игрока, его нажатие должно действовать мгновенно.
+-- api_research_phase3.md §15; актуализация 2026-10-15 по данным P1): AI сам
+-- clutch НЕ пишет через driveCar/scriptai, НО ванильный трансмиссионный стек
+-- (КПП-автоматика/защита при переключениях) пишет clutch при определённых
+-- условиях — воспроизводится в OFF-прогонах (4.7-B: 95 строк, 4.8: 77).
+-- Наш модуль — пассивный passthrough: raw > 0 → проброс raw (лаг 1 кадр),
+-- raw = 0 → nil (штатная КПП). Ноль вреда; нажатие действует мгновенно.
 local DEFAULTS = {
   rate_limit   = { throttle_rise = 2.5, throttle_fall = 5.0,
                    brake_rise = 2.5, brake_fall = 2.5 },
@@ -421,10 +426,13 @@ function M.updateGFX(dt)
   -- в контроллер и не залипает в lastOut/CSV.
   electrics.values.throttleOverride = thrOut
   electrics.values.brakeOverride = brkOut
-  -- Clutch — ТОЛЬКО passthrough (решение 2026-10-12, api_research §15): AI
-  -- НИКОГДА не пишет clutch (ai.lua:427-436, scriptai, КПП не шлют input
-  -- clutch) — input.state.clutch всегда ввод игрока: raw > 0 → пишем ровно raw
-  -- БЕЗ инерции конвейера («нажал — получил сразу»; латентность только
+  -- Clutch — ТОЛЬКО passthrough (решение 2026-10-12, api_research §15;
+  -- актуализация 2026-10-15): AI сам clutch не пишет через driveCar/scriptai
+  -- (ai.lua:427-436), НО ванильная КПП-автоматика/защита пишет его при
+  -- определённых условиях — данные P1: clutch-пульсы ЕСТЬ в OFF-прогонах
+  -- (4.7-B: 95 строк, 4.8: 77), т.е. без участия модуля и игрока. Любое
+  -- clutch-нажатие (игрока ИЛИ ванильной КПП) пробрасываем ровно raw БЕЗ
+  -- инерции конвейера: raw > 0 → clutchOverride = raw (латентность только
   -- архитектурная 1 кадр, main.lua:88 vs :90), raw == 0 → снимаем в nil
   -- (КПП снова штатная). Никаких «плавных 0.3 с» — иначе машина едет «внатяг».
   local cltOut = clamp01(cltRaw) -- Fix 2: clutch тоже держим в [0,1]
