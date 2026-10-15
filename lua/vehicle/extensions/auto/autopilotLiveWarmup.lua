@@ -2,7 +2,7 @@
 -- Загружается АВТОМАТИЧЕСКИ при спавне машины (vehicle/main.lua:314 →
 -- extensions.loadModulesInDirectory("lua/vehicle/extensions/auto")).
 --
--- Ответственность (Фаза 5, шаг 5.2 — ЯДРО):
+-- Ответственность (Фаза 5, шаги 5.2-5.3):
 --   * apl_warmup("start") → autopilotLiveWarmupCmd.on(conf): машина сама
 --     заводится (electrics.setIgnitionLevel(3) для ICE — ignition on + стартёр,
 --     контроллер сам снизит до 2 после схватки; для EV — уровень 2, см.
@@ -11,13 +11,15 @@
 --       - coolant >= temp_threshold_c И oil >= oil_threshold_c (нефтехимия
 --         медленнее — компромиссный порог 60°C, решение координатора 16.10);
 --       - либо max_timeout_s (зима/поломка) → done с WARN.
+--   * Шаг 5.3: sway — плавное покачивание рулём (синус, амплитуда 0.05 ≈ 5°,
+--     0.3 Гц, fade-огибающая). При wheel engaged — sway отключается
+--     (вариант B, wheel.lua не трогаем).
 --   * done → ручник (шаг 5.4), сообщение игроку (print GE + guihooks HUD +
 --     txt-лог) и сигнал GE onVehicleWarmupDone (шаг 5.4 добавит авто-engage).
 --   * Опциональная надстройка: wheel/pedals НЕ трогает и НЕ подменяет, КПП не
 --     трогает ни в одной фазе. Работает state-machine поверх уже включённых
 --     модулей (контракт Фазы 5).
---   * Шаг 5.3 добавит sway (покачивание рулём), шаг 5.4 — снятие ручника и
---     auto_engage_after_warmup в GE.
+--   * Шаг 5.4 добавит снятие ручника и auto_engage_after_warmup в GE.
 --
 -- НЕ дёргает input.event напрямую. Ручник (шаг 5.4) — только штатный API
 -- vehicleController.smartParkingBrake (api_research_phase5.md §2).
@@ -48,6 +50,12 @@ local startTimer = 0            -- сек в starting_engine
 local pollTimer = 0             -- до следующего опроса термалов
 local lastCoolant = nil         -- последний прочитанный coolantTemperature
 local lastOil = nil             -- последний прочитанный oilTemperature
+-- Шаг 5.3: sway (покачивание рулём)
+local swayTime = 0              -- фаза синуса (непрерывный аккумулятор)
+local swayAmp = 0               -- текущая огибающая [0..amplitude]
+local swayTarget = 0            -- целевая огибающая (amplitude при прогреве, 0 при off/done)
+local swayWritten = false       -- писали ли steering_input в прошлом кадре
+local wheelEngagedWarned = false -- INFO «sway отключён: wheel engaged» уже выдан
 
 -- === Лог событий в GE (паттерн autopilotLivePedals.lua) ===
 local function toGE(level, msg)
@@ -218,10 +226,63 @@ local function finish(timedOut)
   notifyDone(timedOut)
 end
 
+-- === Шаг 5.3: sway — плавное покачивание рулём «как бабушка зарядку делает» ===
+-- Синус малой амплитуды (sway.amplitude, 0.05 ≈ 5°) на низкой частоте
+-- (sway.freq_hz, 0.3 Гц — «медленно перекладывает»). Огибающая (fade) растёт
+-- и тает линейно за fade_time_s — без щелчка руля при старте/остановке.
+-- Запись electrics.values.steering_input — та же схема Фазы 4 (wheel):
+-- переживает кадр и применяется hydros (api_research_phase5.md §5).
+-- ВАРИАНТ B (решение координатора 16.10): если wheel engaged (active +
+-- ai.isDriving) — свей НЕ пишем (его запись steering_input идёт после нашей
+-- и затирала бы sway), wheel.lua не трогаем. INFO выдаётся один раз.
+local function swayStep(dt)
+  if not cfg or cfg.sway.enabled <= 0 then return end
+  swayTime = swayTime + dt
+
+  -- Фаза активности: идёт прогрев — целевая огибающая = amplitude; иначе
+  -- (done/off) — плавное затухание до 0.
+  local activePhase = (state == 'starting_engine' or state == 'warming_up')
+  swayTarget = activePhase and cfg.sway.amplitude or 0
+  local step = cfg.sway.amplitude * dt / math.max(cfg.sway.fade_time_s, 0.1)
+  if swayAmp < swayTarget then
+    swayAmp = math.min(swayAmp + step, swayTarget)
+  elseif swayAmp > swayTarget then
+    swayAmp = math.max(swayAmp - step, swayTarget)
+  end
+
+  if swayAmp <= 1e-6 then
+    -- Затухли: ПЕРЕСТАЁМ писать steering_input — движок сам затирает его
+    -- каждый кадр (input.lua:678) ⇒ штатный руль возвращается мгновенно.
+    swayWritten = false
+    return
+  end
+
+  local okGet, wstate = pcall(function()
+    return autopilotLiveWheelGetState and autopilotLiveWheelGetState()
+  end)
+  if okGet and wstate and wstate.engaged then
+    if not wheelEngagedWarned then
+      wheelEngagedWarned = true
+      toGE('INFO', 'warmup: sway отключён — wheel перехватывает руль (решение B, 16.10)')
+    end
+    return
+  end
+  wheelEngagedWarned = false
+
+  local swayVal = swayAmp * math.sin(2 * math.pi * cfg.sway.freq_hz * swayTime)
+  pcall(function() electrics.values.steering_input = swayVal end)
+  swayWritten = true
+end
+
 -- === Кадровый цикл ===
 function M.updateGFX(dt)
-  if state ~= 'starting_engine' and state ~= 'warming_up' then return end
   if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then return end -- NaN/перерывы
+
+  if state == 'off' or state == 'done' then
+    -- Прогрев не идёт: добиваем затухание свея (если был) — без щелчка руля.
+    if cfg and cfg.sway.enabled > 0 and swayAmp > 0 then swayStep(dt) end
+    return
+  end
 
   elapsed = elapsed + dt
 
@@ -237,22 +298,22 @@ function M.updateGFX(dt)
       -- тайминги, таймаут 120 с всё равно завершит прогрев.
       state = 'warming_up'
     end
-    return
+  elseif state == 'warming_up' then
+    pollTimer = pollTimer + dt
+    if pollTimer >= 1 / cfg.engine.temp_poll_hz then
+      pollTimer = 0
+      readTemps()
+    end
+
+    if elapsed >= cfg.timing.min_time_s and tempOk() then
+      finish(false)
+    elseif elapsed >= cfg.timing.max_timeout_s then
+      readTemps() -- финальный снимок для сообщения
+      finish(true)
+    end
   end
 
-  -- state == 'warming_up'
-  pollTimer = pollTimer + dt
-  if pollTimer >= 1 / cfg.engine.temp_poll_hz then
-    pollTimer = 0
-    readTemps()
-  end
-
-  if elapsed >= cfg.timing.min_time_s and tempOk() then
-    finish(false)
-  elseif elapsed >= cfg.timing.max_timeout_s then
-    readTemps() -- финальный снимок для сообщения
-    finish(true)
-  end
+  swayStep(dt) -- покачивание на всех активных фазах (включая затухание после done)
 end
 
 -- === Сброс состояния (смена машины/respawn) ===
@@ -263,6 +324,11 @@ local function resetState()
   pollTimer = 0
   lastCoolant = nil
   lastOil = nil
+  swayTime = 0
+  swayAmp = 0
+  swayTarget = 0
+  swayWritten = false
+  wheelEngagedWarned = false
 end
 
 -- === Публичные команды (GE шлёт через queueLuaCommand) ===
@@ -312,8 +378,12 @@ function autopilotLiveWarmupCmd.status()
       ' oil=' .. (lastOil and (fmt(lastOil) .. '°C') or 'n/a') ..
       ' пороги: coolant>=' .. (cfg and fmt(cfg.engine.temp_threshold_c) or '?') .. '°C oil>=' ..
       (cfg and fmt(cfg.engine.oil_threshold_c) or '?') .. '°C',
+    'sway: ' .. (cfg and (cfg.sway.enabled > 0 and ('amp=' .. fmt(swayAmp) ..
+      ' (цель ' .. fmt(swayTarget) .. '), ' .. fmt(cfg.sway.freq_hz) .. 'Гц')
+      or 'выключен') or '?') ..
+      (wheelEngagedWarned and ' [wheel engaged — sway отключён]' or ''),
     'конфиг=' .. (cfgFromFile and 'файл' or (cfg and 'ДЕФОЛТЫ' or 'не загружен')) ..
-      ' (шаги 5.3/5.4 добавят: sway, ручник, auto_engage)',
+      ' (шаг 5.4 добавит: ручник, auto_engage)',
   }
   for _, l in ipairs(lines) do print('aplWarmup: ' .. l) end
   toGE('INFO', 'warmup status: state=' .. state .. ' elapsed=' .. fmt(elapsed) ..
