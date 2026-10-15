@@ -44,12 +44,20 @@ local DEFAULTS = {
 local cfg = nil                 -- параметры (после merge с дефолтами + валидация)
 local cfgFromFile = false       -- конфиг реально прочитан из файла
 local active = false            -- apl_pedals("on") включён
-local needInit = true           -- У2: синхронизировать конвейер с raw на первом кадре
+local needInit = true           -- У2: синхронизировать конвейер на первом кадре
+local initFromZero = true       -- Fix 5: при on/onReset начинаем с 0 (плавный старт);
+                                -- при распаузе AI — false (синхронизация с raw)
 local overridesWritten = false  -- Override писался в прошлый кадр (для nil-сброса)
 local clutchWritten = false     -- clutchOverride писался (passthrough raw>0 → снять nil при 0)
 local predictiveOn = false      -- флаг предиктивности (гистерезис 0.8/0.5)
 local startT = 0                -- накопленное время engaged (для плавного старта)
 local smoothStartSkipped = true -- плавный старт снят (уже едем в момент on)
+
+-- Fix 4 (диагностика): ловим мусор ДО клампа, но не спамим лог — флаг «предупреждён»
+-- сбрасывается, когда канал снова стал чистым. Благодаря этому прогон 5 покажет
+-- ИСТОЧНИК garbage-значения (rl/ema/out/target/dt), а не только его след.
+local stepGarbageWarned = {}   -- [tag]=true после первого WARN о мусоре в канале
+local outGarbageWarned = {}    -- [tag]=true после первого WARN о мусоре на выходе
 
 -- Конвейер по каналам: rl — rate-limited цель, ema — инерция, out — дотягивание
 -- (clutch в конвейере НЕТ — passthrough, см. DEFAULTS-комментарий)
@@ -82,6 +90,41 @@ local function clamp01(v)
   if v < 0 then return 0 end
   if v > 1 then return 1 end
   return v
+end
+
+-- Fix 2: жёсткий кламп в [0,1] с детектом мусора на ВЫХОДЕ конвейера.
+-- Возвращает безопасное значение и пишет WARN один раз на канал (не спамит),
+-- если исходное было NaN/±inf/вне [0,1]. rawFallback — что подставить при мусоре
+-- (обычно raw-значение, оно всегда финитно и в [0,1] после safeVal+клампа).
+local function sanitizeOut(v, rawFallback, tag)
+  local bad = (v == nil) or (v ~= v)                -- nil / NaN
+    or v == math.huge or v == -math.huge            -- ±inf
+    or v < 0 or v > 1                               -- вне диапазона
+  if bad then
+    if not outGarbageWarned[tag] then
+      outGarbageWarned[tag] = true
+      toGE('WARN', string.format(
+        'pedals: МУСОР на выходе %s = %s -> fallback raw %.3f (кламп в [0,1])',
+        tag, tostring(v), clamp01(safeVal(rawFallback))))
+    end
+    return clamp01(safeVal(rawFallback))
+  end
+  outGarbageWarned[tag] = nil -- канал чист — снимаем флаг, WARN сработает при следующем мусоре
+  return v
+end
+
+-- Fix 1: полный сброс состояния конвейера и последних значений. Вызывается из
+-- off()/onReset(), чтобы после выключения в status/CSV НЕ оставался мусор или
+-- устаревшие значения (в частности brake, который игрок видел = 5.8e17).
+local function resetState()
+  pipe.throttle.rl, pipe.throttle.ema, pipe.throttle.out = 0, 0, 0
+  pipe.brake.rl, pipe.brake.ema, pipe.brake.out = 0, 0, 0
+  lastOut = { engaged = false, throttle = 0, brake = 0, clutch = 0 }
+  lastRaw = { throttle = 0, brake = 0, clutch = 0 }
+  predictiveOn = false
+  startT = 0
+  stepGarbageWarned = {}
+  outGarbageWarned = {}
 end
 
 local function readRaw(key)
@@ -187,13 +230,32 @@ end
 -- (жёсткий кап «не за 1 кадр»); ema скругляет края; lerp дотягивает остаток
 -- (ema асимптотически не доходит) — кормится уже «медленным» сигналом, кап
 -- не нарушается (У5, обоснование: api_research_phase3.md §13).
-local function stepChannel(st, target, dt, rateUp, rateDown, tauEma, tauLerp)
+local function stepChannel(st, target, dt, rateUp, rateDown, tauEma, tauLerp, tag)
   local rate = (target > st.rl) and rateUp or rateDown
   st.rl = moveToward(st.rl, target, rate * dt)
   st.ema = st.ema + (st.rl - st.ema) * (1 - math.exp(-dt / tauEma))
   st.out = st.out + (st.ema - st.out) * (1 - math.exp(-dt / tauLerp))
   if math.abs(st.ema - st.out) < 1e-3 then st.out = st.ema end -- снап «дотянули»
+  -- Fix 3+4 (диагностика): ловим мусор ДО клампа. clamp01 всё равно обрезает
+  -- до [0,1], но мы хотим ЗНАТЬ источник: если rl/ema/out/target вдруг стали
+  -- NaN/±inf — пишем WARN с полным контекстом (канал, все стадии, dt, rate).
+  -- Иначе мусор молча «лечится» клампом и причину найти невозможно.
+  local badPre = (st.rl ~= st.rl or st.ema ~= st.ema or st.out ~= st.out)
+    or st.rl == math.huge or st.rl == -math.huge
+    or st.ema == math.huge or st.ema == -math.huge
+    or st.out == math.huge or st.out == -math.huge
+    or target ~= target or target == math.huge or target == -math.huge
+  if badPre and not stepGarbageWarned[tag] then
+    stepGarbageWarned[tag] = true
+    toGE('WARN', string.format(
+      'pedals: МУСОР в конвейере [%s] ДО клампа: rl=%.4g ema=%.4g out=%.4g target=%.4g dt=%.4g rate=%.4g',
+      tag, st.rl, st.ema, st.out, target, dt, rate))
+  elseif not badPre then
+    stepGarbageWarned[tag] = nil -- канал чист — WARN сработает заново при новом мусоре
+  end
   st.out = clamp01(st.out)
+  st.rl = clamp01(st.rl)   -- Fix 2: держим и промежуточные стадии в [0,1],
+  st.ema = clamp01(st.ema) -- чтобы мусор не размножался между кадрами
 end
 
 -- Плавный старт: кап = cap + (1-cap)*min(time/T, speed/V). Обе рампы должны
@@ -239,6 +301,7 @@ function M.updateGFX(dt)
   if not aiDriving then
     clearOverrides()  -- У1: игрок/ничья — возврат на штатный ввод
     needInit = true   -- при резюме AI — синхронизация без прыжка (У2)
+    initFromZero = false -- распауза: уже едем, синхронизируемся с raw (Fix 5)
     return
   end
 
@@ -251,10 +314,21 @@ function M.updateGFX(dt)
   local speed = getSpeed()
   local gear = tostring(electrics.values.gear or '')
 
-  -- У2: первый кадр после on/резюме — конвейер СИНХРОНИЗИРУЕМ с raw
-  -- (иначе включение на скорости с газом 0.7 дало бы прыжок 0 → 0.7)
+  -- У2/Fix 5: первый кадр после on/резюме — инициализация конвейера.
+  -- Fix 5 (разделение двух сценариев):
+  --   * СВЕЖЕЕ ВКЛЮЧЕНИЕ (on/onReset, initFromZero=true): throttle начинается с 0
+  --     и плавно идёт к цели через rate_limit + ema + smooth_start_cap. Раньше
+  --     pipe:=raw прыгал в 1.0 в обход капа 0.45 => «резкий старт».
+  --   * РАСПАУЗА AI (initFromZero=false): уже едем, pipe:=raw чтобы не сбрасывать
+  --     педали (иначе газ мгновенно 0 => подёргивание на ходу).
+  -- brake: ВСЕГДА pipe:=raw — тормоз не задерживаем ни при каком включении
+  -- (безопасность: при on с активным тормозом AI не отпускаем его на кадр).
   if needInit then
-    pipe.throttle.rl, pipe.throttle.ema, pipe.throttle.out = thrRaw, thrRaw, thrRaw
+    if initFromZero then
+      pipe.throttle.rl, pipe.throttle.ema, pipe.throttle.out = 0, 0, 0
+    else
+      pipe.throttle.rl, pipe.throttle.ema, pipe.throttle.out = thrRaw, thrRaw, thrRaw
+    end
     pipe.brake.rl, pipe.brake.ema, pipe.brake.out = brkRaw, brkRaw, brkRaw
     needInit = false
   end
@@ -289,8 +363,8 @@ function M.updateGFX(dt)
 
   -- === Конвейер (только throttle/brake — clutch passthrough ниже) ===
   local rl, et, lt = cfg.rate_limit, cfg.ema_tau, cfg.lerp_tau
-  stepChannel(pipe.throttle, thrT, dt, rl.throttle_rise, rl.throttle_fall, et.throttle, lt.throttle)
-  stepChannel(pipe.brake, brkT, dt, rl.brake_rise, rl.brake_fall, et.brake, lt.brake)
+  stepChannel(pipe.throttle, thrT, dt, rl.throttle_rise, rl.throttle_fall, et.throttle, lt.throttle, 'throttle')
+  stepChannel(pipe.brake, brkT, dt, rl.brake_rise, rl.brake_fall, et.brake, lt.brake, 'brake')
 
   -- === Арбитраж brake > throttle (ПОСЛЕ сглаживания, непрерывно) ===
   local bs, bf = cfg.arbitration.brake_start, cfg.arbitration.brake_full
@@ -301,24 +375,34 @@ function M.updateGFX(dt)
   end
   local thrOut = pipe.throttle.out * cut
 
+  -- Fix 2: жёсткий кламп + детект мусора ПЕРЕД записью в electrics/lastOut.
+  -- Если pipe.*.out вдруг вышел за [0,1]/NaN — подставляем raw (финитный, в [0,1])
+  -- и пишем WARN. Гарантирует, что brakeOverride/throttleOverride и CSV-состояние
+  -- НИКОГДА не унесут мусор (5.8e17 и т.п.) в контроллер.
+  thrOut = sanitizeOut(thrOut, thrRaw, 'throttle_out')
+  local brkOut = sanitizeOut(pipe.brake.out, brkRaw, 'brake_out')
+
   -- === Запись Override — КАЖДЫЙ кадр при engaged (У1) ===
+  -- Fix 2: пишем САНИТИЗИРОВАННЫЕ значения (brkOut, thrOut) — мусор не уходит
+  -- в контроллер и не залипает в lastOut/CSV.
   electrics.values.throttleOverride = thrOut
-  electrics.values.brakeOverride = pipe.brake.out
+  electrics.values.brakeOverride = brkOut
   -- Clutch — ТОЛЬКО passthrough (решение 2026-10-12, api_research §15): AI
   -- НИКОГДА не пишет clutch (ai.lua:427-436, scriptai, КПП не шлют input
   -- clutch) — input.state.clutch всегда ввод игрока: raw > 0 → пишем ровно raw
   -- БЕЗ инерции конвейера («нажал — получил сразу»; латентность только
   -- архитектурная 1 кадр, main.lua:88 vs :90), raw == 0 → снимаем в nil
   -- (КПП снова штатная). Никаких «плавных 0.3 с» — иначе машина едет «внатяг».
-  if cltRaw > 0 then
-    electrics.values.clutchOverride = cltRaw
+  local cltOut = clamp01(cltRaw) -- Fix 2: clutch тоже держим в [0,1]
+  if cltOut > 0 then
+    electrics.values.clutchOverride = cltOut
     clutchWritten = true
   elseif clutchWritten then
     electrics.values.clutchOverride = nil
     clutchWritten = false
   end
   overridesWritten = true
-  lastOut = { engaged = true, throttle = thrOut, brake = pipe.brake.out, clutch = cltRaw }
+  lastOut = { engaged = true, throttle = thrOut, brake = brkOut, clutch = cltOut }
 end
 
 -- === Публичные команды (GE шлёт через queueLuaCommand) ===
@@ -327,9 +411,9 @@ autopilotLivePedalsCmd = {}
 function autopilotLivePedalsCmd.on(confPath)
   cfg, cfgFromFile = loadConfig(type(confPath) == 'string' and confPath or FALLBACK_CONF)
   active = true
+  resetState()     -- Fix 1: чистый старт — не тянем мусор/lastOut от прошлой сессии
   needInit = true
-  startT = 0
-  predictiveOn = false
+  initFromZero = true -- Fix 5: свежее включение — throttle с 0, плавный старт
   clutchWritten = false
   -- Плавный старт: если машина уже едет — кап бессмысленен, снимаем сразу
   smoothStartSkipped = getSpeed() >= cfg.smooth_start.speed_mps
@@ -346,8 +430,9 @@ function autopilotLivePedalsCmd.off()
   if not active then return false end
   active = false
   clearOverrides() -- У1: nil немедленно, не дожидаясь кадра
-  predictiveOn = false
-  toGE('INFO', 'pedals OFF: Override снят (nil), контроллер на штатном вводе')
+  resetState()     -- Fix 1: полный сброс lastOut/pipe — статус/CSV после off
+                   -- НЕ показывают устаревший/мусорный brake (5.8e17 и т.п.)
+  toGE('INFO', 'pedals OFF: Override снят (nil), состояние сброшено')
   return true
 end
 
@@ -393,8 +478,9 @@ function M.onReset()
   -- Машина сброшена: Override снимаем (электроника пересоздаётся не всегда),
   -- конвейер синхронизируем при следующем кадре (needInit)
   clearOverrides()
+  resetState() -- Fix 1: состояние тоже чисто (нет устаревшего lastOut)
   needInit = true
-  startT = 0
+  initFromZero = true -- Fix 5: после сброса начинаем с 0 (машина обычно на месте)
   smoothStartSkipped = false
 end
 
@@ -403,6 +489,7 @@ function M.onVehicleDestroyed()
   active = false
   overridesWritten = false
   clutchWritten = false
+  resetState() -- Fix 1: гигиена — не тянем мусор в перевспавн/статус
 end
 
 return M

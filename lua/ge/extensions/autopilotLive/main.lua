@@ -988,8 +988,8 @@ function apl_pedals(mode)
     -- print из VM показывает vehId той машины, где исполнение реально произошло,
     -- status — состояние модуля после off. Если off потеряется — видно ТОЧНО
     -- на каком этапе (отправка GE / исполнение VM / состояние active).
-    local offCmd = 'local ok, err = pcall(function() return autopilotLivePedalsCmd.off() end); '
-      .. 'print("aplPedals: off round-trip: ok=" .. tostring(ok) .. " err=" .. tostring(err) .. " vehId=" .. tostring(obj and obj:getId() or -1)); '
+    local offCmd = 'local ok, offRet = pcall(function() return autopilotLivePedalsCmd.off() end); '
+      .. 'print("aplPedals: off round-trip: ok=" .. tostring(ok) .. " off=" .. tostring(offRet) .. " vehId=" .. tostring(obj and obj:getId() or -1)); '
       .. 'local ok2, err2 = pcall(function() return autopilotLivePedalsCmd.status() end); '
       .. 'if not ok2 then print("aplPedals: status после off упал: " .. tostring(err2)) end'
     local veh = sendToVehicle(offCmd)
