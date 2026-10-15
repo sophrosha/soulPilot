@@ -1125,8 +1125,9 @@ function M.onVehicleLog(level, msg)
   logLine(level, msg, 'vehicle')
 end
 
--- Фаза 5: vehicle сообщает завершение прогрева (шаг 5.2 — сообщение и лог;
--- авто-engage wheel/pedals добавит шаг 5.4 при auto_engage_after_warmup=true).
+-- Фаза 5 (шаг 5.4): vehicle сообщает завершение прогрева. GE печатает
+-- сообщение игроку и при auto_engage_after_warmup=true включает wheel/pedals
+-- (только если они ещё не включены — warmup не мешает уже работающим модулям).
 function M.onVehicleWarmupDone(vehId, elapsed, tempC, autoEngage, timedOut)
   warmupRequested = false
   local tempStr = (tonumber(tempC) and tonumber(tempC) >= 0) and (tostring(tempC) .. '°C') or 'n/a'
@@ -1138,12 +1139,35 @@ function M.onVehicleWarmupDone(vehId, elapsed, tempC, autoEngage, timedOut)
   else
     print('apl_warmup: ПРОГРЕВ ЗАВЕРШЁН, машина готова (прошло ' .. tostring(elapsed) ..
       ' с, coolant ' .. tempStr .. ')')
-    print('apl_warmup: автопилот вручную: apl_wheel("on") + apl_pedals("on")')
     logLine('INFO', 'warmup done: veh=' .. tostring(vehId) .. ' elapsed=' .. tostring(elapsed) ..
       ' temp=' .. tempStr .. ' autoEngage=' .. tostring(autoEngage))
   end
   if autoEngage == true or tostring(autoEngage) == 'true' then
-    print('WARN apl_warmup: auto_engage_after_warmup=true — авто-включение wheel/pedals реализуется на шаге 5.4')
+    -- Шаг 5.4: авто-включение НАШИХ модулей (НЕ ванильный AI — его включит
+    -- игрок). GE знает, включены ли уже: повторный on перезапустил бы конфиг
+    -- и плавный старт — не дублируем (контракт «warmup не мешает wheel/pedals»).
+    if not wheelRequested then
+      if sendToVehicle(string.format('autopilotLiveWheelCmd.on("%s")', WHEEL_CONF)) then
+        wheelRequested = true
+        print('apl_warmup: auto_engage — apl_wheel ВКЛЮЧЁН')
+        logLine('INFO', 'warmup auto_engage: wheel ON')
+      end
+    else
+      print('apl_warmup: auto_engage — wheel уже включён, пропуск')
+      logLine('INFO', 'warmup auto_engage: wheel уже включён — пропуск')
+    end
+    if not pedalsRequested then
+      if sendToVehicle(string.format('autopilotLivePedalsCmd.on("%s")', PEDALS_CONF)) then
+        pedalsRequested = true
+        print('apl_warmup: auto_engage — apl_pedals ВКЛЮЧЁН')
+        logLine('INFO', 'warmup auto_engage: pedals ON')
+      end
+    else
+      print('apl_warmup: auto_engage — pedals уже включены, пропуск')
+      logLine('INFO', 'warmup auto_engage: pedals уже включены — пропуск')
+    end
+  else
+    print('apl_warmup: автопилот вручную: apl_wheel("on") + apl_pedals("on")')
   end
 end
 

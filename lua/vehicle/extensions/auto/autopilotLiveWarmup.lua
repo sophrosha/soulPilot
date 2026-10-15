@@ -2,7 +2,7 @@
 -- Загружается АВТОМАТИЧЕСКИ при спавне машины (vehicle/main.lua:314 →
 -- extensions.loadModulesInDirectory("lua/vehicle/extensions/auto")).
 --
--- Ответственность (Фаза 5, шаги 5.2-5.3):
+-- Ответственность (Фаза 5, шаги 5.2-5.4):
 --   * apl_warmup("start") → autopilotLiveWarmupCmd.on(conf): машина сама
 --     заводится (electrics.setIgnitionLevel(3) для ICE — ignition on + стартёр,
 --     контроллер сам снизит до 2 после схватки; для EV — уровень 2, см.
@@ -14,14 +14,15 @@
 --   * Шаг 5.3: sway — плавное покачивание рулём (синус, амплитуда 0.05 ≈ 5°,
 --     0.3 Гц, fade-огибающая). При wheel engaged — sway отключается
 --     (вариант B, wheel.lua не трогаем).
---   * done → ручник (шаг 5.4), сообщение игроку (print GE + guihooks HUD +
---     txt-лог) и сигнал GE onVehicleWarmupDone (шаг 5.4 добавит авто-engage).
+--   * done → ручник снимается штатным API (шаг 5.4, parking_brake_release_at_end),
+--     сообщение игроку (print GE + guihooks HUD + txt-лог) и сигнал GE
+--     onVehicleWarmupDone → GE при auto_engage_after_warmup=true включает
+--     wheel/pedals (если они ещё не включены).
 --   * Опциональная надстройка: wheel/pedals НЕ трогает и НЕ подменяет, КПП не
 --     трогает ни в одной фазе. Работает state-machine поверх уже включённых
 --     модулей (контракт Фазы 5).
---   * Шаг 5.4 добавит снятие ручника и auto_engage_after_warmup в GE.
 --
--- НЕ дёргает input.event напрямую. Ручник (шаг 5.4) — только штатный API
+-- НЕ дёргает input.event напрямую: ручник — только штатный API
 -- vehicleController.smartParkingBrake (api_research_phase5.md §2).
 
 local M = {}
@@ -192,9 +193,33 @@ local function tempOk()
      and lastOil >= cfg.engine.oil_threshold_c
 end
 
+-- === Шаг 5.4: снятие ручника ===
+-- Штатный API vehicleController.smartParkingBrake(0) — разрешён координатором
+-- 16.10 (api_research_phase5.md §2): input.event("parkingbrake", 0, ...)
+-- делает контроллер машины, НЕ наш модуль. Вызывается в finish() перед
+-- сообщением «готова»; при parking_brake_release_at_end=0 — ничего не делаем.
+local function releaseParkingBrake()
+  if cfg.finish.parking_brake_release_at_end <= 0 then return end
+  local pb = 0
+  pcall(function() pb = electrics.values.parkingbrake or 0 end)
+  if pb <= 0.5 then
+    toGE('INFO', 'warmup: ручник не поднят — снимать нечего')
+    return
+  end
+  local ok, err = pcall(function()
+    local vc = controller.getControllerSafe('vehicleController')
+    vc.smartParkingBrake(0)
+  end)
+  if ok then
+    toGE('INFO', 'warmup: ручник снят (smartParkingBrake(0))')
+  else
+    toGE('WARN', 'warmup: не удалось снять ручник: ' .. tostring(err))
+  end
+end
+
 -- === Завершение ===
--- Сигнал GE: onVehicleWarmupDone(vehId, elapsed, tempC, autoEngage) — GE
--- печатает сообщение в консоль игрока и (шаг 5.4) сделает авто-engage.
+-- Сигнал GE: onVehicleWarmupDone(vehId, elapsed, tempC, autoEngage, timedOut) —
+-- GE печатает сообщение в консоль игрока и делает авто-engage (шаг 5.4).
 local function notifyDone(timedOut)
   pcall(function()
     obj:queueGameEngineLua(string.format(
@@ -208,6 +233,7 @@ end
 
 local function finish(timedOut)
   state = 'done'
+  releaseParkingBrake() -- снятие ручника — ПЕРЕД сообщением «готова» (шаг 5.4)
   local cool = lastCoolant and ('coolant ' .. fmt(lastCoolant) .. '°C, oil ' .. fmt(lastOil) .. '°C')
     or 'термалы недоступны (EV?) — только тайминг'
   if timedOut then
@@ -382,8 +408,7 @@ function autopilotLiveWarmupCmd.status()
       ' (цель ' .. fmt(swayTarget) .. '), ' .. fmt(cfg.sway.freq_hz) .. 'Гц')
       or 'выключен') or '?') ..
       (wheelEngagedWarned and ' [wheel engaged — sway отключён]' or ''),
-    'конфиг=' .. (cfgFromFile and 'файл' or (cfg and 'ДЕФОЛТЫ' or 'не загружен')) ..
-      ' (шаг 5.4 добавит: ручник, auto_engage)',
+    'конфиг=' .. (cfgFromFile and 'файл' or (cfg and 'ДЕФОЛТЫ' or 'не загружен')),
   }
   for _, l in ipairs(lines) do print('aplWarmup: ' .. l) end
   toGE('INFO', 'warmup status: state=' .. state .. ' elapsed=' .. fmt(elapsed) ..
