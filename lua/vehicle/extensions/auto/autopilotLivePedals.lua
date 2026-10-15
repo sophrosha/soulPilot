@@ -288,6 +288,40 @@ local function clearOverrides()
   lastOut.engaged = false
 end
 
+-- === ЛОВУШКА АНОМАЛИИ brake (диагностика 2026-10-15, по команде координатора) ===
+-- Контекст: три случая apl_pedals("status") показали brake out ~1e17
+-- (5.8e17 после off / 1.9e17 / 8.67e17 15.10 19:11, game 280.91); физика НЕ
+-- задета, WARN «МУСОР» нет, CSV чист. Статический анализ кода: lastOut.brake
+-- пишется ТОЛЬКО из sanitizeOut (он ∈ [0,1]); rl/ema/out клампятся в stepChannel.
+-- Доказательство по кадру аномалии 8.67e17: throttle out=1.000 ⇒ cut=1 ⇒
+-- pipe.brake.out ≤ 0.1 В МОМЕНТ записи lastOut, т.е. в lastOut уходило чистое
+-- значение — мусор появляется при ВЫВОДЕ (формат %.3f в status), а не в
+-- конвейере. Ловушка докажет это: (1) буфер 5 кадров конвейера brake;
+-- (2) «последний рубеж» — контроль brkOut/thrOut ПОСЛЕ sanitize, ДО записи в
+-- electrics/lastOut; (3) в status() — дубль значений через tostring() (%.14g):
+-- если %.3f даст ~1e17, а tostring() — 0.0x, виноват форматтер, не код.
+local diagHist, diagN = {}, 0
+
+local function diagDump(reason, extra)
+  local lines = { 'ЛОВУШКА brake: ' .. reason .. (extra and (' | ' .. extra) or '') }
+  for i = 1, 5 do
+    lines[#lines + 1] = '  кадр-' .. i .. ': ' .. (diagHist[(diagN - i) % 5 + 1] or 'n/a')
+  end
+  toGE('WARN', 'pedals DIAG: ' .. table.concat(lines, ' || '))
+  print('aplPedals DIAG: ' .. table.concat(lines, '\n'))
+  pcall(function() -- дубль в файл (vehicle-io сандайлен — если нельзя, WARN/print уже ушли)
+    local f = io.open('mods/unpacked/AutopilotLive/ai/logs/brake_anomaly.txt', 'a')
+    if f then
+      f:write(os.date('%Y-%m-%d %H:%M:%S') .. '\n' .. table.concat(lines, '\n') .. '\n')
+      f:close()
+    end
+  end)
+end
+
+local function diagBad(x) -- мусор «последнего рубежа»: nil/NaN/±inf/вне [0,1]
+  return x == nil or x ~= x or x == math.huge or x == -math.huge or x < 0 or x > 1
+end
+
 -- === Кадровый цикл ===
 function M.updateGFX(dt)
   if not active then return end
@@ -402,6 +436,17 @@ function M.updateGFX(dt)
     clutchWritten = false
   end
   overridesWritten = true
+
+  -- ЛОВУШКА: буфер кадра + «последний рубеж» (см. блок комментария выше updateGFX)
+  diagN = diagN + 1
+  diagHist[((diagN - 1) % 5) + 1] = string.format(
+    'dt=%.4f tgt=%.3f raw.brk=%.3f | rl=%.17g ema=%.17g out=%.17g | thrOut=%.17g brkOut=%.17g',
+    dt, brkT, brkRaw, pipe.brake.rl, pipe.brake.ema, pipe.brake.out, thrOut, brkOut)
+  if diagBad(brkOut) or diagBad(thrOut) then
+    diagDump('ПОСЛЕДНИЙ РУБЕЖ поймал мусор ДО записи electrics/lastOut',
+      string.format('brkOut=%s thrOut=%s', tostring(brkOut), tostring(thrOut)))
+  end
+
   lastOut = { engaged = true, throttle = thrOut, brake = brkOut, clutch = cltOut }
 end
 
@@ -452,7 +497,20 @@ function autopilotLivePedalsCmd.status()
       lastRaw.clutch, lastOut.clutch, tostring(clutchWritten)),
     string.format('predictive=%s smoothStartCap=%.2f startT=%.1fс',
       tostring(predictiveOn), cap, startT),
+    -- ЛОВУШКА (диагностика 2026-10-15): ДУБЛЬ тех же значений через tostring()
+    -- (%.14g — точное представление double). Если строка %.3f выше покажет ~1e17,
+    -- а эта — 0.0x, мусор рождается в форматировании LuaJIT, НЕ в конвейере:
+    -- lastOut пишется только из sanitizeOut ∈ [0,1] (по кадру 8.67e17: throttle
+    -- out=1.000 ⇒ cut=1 ⇒ pipe.brake.out ≤ 0.1 в момент записи lastOut).
+    string.format('DIAG exact: thr=%s brk=%s clt=%s | pipe.brake rl=%s ema=%s out=%s',
+      tostring(lastOut.throttle), tostring(lastOut.brake), tostring(lastOut.clutch),
+      tostring(pipe.brake.rl), tostring(pipe.brake.ema), tostring(pipe.brake.out)),
   }
+  if diagBad(lastOut.brake) or diagBad(lastOut.throttle) or diagBad(lastOut.clutch) then
+    diagDump('STATUS поймал мусор в lastOut — сравнить DIAG exact (tostring) со строкой %.3f',
+      string.format('lastOut.brk=%s thr=%s clt=%s',
+        tostring(lastOut.brake), tostring(lastOut.throttle), tostring(lastOut.clutch)))
+  end
   for _, l in ipairs(lines) do print('aplPedals: ' .. l) end
   toGE('INFO', 'pedals status: active=' .. tostring(active) ..
     ' engaged=' .. tostring(lastOut.engaged) ..
