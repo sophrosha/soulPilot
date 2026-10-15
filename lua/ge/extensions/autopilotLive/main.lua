@@ -22,6 +22,7 @@ local csvActive = false           -- идёт ли сейчас CSV-запись
 local csvVehicleId = nil           -- id машины, начавшей CSV (fallback для stop)
 local pedalsRequested = false      -- Фаза 3: запрошено ли apl_pedals("on") (для apl_status)
 local wheelRequested = false       -- Фаза 4: запрошено ли apl_wheel("on") (для apl_status)
+local warmupRequested = false      -- Фаза 5: идёт ли сейчас прогрев (apl_warmup start→done/off)
 local dataDir = nil               -- выбранный базовый каталог данных (У2)
 local dirsTried = {}              -- какие варианты путей пробовали (для отчёта)
 
@@ -956,6 +957,7 @@ function apl_status()
   print('csv active: ' .. tostring(csvActive))
   print('pedals: ' .. tostring(pedalsRequested))
   print('wheel: ' .. tostring(wheelRequested))
+  print('warmup: ' .. tostring(warmupRequested))
   print('data dir: ' .. tostring(dataDir and dataDir.csv or '(не выбран)'))
   print('vehicle: ' .. (veh and ('ID=' .. tostring(veh:getID())) or '(нет)'))
   print('---------------------------')
@@ -1068,6 +1070,49 @@ function apl_wheel(mode)
   return true
 end
 
+-- === Фаза 5: apl_warmup — прогрев машины (опциональная надстройка) ===
+-- Логика живёт в vehicle-слое (autopilotLiveWarmup.lua): завод через
+-- electrics.setIgnitionLevel(3) (ICE) и прогрев до coolant/oil порогов
+-- (api_research_phase5.md). GE шлёт команду и конфиг. НЕ трогает wheel/pedals:
+-- они работают независимо, warmup — state-machine поверх.
+local WARMUP_CONF = 'mods/unpacked/AutopilotLive/ai/config/warmup.json'
+
+function apl_warmup(mode)
+  mode = tostring(mode or 'start'):lower()
+  if mode == 'start' then
+    local confOk = FS and FS:fileExists(WARMUP_CONF) or false
+    if not confOk then
+      print('WARN apl_warmup: конфиг не найден (' .. WARMUP_CONF .. ') — vehicle использует дефолты кода')
+    end
+    local veh = sendToVehicle(string.format('autopilotLiveWarmupCmd.on("%s")', WARMUP_CONF))
+    if veh then
+      warmupRequested = true
+      print('apl_warmup: START (конфиг: ' .. WARMUP_CONF .. ')')
+      print('apl_warmup: статус — apl_warmup("status"); отмена — apl_warmup("off")')
+      logLine('INFO', 'apl_warmup START, conf=' .. WARMUP_CONF .. ', confExists=' .. tostring(confOk))
+    end
+  elseif mode == 'off' then
+    local veh = sendToVehicle('autopilotLiveWarmupCmd.off()')
+    if veh then
+      warmupRequested = false
+      local okId, vehId = pcall(function() return veh:getID() end)
+      print('apl_warmup: OFF отправлен (vehId=' .. tostring((okId and vehId) or '?') .. ')')
+      logLine('INFO', 'apl_warmup OFF отправлен')
+    end
+  elseif mode == 'status' then
+    print('apl_warmup GE: идёт=' .. tostring(warmupRequested) ..
+      ', конфиг=' .. WARMUP_CONF ..
+      ' (существует=' .. tostring(FS and FS:fileExists(WARMUP_CONF) or false) .. ')')
+    if not sendToVehicle('autopilotLiveWarmupCmd.status()') then
+      print('WARN apl_warmup: машина игрока не найдена — статус vehicle-слоя недоступен')
+    end
+  else
+    print('Использование: apl_warmup("start") | apl_warmup("off") | apl_warmup("status")')
+    return false
+  end
+  return true
+end
+
 -- === Приём сообщений от vehicle-слоя ===
 -- vehicle вызывает: obj:queueGameEngineLua('autopilotLive_main.onVehicleLog("W","текст")')
 function M.onVehicleLog(level, msg)
@@ -1078,6 +1123,28 @@ function M.onVehicleLog(level, msg)
     openLogFile() -- аварийно открываем лог, чтобы ошибка не потерялась
   end
   logLine(level, msg, 'vehicle')
+end
+
+-- Фаза 5: vehicle сообщает завершение прогрева (шаг 5.2 — сообщение и лог;
+-- авто-engage wheel/pedals добавит шаг 5.4 при auto_engage_after_warmup=true).
+function M.onVehicleWarmupDone(vehId, elapsed, tempC, autoEngage, timedOut)
+  warmupRequested = false
+  local tempStr = (tonumber(tempC) and tonumber(tempC) >= 0) and (tostring(tempC) .. '°C') or 'n/a'
+  if timedOut == true or tostring(timedOut) == 'true' then
+    print('apl_warmup: ПРОГРЕВ ПО ТАЙМАУТУ — машина готова (прошло ' .. tostring(elapsed) ..
+      ' с, coolant ' .. tempStr .. ')')
+    logLine('WARN', 'warmup done by timeout: veh=' .. tostring(vehId) .. ' elapsed=' ..
+      tostring(elapsed) .. ' temp=' .. tempStr)
+  else
+    print('apl_warmup: ПРОГРЕВ ЗАВЕРШЁН, машина готова (прошло ' .. tostring(elapsed) ..
+      ' с, coolant ' .. tempStr .. ')')
+    print('apl_warmup: автопилот вручную: apl_wheel("on") + apl_pedals("on")')
+    logLine('INFO', 'warmup done: veh=' .. tostring(vehId) .. ' elapsed=' .. tostring(elapsed) ..
+      ' temp=' .. tempStr .. ' autoEngage=' .. tostring(autoEngage))
+  end
+  if autoEngage == true or tostring(autoEngage) == 'true' then
+    print('WARN apl_warmup: auto_engage_after_warmup=true — авто-включение wheel/pedals реализуется на шаге 5.4')
+  end
 end
 
 -- vehicle сообщает, что его расширение активно (шаг 1.3 при спавне)
@@ -1115,6 +1182,7 @@ function M.onClientPostStartMission()
   -- (autopilotLivePedals.active=false по умолчанию — Override'ов не остаётся)
   pedalsRequested = false
   wheelRequested = false
+  warmupRequested = false
   if not csvActive then return end
   stopCsvRecording()
   if csvActive then
