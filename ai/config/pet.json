@@ -1,20 +1,15 @@
 {
-  "_comment_modes": "Фаза 7 (правки после теста 18.10): кнопка «Погладить» (apl_pet). duration_s — длительность. throttle: offset + amp*sin(2*pi*hz*t) — «дрожание» педали газа в диапазоне 0.0..(offset+amp) на малых оборотах; дефолт 0.15+0.15 = 0.0..0.3 @ 2.5 Гц (вибрация, не покачивание). На время эффекта машина удерживается ПОЛНЫМ ТОРМОЗОМ (штатный electrics.values.brakeOverride=1, vehicle не уползает), руль нашего wheel-модуля — плавнее (steer_rate_scale).",
-  "_comment_sound": "sound (7б): звук НЕПРЕРЫВНЫЙ луп (createSource + play, останавливается с fade при завершении/off). sound_event — FMOD-событие (подбор: Ctrl+E → SFX Previewer); ПУСТОЕ значение — звук НЕ играется. pitch — тон лупа (0.7 = ниже родного, «утробнее»; NOTE: смена питча живого лупа из Lua недоступна — движок не отдаёт setPitch, поэтому «дыхание» делается громкостью). breath_hz/breath_depth — осцилляция громкости (дыхание): volume*(1-depth/2 + depth/2*sin(2*pi*breath_hz*t)); volume — базовая громкость.",
+  "_comment_modes": "Фаза 7 (правки после 2-го теста 18.10): кнопка «Погладить» (apl_pet). ФИЗИКА НЕ ТРОГАЕТСЯ: педали/тормоз/КПП — штатные (после провала: brakeOverride=1 сломал поведение — машина поехала назад; вмешательство в педали УБРАНО целиком). Эффект = руль плавнее (steer_rate_scale × на время поглаживания) + звук урчания. duration_s — длительность.",
+  "_comment_sound": "sound (7б): звук НЕПРЕРЫВНЫЙ луп с ПОЗИЦИЕЙ машины (координаты игрока передаются в createSource — иначе FMOD играет в 0,0,0 и не слышно). sound_event — FMOD-событие (подбор: Ctrl+E → SFX Previewer); ПУСТОЕ значение — звук НЕ играется. pitch — тон (0.7 = ниже родного); breath_hz/breath_depth — «дыхание» громкости (осцилляция volume, т.к. pitch живого лупа из Lua не меняется — нет setPitch); volume — базовая громкость (1.5 — по ощущениям игрока «посильнее»).",
   "_comment_guard": "cooldown: если активаций больше spam_max за spam_window_s секунд — «кошачье устало»: игнор on + кулдаун cooldown_s (WARN в консоли). speed_gate_kph — «нельзя гладить на ходу»: эффект только когда скорость ниже порога (км/ч).",
   "duration_s": 6.0,
-  "throttle": {
-    "offset": 0.15,
-    "amp": 0.15,
-    "hz": 2.5
-  },
   "steer_rate_scale": 0.5,
   "sound": {
     "sound_event": "event:>Engine>Shutoff>v8_20xy_eng",
     "pitch": 0.7,
     "breath_hz": 0.3,
     "breath_depth": 0.25,
-    "volume": 1.0
+    "volume": 1.5
   },
   "cooldown": {
     "speed_gate_kph": 5.0,

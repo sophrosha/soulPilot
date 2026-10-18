@@ -1,30 +1,23 @@
 -- AutopilotLive — Фаза 7: «Погладить» (vehicle-слой, кнопка/питомец)
 -- Подключается штатно (lua/vehicle/extensions/auto — автозагрузка расширений).
 --
--- Ответственность vehicle-слоя (Фаза 7а/7б, правки после теста 18.10):
---   * ДРОЖАНИЕ ПЕДАЛИ: electrics.values.throttleOverride = env * (offset +
---     amp*sin(2*pi*hz*t)) — «дрожит» в 0.0..0.3 на малых оборотах (дефолт
---     0.15+0.15 @ 2.5 Гц). ШТАТНЫЙ override из vehicleController.lua:455
---     (как cruiseControl/drag). НЕ дёргаем input.event, НЕ КПП/ручник.
---   * ТОРМОЗ ЗАЖАТ (главное после теста): пока эффект активен —
---     electrics.values.brakeOverride = 1.0 (полный тормоз), иначе коробка
---     видит газ, включает сцепление и машина УПОЛЗАЕТ. По завершении — nil.
---   * руль плавнее: autopilotLiveWheelCmd.setRateScale (Фаза-4 модуль),
---     при завершении — возврат к 1.
---   * guard'ы: только на стоянке (< speed_gate_kph), иначе отказ (в GE —
---     колбэк onVehiclePetRejected, там же гасится звуковой луп); защита от
---     спама — «кошачье устало» (кулдаун, WARN в консоли).
---   * ЗВУК живёт ТОЛЬКО в GE (createSource-луп + дыхание громкости в
---     M.onUpdate): vehicle шлёт колбэки done/rejected, GE останавливает луп.
+-- Ответственность vehicle-слоя (правки после 2-го теста 18.10):
+--   * ФИЗИКУ НЕ ТРОГАЕМ ВООБЩЕ (после провала: brakeOverride=1 сломал
+--     поведение — машина поехала назад; throttleOverride убран тоже).
+--     Педали/КПП/ручник — НЕ наша зона; машина стоит как стояла.
+--   * руль плавнее: на время эффекта autopilotLiveWheelCmd.setRateScale
+--     (Фаза-4 модуль, rate ×0.5), при завершении — возврат к 1.
+--   * таймлайн (6 с) + guard'ы: только на стоянке (< speed_gate_kph),
+--     защита от спама («кошачье устало»). По завершении — колбэк в GE
+--     onVehiclePetDone (GE гасит звуковой луп); guard-отказы — rejected.
+--   * ЗВУК живёт ТОЛЬКО в GE (луп createSource + позиция машины + «дыхание»
+--     громкости): vehicle звук не производит.
 
 local M = {}
 
 -- === Дефолты (дубль pet.json — ТОЛЬКО fallback; истина — параметры из GE) ===
 local DEFAULTS = {
   duration = 6.0,        -- сек
-  offset = 0.15,         -- оффсет микро-газа (0..1) — база дрожания
-  amp = 0.15,            -- амплитуда дрожания (0..1) — 0.0..(offset+amp)
-  hz = 2.5,              -- частота дрожания (вибрация, не покачивание)
   rateScale = 0.5,       -- множитель rate_limit руля на время эффекта
   speedGateKph = 5.0,    -- «нельзя гладить на ходу»
 }
@@ -78,10 +71,7 @@ end
 
 -- === Завершение эффекта (общее для off/таймайута/respawn) ===
 local function finish(reason)
-  -- Управление возвращаем первым: газ и тормоз — игроку без задержек.
-  pcall(function() electrics.values.throttleOverride = nil end)
-  pcall(function() electrics.values.brakeOverride = nil end)
-  -- Руль: rate_scale → 1 (безопасно и при активном wheel, и без него).
+  -- Руль: rate_scale → 1 (единственная наша физика — безопасный множитель)
   pcall(function()
     if autopilotLiveWheelCmd and autopilotLiveWheelCmd.setRateScale then
       autopilotLiveWheelCmd.setRateScale(1)
@@ -89,7 +79,7 @@ local function finish(reason)
   end)
   if active then
     local msg = 'ПОГЛАЖИВАНИЕ ЗАВЕРШЕНО (' .. string.format('%.1f', elapsed) .. ' с' ..
-      (reason and (', ' .. reason) or '') .. ') — газ/тормоз возвращены'
+      (reason and (', ' .. reason) or '') .. ') — руль в штатном rate'
     print('aplPet: ' .. msg)
     toGE('INFO', 'pet done: ' .. string.format('%.1f', elapsed) .. 's' ..
       (reason and (' (' .. reason .. ')') or ''))
@@ -105,21 +95,7 @@ function M.updateGFX(dt)
   if not active or p == nil then return end
   if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then return end -- NaN/перерывы
   elapsed = elapsed + dt
-
-  -- Огибающая: плавный вход (0.5 с) + плавный спад в последние 25% эффекта
-  local progress = elapsed / p.duration
-  local envIn = math.min(elapsed / 0.5, 1)
-  local envOut = 1
-  if progress > 0.75 then envOut = math.max(0, 1 - (progress - 0.75) / 0.25) end
-  local env = envIn * envOut
-
-  -- Дрожание педали: env * (offset + amp*sin(...)) — плавно колеблется
-  -- в 0.0..(offset+amp) на малых оборотах (вибрация @ hz)
-  local thr = env * (p.offset + p.amp * math.sin(2 * math.pi * p.hz * elapsed))
-  pcall(function() electrics.values.throttleOverride = thr end)
-  -- Тормоз держим ЗАЖАТЫМ весь эффект (без огибающей — машина не уползает)
-  pcall(function() electrics.values.brakeOverride = 1.0 end)
-
+  -- Физику НЕ трогаем (педали/тормоз — как штатно): только таймлайн + звук-мост
   if elapsed >= p.duration then finish() end
 end
 
@@ -132,9 +108,6 @@ function autopilotLivePetCmd.start(params)
   local D = DEFAULTS
   local cfg = {
     duration = clampNum(t.duration, 1, 60, D.duration),
-    offset = clampNum(t.offset, 0, 0.5, D.offset),
-    amp = clampNum(t.amp, 0, 0.5, D.amp),
-    hz = clampNum(t.hz, 0.05, 10, D.hz),
     rateScale = clampNum(t.rateScale, 0.1, 1, D.rateScale),
     speedGateKph = clampNum(t.speedGateKph, 0, 120, D.speedGateKph),
     spamMax = clampNum(t.spamMax, 1, 50, 4),
@@ -184,24 +157,20 @@ function autopilotLivePetCmd.start(params)
       'moving ' .. string.format('%.1f', v) .. ' kph')
   end
 
-  -- Старт эффекта: тормоз — ЗАЖАТ сразу (иначе газ → сцепление → едет)
+  -- Старт эффекта: физику НЕ трогаем — только руль плавнее
   p = cfg
   elapsed = 0
   active = true
-  pcall(function() electrics.values.brakeOverride = 1.0 end)
-  -- Руль: временно плавнее (rate_scale)
   pcall(function()
     if autopilotLiveWheelCmd and autopilotLiveWheelCmd.setRateScale then
       autopilotLiveWheelCmd.setRateScale(cfg.rateScale)
     end
   end)
   print('aplPet: ПОГЛАЖИВАНИЕ НАЧАТО (' .. string.format('%.0f', cfg.duration) ..
-    ' с, дрожание газа ' .. string.format('%.2f', cfg.offset) .. '+±' ..
-    string.format('%.2f', cfg.amp) .. ' @ ' .. string.format('%.1f', cfg.hz) ..
-    ' Гц, тормоз зажат, руль ×' .. string.format('%.2f', cfg.rateScale) .. ')')
+    ' с, руль ×' .. string.format('%.2f', cfg.rateScale) ..
+    ', урчание в GE, физика штатная)')
   toGE('INFO', 'pet start: dur=' .. string.format('%.1f', cfg.duration) ..
-    ' thr=' .. string.format('%.2f', cfg.offset) .. '+±' .. string.format('%.2f', cfg.amp) ..
-    ' @' .. string.format('%.2f', cfg.hz) .. 'Hz scale=' .. string.format('%.2f', cfg.rateScale))
+    ' scale=' .. string.format('%.2f', cfg.rateScale) .. ' (без вмешательства в педали)')
   return true
 end
 
@@ -217,7 +186,8 @@ function autopilotLivePetCmd.status()
     '--- apl_pet status (vehicle) ---',
     'active=' .. tostring(active) ..
       (active and (' elapsed=' .. string.format('%.1f', elapsed) .. '/' ..
-        string.format('%.1f', p.duration) .. ' с, тормоз=зажат') or ''),
+        string.format('%.1f', p.duration) .. ' с, руль ×' .. string.format('%.2f', p.rateScale)) or
+        ' (физика не трогается)'),
     'speed=' .. string.format('%.1f', speedKph()) .. ' км/ч',
     'кулдаун=' .. tostring(math.max(0, busyUntil - nowSec())) .. ' с, активаций за окно=' ..
       tostring(#spamTimes),
@@ -230,7 +200,7 @@ end
 
 -- === Жизненный цикл ===
 function M.onReset()
-  -- Respawn: electrics сброшены (override'ов уже нет) — эффект прерываем.
+  -- Respawn: эффект прерываем (мультипликатор руля — к 1)
   if active then finish('respawn') end
 end
 
