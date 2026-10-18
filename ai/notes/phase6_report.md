@@ -53,6 +53,11 @@ electrics времени нет), картой (`getCurrentLevelIdentifier()`), 
   `apl_lights("status")` — для East Coast ожидается `east_coast_usa`).
 - **После правки JSON — заново `apl_lights("auto")`** (конфиг читается при
   включении; `status` показывает свежие значения файла).
+- **Быстрая правка из игры** (разрешение координатора 18.10):
+  `apl_lights("night_state", 1|2)` или `apl_lights("day_state", 0|1|2)` —
+  пишет значение в `modes` lights.json (остальные поля файла сохраняет) и,
+  если auto включён, применяет target к машине сразу. Ручная правка файла
+  с последующим `auto` тоже работает.
 - **Калибровка East Coast (игрок, 18.10)**: метками `apl_mark` на
   east_coast_usa найдены границы: 16:59 день, сумерки 18:35-18:40, к 19:00
   темнота → в `lights_by_map.json` для `east_coast_usa` прописано
@@ -87,10 +92,14 @@ electrics времени нет), картой (`getCurrentLevelIdentifier()`), 
 6. **Гистерезис утром** (утренняя граница не менялась): `setTimeOfDay('21:00')`
    → НОЧЬ; `setTimeOfDay('07:10')` — «ДЕНЬ» НЕТ (полоса до 07:15);
    `setTimeOfDay('07:20')` — ожидаем `apl_lights: ДЕНЬ (07:20)`.
-7. **night_state: 2** (правка координатора): в `lights.json` поставить
-   `"night_state": 2`, затем `setTimeOfDay('21:00')` и ЗАНОВО
-   `apl_lights("auto")` — ожидаем `AUTO ON ... → НОЧЬ, target=2` и **дальний
-   свет** (state 2). Вернуть `night_state: 1` + заново auto после проверки.
+7. **night_state: 2 (дальний)**: ночью с включённым auto (или перед включением)
+   ввести из игры **`apl_lights("night_state", 2)`** (быстрая правка конфига —
+   пишет lights.json и применяет сразу; ручная правка файла `"night_state": 2`
+   + заново `apl_lights("auto")` тоже работает) — ожидаем
+   `apl_lights: night_state=2 сохранён в lights.json` и `target → 2`,
+   фары — **дальний** (state 2). `apl_lights("status")` → night_state=2.
+   Вернуть `apl_lights("night_state", 1)` (ожидаем `target → 1` или
+   «target без изменений», если target уже 1).
 8. **Pop-up guard**: спавн **Bolide** → `apl_lights("auto")` — ожидаем отказ
    `... pop-up фары: авто-режим НЕ активирован (Фаза 8); far/near/off работают`.
 9. **Ручное вмешательство**: ночью с включённым auto щёлкнуть фары клавишей L

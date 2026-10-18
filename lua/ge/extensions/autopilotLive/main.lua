@@ -1170,7 +1170,7 @@ local function computeLightsTarget(cfg, window)
   return t, trans, h
 end
 
-function apl_lights(mode)
+function apl_lights(mode, value)
   mode = tostring(mode or ''):lower()
   if mode == 'auto' then
     local veh = getVehicle()
@@ -1228,6 +1228,50 @@ function apl_lights(mode)
       logLine('INFO', 'lights manual: mode=' .. mode .. ' state=' .. st)
     end
     return true
+  elseif mode == 'night_state' or mode == 'day_state' then
+    -- Быстрая правка конфига из игры (разрешение координатора 18.10):
+    -- apl_lights("night_state", 2) — пишет значение в modes lights.json и,
+    -- если auto включён, применяет target к машине сразу (без правки файла
+    -- в блокноте). Диапазон — как clamp в loadLightsConfig: night 1..2,
+    -- day 0..2. Сам auto дальний сам НИКОГДА не включает — только это
+    -- значение из файла (гистерезис не трогаем, lightsIsNight сохраняется).
+    local key = mode
+    local lo = key == 'night_state' and 1 or 0
+    local v = tonumber(value)
+    if v == nil or v ~= v or v ~= math.floor(v) or v < lo or v > 2 then
+      print('Использование: apl_lights("' .. key .. '", ' .. lo .. '..2) — 0=выкл, 1=ближний, 2=дальний')
+      return false
+    end
+    local decoded = readJsonFile(LIGHTS_CONF)
+    if not decoded then
+      print('ERROR apl_lights: ' .. LIGHTS_CONF .. ' не найден/бит — восстановите файл мода')
+      return false
+    end
+    if type(decoded.modes) ~= 'table' then decoded.modes = {} end
+    decoded.modes[key] = v
+    if not jsonWriteFile(LIGHTS_CONF, decoded, true) then
+      print('ERROR apl_lights: не удалось записать ' .. LIGHTS_CONF)
+      logLine('WARN', 'lights config write failed: ' .. key .. '=' .. tostring(v))
+      return false
+    end
+    print('apl_lights: ' .. key .. '=' .. v .. ' сохранён в lights.json')
+    if lightsAuto and lightsWindow ~= nil then
+      lightsCfg = loadLightsConfig() -- перечитать то, что реально записалось
+      local t = computeLightsTarget(lightsCfg, lightsWindow)
+      if t ~= nil and t ~= lightsTarget then
+        if sendToVehicle(string.format('autopilotLiveLightsCmd.setTarget(%d)', t)) then
+          lightsTarget = t
+          print('apl_lights: target → ' .. tostring(t) .. ' (0=выкл,1=ближний,2=дальний), применено к машине')
+          logLine('INFO', 'lights config: ' .. key .. '=' .. v .. ', auto target → ' .. tostring(t))
+        end
+      else
+        logLine('INFO', 'lights config: ' .. key .. '=' .. v .. ' (auto target без изменений)')
+      end
+    else
+      print('apl_lights: auto выключен — значение применится при следующем apl_lights("auto")')
+      logLine('INFO', 'lights config: ' .. key .. '=' .. v .. ' (auto выключен)')
+    end
+    return true
   elseif mode == 'status' then
     local cfg = loadLightsConfig() -- свежая копия: правки JSON видны сразу
     local window, mapId, fromMap = windowForCurrentMap(cfg)
@@ -1247,6 +1291,7 @@ function apl_lights(mode)
     return true
   end
   print('Использование: apl_lights("auto") | apl_lights("far") | apl_lights("near") | apl_lights("off") | apl_lights("status")')
+  print('  быстрая правка конфига: apl_lights("night_state", 1|2) или apl_lights("day_state", 0|1|2) — пишет в lights.json и применяет')
   return false
 end
 
