@@ -973,6 +973,283 @@ end
 -- === Консольные команды ===
 -- GE-Lua контекст консоли исполняет строку как Lua-код (windowsConsole.lua:13-14),
 -- поэтому объявляем глобальные функции с префиксом apl_ (решение пользователя).
+-- === Фаза 6 (шаг 6.4): автофары день/ночь ===
+-- GE владеет: время (core_environment — только GE, electrics времени не даёт),
+-- карта (getCurrentLevelIdentifier), guard pop-up (veh.JBeam) и гистерезисом —
+-- и шлёт vehicle ЧИСЛОВОЙ target. Vehicle (autopilotLiveLights.lua) применяет
+-- electrics.setLightsState с guard «без дёрганья» и присылает
+-- onVehicleLightsAutoOff при ручном вмешательстве игрока (§7.4).
+-- Включает auto ТОЛЬКО игрок: apl_lights("auto"|"far"|"near"|"off"|"status").
+local LIGHTS_CONF = 'mods/unpacked/AutopilotLive/ai/config/lights.json'
+local LIGHTS_MAP_CONF = 'mods/unpacked/AutopilotLive/ai/config/lights_by_map.json'
+
+local lightsAuto = false     -- auto включён (только командой игрока)
+local lightsTarget = nil     -- последний отправленный vehicle target (0/1/2)
+local lightsAcc = 0          -- аккумулятор опроса времени, сек
+local lightsCfg = nil        -- кэш конфига (перечитывается при каждом auto/status)
+local lightsWindow = nil     -- применённое окно {start=, ['end']=} строками ЧЧ:ММ
+local lightsIsNight = nil    -- состояние гистерезиса (nil — не инициализировано)
+
+-- === Дефолты конфига (ДУБЛЬ lights.json — ТОЛЬКО fallback; истина — файл) ===
+-- night_state: дефолт 1 (ближний); значение 2 в файле читается и включает по
+-- ночам дальний (правка координатора 18.10). В auto сам НИКОГДА не включаем
+-- дальний — только через night_state либо вручную apl_lights("far").
+local LIGHTS_DEFAULTS = {
+  timing = { poll_hz = 1, hysteresis_min = 15 },
+  modes = { day_state = 1, night_state = 1 },
+  night_window = { start = '20:00', ['end'] = '07:00' },
+  guard = { refuse_auto_on_popup = 1, popup_models = { 'bolide', 'wigeon' } },
+}
+
+-- "ЧЧ:ММ" → часы float (0..24); допускается число/числовой строка. nil — кривизна.
+local function parseHHMM(v)
+  if type(v) == 'number' then
+    if v == v and v >= 0 and v < 24 then return v end
+    return nil
+  end
+  if type(v) ~= 'string' then return nil end
+  local h, m = v:match('^(%d%d?):(%d%d)$')
+  if h then
+    h, m = tonumber(h), tonumber(m)
+    if h >= 0 and h < 24 and m >= 0 and m <= 59 then return h + m / 60 end
+    return nil
+  end
+  local n = tonumber(v)
+  if n and n == n and n >= 0 and n < 24 then return n end
+  return nil
+end
+
+local function norm24(v)
+  v = v % 24
+  if v < 0 then v = v + 24 end
+  return v
+end
+
+-- Часы в ночном окне [s, e): s > e — окно через полночь (РФ 20:00→07:00).
+local function inNightWindow(h, s, e)
+  if s == nil or e == nil or s == e then return false end
+  if s < e then return h >= s and h < e end
+  return h >= s or h < e
+end
+
+local function readJsonFile(path)
+  local f = io.open(path, 'r')
+  if not f then return nil end
+  local content = f:read('*all')
+  f:close()
+  local ok, decoded = pcall(jsonDecode, content, path)
+  if not ok or type(decoded) ~= 'table' then return nil end
+  return decoded
+end
+
+-- Загрузка lights.json + lights_by_map.json с merge DEFAULTS (паттерн warmup):
+-- числа зажимаются валидацией; state-поля — целые 0..2 (night_state 1..2,
+-- «0» зажмётся в дефолт 1), окно — строки "ЧЧ:ММ".
+local function loadLightsConfig()
+  local D = LIGHTS_DEFAULTS
+  local c = {
+    timing = { poll_hz = D.timing.poll_hz, hysteresis_min = D.timing.hysteresis_min },
+    modes = { day_state = D.modes.day_state, night_state = D.modes.night_state },
+    night_window = { start = D.night_window.start, ['end'] = D.night_window['end'] },
+    guard = { refuse_auto_on_popup = D.guard.refuse_auto_on_popup, popup_models = {} },
+    maps = {},
+    fromFile = false,
+  }
+  for _, m in ipairs(D.guard.popup_models) do table.insert(c.guard.popup_models, m) end
+
+  local decoded = readJsonFile(LIGHTS_CONF)
+  if decoded then
+    c.fromFile = true
+    local function clampNum(gr, key, lo, hi, dflt)
+      local v = type(decoded[gr]) == 'table' and tonumber(decoded[gr][key]) or nil
+      if v == nil or v ~= v then return dflt end
+      if v < lo then return lo end
+      if v > hi then return hi end
+      return v
+    end
+    c.timing.poll_hz = clampNum('timing', 'poll_hz', 0.1, 10, D.timing.poll_hz)
+    c.timing.hysteresis_min = clampNum('timing', 'hysteresis_min', 0, 120, D.timing.hysteresis_min)
+    c.modes.day_state = clampNum('modes', 'day_state', 0, 2, D.modes.day_state)
+    c.modes.night_state = clampNum('modes', 'night_state', 1, 2, D.modes.night_state)
+    if type(decoded.night_window) == 'table' then
+      if parseHHMM(decoded.night_window.start) then
+        c.night_window.start = tostring(decoded.night_window.start)
+      end
+      if parseHHMM(decoded.night_window['end']) then
+        c.night_window['end'] = tostring(decoded.night_window['end'])
+      end
+    end
+    if type(decoded.guard) == 'table' then
+      local ra = tonumber(decoded.guard.refuse_auto_on_popup)
+      if ra ~= nil and ra == ra then c.guard.refuse_auto_on_popup = ra ~= 0 and 1 or 0 end
+      if type(decoded.guard.popup_models) == 'table' and decoded.guard.popup_models[1] ~= nil then
+        local list = {}
+        for _, v in ipairs(decoded.guard.popup_models) do
+          if type(v) == 'string' and v ~= '' then table.insert(list, v:lower()) end
+        end
+        if #list > 0 then c.guard.popup_models = list end
+      end
+    end
+  else
+    logLine('WARN', 'lights: конфиг не найден/бит (' .. LIGHTS_CONF .. ') — дефолты кода')
+  end
+
+  local decodedMap = readJsonFile(LIGHTS_MAP_CONF)
+  if decodedMap and type(decodedMap.maps) == 'table' then
+    for id, entry in pairs(decodedMap.maps) do
+      if type(id) == 'string' and type(entry) == 'table' and type(entry.night_window) == 'table'
+        and parseHHMM(entry.night_window.start) and parseHHMM(entry.night_window['end']) then
+        c.maps[id:lower()] = {
+          start = tostring(entry.night_window.start),
+          ['end'] = tostring(entry.night_window['end']),
+        }
+      end
+    end
+  end
+
+  if parseHHMM(c.night_window.start) == parseHHMM(c.night_window['end']) then
+    logLine('WARN', 'lights: start окна == end — ночное окно пустое, ночь никогда не наступит')
+  end
+  return c
+end
+
+local function playerJBeam(veh)
+  local ok, j = pcall(function() return veh.JBeam end)
+  if ok and type(j) == 'string' then return j:lower() end
+  return nil
+end
+
+local function currentMapId()
+  local ok, id = pcall(function()
+    if getCurrentLevelIdentifier == nil then return nil end
+    return getCurrentLevelIdentifier()
+  end)
+  if ok and type(id) == 'string' and id ~= '' then return id end
+  return nil
+end
+
+-- Выбор окна: lights_by_map.json (maps.<level_id>) → иначе РФ-дефолт lights.json
+-- (вопрос 5 координатора: дефолт РФ для всех карт, кроме явно прописанных).
+local function windowForCurrentMap(cfg)
+  local mapId = currentMapId()
+  local mw = mapId and cfg.maps[mapId:lower()] or nil
+  if mw then
+    return { start = mw.start, ['end'] = mw['end'] }, mapId, true
+  end
+  return { start = cfg.night_window.start, ['end'] = cfg.night_window['end'] }, mapId, false
+end
+
+-- Вычисление target по времени с гистерезисом ±hysteresis_min (Шмитт-триггер,
+-- §7.3): день→ночь — как только часы вошли в окно; ночь→день — только когда
+-- вышли из окна, РАСШИРЁННОГО на ±hyst (в полосе держим прежнее состояние —
+-- на границе фары не мигают). Возвращает: target (целое 0/1/2), transition
+-- ('night'/'day'/nil — смена флага), часы; либо nil (времени нет).
+local function computeLightsTarget(cfg, window)
+  local h = gameTodHours()
+  if h == nil then return nil end
+  local ws = parseHHMM(window.start)
+  local we = parseHHMM(window['end'])
+  if ws == nil or we == nil then return nil end
+  local hyst = (cfg.timing.hysteresis_min or 0) / 60
+  local inW = inNightWindow(h, ws, we)
+  local inExp = inNightWindow(h, norm24(ws - hyst), norm24(we + hyst))
+  local was = lightsIsNight
+  if was == nil then
+    lightsIsNight = inW -- инициализация при включении auto — по текущему времени
+  elseif was then
+    if not inExp then lightsIsNight = false end
+  else
+    if inW then lightsIsNight = true end
+  end
+  local t = lightsIsNight and cfg.modes.night_state or cfg.modes.day_state
+  t = math.floor(t + 0.5) -- state — всегда целое 0/1/2
+  local trans = nil
+  if was ~= nil and was ~= lightsIsNight then
+    trans = lightsIsNight and 'night' or 'day'
+  end
+  return t, trans, h
+end
+
+function apl_lights(mode)
+  mode = tostring(mode or ''):lower()
+  if mode == 'auto' then
+    local veh = getVehicle()
+    if not veh then
+      print('WARN apl_lights: машина игрока не найдена')
+      return false
+    end
+    local cfg = loadLightsConfig()
+    -- Guard pop-up (Фаза 8): Bolide/Wigeon — авто-режим не активируем, анимацию
+    -- их фар не трогаем; ручные far/near/off работают (то же API, что в радиал-меню).
+    if cfg.guard.refuse_auto_on_popup > 0 then
+      local jb = playerJBeam(veh)
+      if jb then
+        for _, m in ipairs(cfg.guard.popup_models) do
+          if m == jb then
+            print('apl_lights: ' .. jb .. ' — pop-up фары: авто-режим НЕ активирован (Фаза 8); far/near/off работают')
+            logLine('INFO', 'lights auto refused: popup model=' .. jb)
+            return false
+          end
+        end
+      end
+    end
+    local window, mapId, fromMap = windowForCurrentMap(cfg)
+    lightsCfg = cfg
+    lightsWindow = window
+    lightsIsNight = nil -- пересчёт гистерезиса с нуля по текущему времени
+    local t = computeLightsTarget(cfg, window)
+    if t == nil then
+      print('WARN apl_lights: игровое время недоступно — auto не включён')
+      logLine('WARN', 'lights auto refused: core_environment.getTimeOfDay() недоступно')
+      return false
+    end
+    if sendToVehicle(string.format('autopilotLiveLightsCmd.autoOn(%d)', t)) then
+      lightsAuto = true
+      lightsTarget = t
+      lightsAcc = 0
+      print('apl_lights: AUTO ON — время ' .. (gameTodString() or '?') ..
+        ', окно ' .. window.start .. '-' .. window['end'] ..
+        (fromMap and (' (карта ' .. tostring(mapId) .. ', из lights_by_map.json)') or ' (РФ-дефолт)') ..
+        ' → ' .. (lightsIsNight and 'НОЧЬ' or 'ДЕНЬ') .. ', target=' .. tostring(t) ..
+        ' (0=выкл,1=ближний,2=дальний), конфиг=' .. (cfg.fromFile and 'файл' or 'ДЕФОЛТЫ'))
+      print('apl_lights: выключение — apl_lights("off"); статус — apl_lights("status")')
+      logLine('INFO', 'lights auto ON: map=' .. tostring(mapId) .. ' window=' .. window.start .. '-' .. window['end'] ..
+        ' target=' .. tostring(t) .. ' night=' .. tostring(lightsIsNight))
+    end
+    return true
+  elseif mode == 'far' or mode == 'near' or mode == 'off' then
+    local st = mode == 'far' and 2 or (mode == 'near' and 1 or 0)
+    if sendToVehicle(string.format('autopilotLiveLightsCmd.setManual(%d)', st)) then
+      lightsAuto = false
+      lightsTarget = nil
+      lightsIsNight = nil
+      local names = { [0] = 'выкл', [1] = 'ближний', [2] = 'дальний' }
+      print('apl_lights: ' .. mode:upper() .. ' → state ' .. st .. ' (' .. names[st] .. ')')
+      logLine('INFO', 'lights manual: mode=' .. mode .. ' state=' .. st)
+    end
+    return true
+  elseif mode == 'status' then
+    local cfg = loadLightsConfig() -- свежая копия: правки JSON видны сразу
+    local window, mapId, fromMap = windowForCurrentMap(cfg)
+    print('apl_lights GE: auto=' .. tostring(lightsAuto) .. ', target=' .. tostring(lightsTarget))
+    print('  карта=' .. tostring(mapId or '?') ..
+      (fromMap and ' (окно из lights_by_map.json)' or ' (окно РФ-дефолт из lights.json)'))
+    print('  игровое время=' .. (gameTodString() or 'н/д') ..
+      ', окно=' .. window.start .. '-' .. window['end'] ..
+      ', гистерезис±' .. tostring(cfg.timing.hysteresis_min) .. ' мин, опрос ' ..
+      tostring(cfg.timing.poll_hz) .. ' Гц')
+    print('  day_state=' .. tostring(cfg.modes.day_state) ..
+      ', night_state=' .. tostring(cfg.modes.night_state) ..
+      ' (0=выкл,1=ближний,2=дальний), конфиг=' .. (cfg.fromFile and 'файл' or 'ДЕФОЛТЫ'))
+    if not sendToVehicle('autopilotLiveLightsCmd.status()') then
+      print('WARN apl_lights: машина игрока не найдена — статус vehicle-слоя недоступен')
+    end
+    return true
+  end
+  print('Использование: apl_lights("auto") | apl_lights("far") | apl_lights("near") | apl_lights("off") | apl_lights("status")')
+  return false
+end
+
 function apl_debug()
   debugEnabled = not debugEnabled
   if debugEnabled then
@@ -997,6 +1274,8 @@ function apl_status()
   print('pedals: ' .. tostring(pedalsRequested))
   print('wheel: ' .. tostring(wheelRequested))
   print('warmup: ' .. tostring(warmupRequested))
+  print('lights: auto=' .. tostring(lightsAuto) .. ', target=' .. tostring(lightsTarget) ..
+    ', map=' .. tostring(currentMapId() or '?') .. ', tod=' .. (gameTodString() or 'н/д'))
   print('data dir: ' .. tostring(dataDir and dataDir.csv or '(не выбран)'))
   print('vehicle: ' .. (veh and ('ID=' .. tostring(veh:getID())) or '(нет)'))
   print('---------------------------')
@@ -1210,9 +1489,51 @@ function M.onVehicleWarmupDone(vehId, elapsed, tempC, autoEngage, timedOut)
   end
 end
 
+-- Фаза 6 (шаг 6.4): vehicle сообщил, что игрок вмешался в фары руками во время
+-- auto (клавиша L/радиал-меню/салон) — авто-режим отключаем, фары оставляем
+-- как поставил игрок («не дерёмся», §7.4).
+function M.onVehicleLightsAutoOff()
+  lightsAuto = false
+  lightsTarget = nil
+  lightsIsNight = nil
+  print('apl_lights: Ручное управление, авто-режим отключен')
+  logLine('INFO', 'lights: авто-режим отключён (ручное вмешательство игрока в фары)')
+end
+
 -- vehicle сообщает, что его расширение активно (шаг 1.3 при спавне)
 function M.onVehicleReady(vehId)
   logLine('INFO', 'Vehicle-слой активен (vehId=' .. tostring(vehId) .. ')')
+end
+
+-- === Фаза 6 (шаг 6.4): тик авто-режима фар ===
+-- Штатный хук GE-расширений (примеры ванили: mcp/tools/spawn.lua:12,
+-- core/vehicle/vehicleTriggerHighlight.lua:278). Опрос времени с шагом
+-- 1/poll_hz; target шлём vehicle ТОЛЬКО при смене (анти-дёрганье живёт в
+-- vehicle-модуле: guard «lights_state ~= lastApplied»).
+function M.onUpdate(dtReal)
+  if not lightsAuto then return end
+  if dtReal == nil or dtReal ~= dtReal or dtReal <= 0 or dtReal > 1 then return end
+  local poll = lightsCfg and tonumber(lightsCfg.timing.poll_hz) or 1
+  if poll ~= poll then poll = 1 end
+  if poll < 0.1 then poll = 0.1 elseif poll > 10 then poll = 10 end
+  lightsAcc = lightsAcc + dtReal
+  if lightsAcc < 1 / poll then return end
+  lightsAcc = 0
+  if lightsCfg == nil or lightsWindow == nil then return end
+  local t, trans = computeLightsTarget(lightsCfg, lightsWindow)
+  if t == nil then return end -- времени нет (меню/загрузка) — ждём следующего тика
+  if trans then
+    local timeStr = gameTodString() or '?'
+    print('apl_lights: ' .. (trans == 'night' and 'НОЧЬ' or 'ДЕНЬ') ..
+      ' (' .. timeStr .. ') → target=' .. tostring(t))
+    logLine('INFO', 'lights ' .. trans .. ' at ' .. timeStr .. ' target=' .. tostring(t))
+  end
+  if t ~= lightsTarget then
+    if sendToVehicle(string.format('autopilotLiveLightsCmd.setTarget(%d)', t)) then
+      lightsTarget = t
+      logLine('INFO', 'lights target → ' .. tostring(t) .. ' (' .. (gameTodString() or '?') .. ')')
+    end
+  end
 end
 
 -- === Жизненный цикл расширения ===
@@ -1246,6 +1567,12 @@ function M.onClientPostStartMission()
   pedalsRequested = false
   wheelRequested = false
   warmupRequested = false
+  lightsAuto = false
+  lightsTarget = nil
+  lightsIsNight = nil
+  lightsCfg = nil
+  lightsWindow = nil
+  lightsAcc = 0
   if not csvActive then return end
   stopCsvRecording()
   if csvActive then
