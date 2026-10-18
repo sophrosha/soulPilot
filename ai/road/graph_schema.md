@@ -159,7 +159,7 @@ time,x,y,z,comment,nearest_node_id,node_dist_m,edge_id
 |---|---|
 | `time` | `os.date('%Y-%m-%d %H:%M:%S')` |
 | `x,y,z` | позиция машины игрока (`getPlayerVehicle(0):getPosition()`) |
-| `comment` | аргумент `apl_mark("текст")` (кавычки экранируются) |
+| `comment` | аргумент `apl_mark("текст")` (кавычки экранируются) + игровое время `[ЧЧ:ММ]` (Фаза 6: GE дописывает время из `core_environment` для калибровки световых окон; при недоступном времени — метка без суффикса + WARN) |
 | `nearest_node_id` | ближайший узел — перебор `map.nodes` (min евклид. дистанции) |
 | `node_dist_m` | та дистанция, м |
 | `edge_id` | `map.findClosestRoad(pos)` → `(n1id, n2id, dist)` → `"<min>_<max>"` — ТОТ ЖЕ формат `edge_id` графа (map.lua:2691). Если API вернул nil → пусто + WARN в консоль |

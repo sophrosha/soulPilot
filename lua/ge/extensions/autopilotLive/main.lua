@@ -750,8 +750,47 @@ local function csvNum(v, digits)
   return (s:gsub(',', '.'))
 end
 
+-- === Фаза 6 (шаг 6.3): игровое время — живёт ТОЛЬКО в GE (в electrics его нет,
+-- api_research_phase6.md §2) ===
+-- core_environment.getTimeOfDay().time — доля суток 0..1, 0 = полдень
+-- (обратная конвертация в ванили: ge_utils.lua:706 setTimeOfDay);
+-- ЧЧ = ((time + 0.5) % 1) * 24 — та же формула у ge_utils.lua:679.
+local function gameTodHours()
+  local ok, tod = pcall(function()
+    if core_environment == nil or core_environment.getTimeOfDay == nil then return nil end
+    return core_environment.getTimeOfDay()
+  end)
+  if not ok or type(tod) ~= 'table' or tonumber(tod.time) == nil then return nil end
+  local h = ((tonumber(tod.time) + 0.5) % 1) * 24
+  if h ~= h or h < 0 or h >= 24 then return nil end -- NaN/границы
+  return h
+end
+
+-- "ЧЧ:ММ" из игрового времени или nil (вне миссии/меню времени нет)
+local function gameTodString()
+  local h = gameTodHours()
+  if h == nil then return nil end
+  local hh = math.floor(h)
+  local mm = math.floor((h - hh) * 60)
+  if mm > 59 then mm = 59 end -- страховка от плавающей границы
+  return string.format('%02d:%02d', hh, mm)
+end
+
 function apl_mark(comment)
   comment = comment ~= nil and tostring(comment) or ''
+
+  -- Фаза 6 (шаг 6.3): автодополнение игровым временем «[ЧЧ:ММ]» — игрок
+  -- калибрует световые окна lights_by_map.json по меткам: apl_mark("тут
+  -- темнеет") → comment="тут темнеет [19:45]". Время читаем в GE
+  -- (gameTodString, core_environment); запись marks.csv идёт здесь же в GE.
+  do
+    local todStr = gameTodString()
+    if todStr then
+      comment = comment ~= '' and (comment .. ' [' .. todStr .. ']') or ('[' .. todStr .. ']')
+    else
+      print('WARN apl_mark: игровое время недоступно — метка без [ЧЧ:ММ]')
+    end
+  end
 
   local veh = getPlayerVehicle(0)
   if not veh then
