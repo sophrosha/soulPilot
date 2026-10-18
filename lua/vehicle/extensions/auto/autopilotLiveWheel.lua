@@ -39,6 +39,8 @@ local DEFAULTS = {
 local cfg = nil
 local cfgFromFile = false
 local active = false            -- apl_wheel("on") включён
+local rateScale = 1.0           -- множитель rate_limit (Фаза 7: pet временно
+                                -- ставит 0.5 — «руль плавнее»; возврат в 1.0)
 local needInit = true           -- синхронизировать конвейер с raw на первом кадре
 local pipe = { rl = 0, ema = 0, out = 0 }
 local lastOut = { engaged = false, steer = 0 }
@@ -151,7 +153,8 @@ end
 -- 5ж 1e-3 рисковал на крутых углах); снап |out−ema|<1e-3 => дотянули.
 local function stepWheel(target, dt)
   local rl = cfg.rate_limit
-  local rate = (math.abs(target) > math.abs(pipe.rl)) and rl.steer_rise or rl.steer_fall
+  -- rateScale (Фаза 7): pet-эффект временно снижает скорость вращения руля.
+  local rate = ((math.abs(target) > math.abs(pipe.rl)) and rl.steer_rise or rl.steer_fall) * rateScale
   pipe.rl = moveToward(pipe.rl, target, rate * dt)
 
   local te = cfg.ema_tau.steer
@@ -214,6 +217,7 @@ function autopilotLiveWheelCmd.on(confPath)
   cfg, cfgFromFile = loadConfig(type(confPath) == 'string' and confPath or FALLBACK_CONF)
   active = true
   needInit = true
+  rateScale = 1.0 -- защита от «залипшего» pet-масштаба после перезапуска wheel
   local r = cfg.rate_limit
   toGE('INFO', 'wheel ON (' .. (cfgFromFile and 'конфиг из файла' or 'ДЕФОЛТЫ') ..
     '): rate rise/fall ' .. tostring(r.steer_rise) .. '/' .. tostring(r.steer_fall) ..
@@ -224,10 +228,22 @@ end
 function autopilotLiveWheelCmd.off()
   if not active then return false end
   active = false
+  rateScale = 1.0
   -- steering_input НЕ трогаем: движок затрёт его сам на следующем кадре
   -- (input.lua:678). Nil-восстановление не нужно (§4).
   lastOut.engaged = false
   toGE('INFO', 'wheel OFF: перезапись steering_input прекращена, движок на штатном FILTER_AI')
+  return true
+end
+
+-- Фаза 7: временный множитель rate_limit (pet-эффект: руль плавнее ×0.5).
+-- Безопасен при active=false (просто запоминается). Возврат — setRateScale(1).
+function autopilotLiveWheelCmd.setRateScale(s)
+  s = tonumber(s) or 1
+  if s ~= s then s = 1 end
+  if s < 0.1 then s = 0.1 elseif s > 1 then s = 1 end
+  rateScale = s
+  toGE('INFO', 'wheel rateScale → ' .. string.format('%.2f', s))
   return true
 end
 
@@ -244,6 +260,8 @@ function autopilotLiveWheelCmd.status()
       diagFmt(lastRaw), diagFmt(lastOut.steer)),
     string.format('pipe: rl %s ema %s out %s',
       diagFmt(pipe.rl), diagFmt(pipe.ema), diagFmt(pipe.out)),
+    string.format('rateScale=%s (Фаза 7: pet временно снижает rate)',
+      string.format('%.2f', rateScale)),
   }
   for _, l in ipairs(lines) do print('aplWheel: ' .. l) end
   toGE('INFO', 'wheel status: active=' .. tostring(active) ..

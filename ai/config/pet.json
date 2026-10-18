@@ -1,0 +1,25 @@
+{
+  "_comment_modes": "Фаза 7 (2026-10-18): кнопка «Погладить» (apl_pet). duration_s — длительность поглаживания, сек. throttle.amp — амплитуда микро-подгазовки (синусоида 0..amp через ШТАТНЫЙ electrics.values.throttleOverride, vehicleController.lua:455; НЕ input.event, НЕ тормоз); throttle.hz — частота подёргивания (0.5 = медленно). steer_rate_scale — на время эффекта rate_limit руля нашего wheel-модуля умножается на это число (0.5 = вдвое плавнее), при завершении возвращается в 1.",
+  "_comment_sound": "sound (7б): sound_event — FMOD-событие (подбор: Ctrl+E → SFX Previewer); ПУСТОЕ значение — звук НЕ играется, работает только механика. Дефолт — найденный игроком «утробный» звук остановки V8, приспущенный тоном. pitch — тон (0.7 = ниже родного); pitch_wobble — глубина лёгкой синусоидной модуляции тона (кошачий тремор); pitch_wobble_hz — её частота; interval_s — пауза между короткими «пыхтениями» (звук играется циклически, пока идёт поглаживание); volume — базовая громкость, плавно затухает к концу duration_s.",
+  "_comment_guard": "cooldown: если активаций больше spam_max за spam_window_s секунд — «кошачье устало»: игнор on + кулдаун cooldown_s (WARN в консоли). speed_gate_kph — «нельзя гладить на ходу»: эффект только когда скорость ниже этого порога (км/ч).",
+  "duration_s": 6.0,
+  "throttle": {
+    "amp": 0.05,
+    "hz": 0.5
+  },
+  "steer_rate_scale": 0.5,
+  "sound": {
+    "sound_event": "event:>Engine>Shutoff>v8_20xy_eng",
+    "pitch": 0.7,
+    "pitch_wobble": 0.04,
+    "pitch_wobble_hz": 6.0,
+    "interval_s": 1.5,
+    "volume": 0.8
+  },
+  "cooldown": {
+    "speed_gate_kph": 5.0,
+    "spam_max": 4,
+    "spam_window_s": 30.0,
+    "cooldown_s": 20.0
+  }
+}
