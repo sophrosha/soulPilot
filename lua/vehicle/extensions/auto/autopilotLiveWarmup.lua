@@ -11,10 +11,11 @@
 --       - coolant >= temp_threshold_c И oil >= oil_threshold_c (нефтехимия
 --         медленнее — компромиссный порог 60°C, решение координатора 16.10);
 --       - либо max_timeout_s (зима/поломка) → done с WARN.
---   * Шаг 5.3 + правка игрока 18.10: sway — покачивание рулём КУБИЧЕСКИМ
+--   * Шаг 5.3 + правки игрока 18.10: sway — покачивание рулём КУБИЧЕСКИМ
 --     синусом (amplitude * sin^3 — «плоские пики», эффект дыхания; 0.05 ≈ 5°,
---     0.3 Гц, fade-огибающая 2 с) ТОЛЬКО в окне elapsed ∈ (start_delay_s,
---     start_delay_s + duration_s) = (1, 6) с — весь прогрев НЕ качает.
+--     0.3 Гц, fade-огибающая 2 с) СЛУЧАЙНЫМ СОБЫТИЕМ: при start() генерируется
+--     окно [sway_start_time, +duration_s] (random_delay_min..max от старта) —
+--     весь прогрев НЕ качает, момент — случайный при каждом запуске.
 --     При wheel engaged — sway отключается (вариант B, wheel.lua не трогаем).
 --   * done → ручник снимается штатным API (шаг 5.4, parking_brake_release_at_end),
 --     сообщение игроку (print GE + guihooks HUD + txt-лог) и сигнал GE
@@ -39,10 +40,11 @@ local FALLBACK_CONF = 'mods/unpacked/AutopilotLive/ai/config/warmup.json'
 local DEFAULTS = {
   timing = { min_time_s = 10, max_timeout_s = 120, start_timeout_s = 10 },
   engine = { temp_threshold_c = 85, oil_threshold_c = 60, temp_poll_hz = 1 },
-  -- sway: окно активности start_delay_s..(start_delay_s+duration_s) от elapsed —
-  -- покачивание НЕ идёт весь прогрев (правка игрока 18.10).
+  -- sway: СЛУЧАЙНОЕ окно активности [sway_start_time, sway_start_time+duration_s]
+  -- от elapsed — генерируется при start() в [random_delay_min_s, random_delay_max_s]
+  -- (правка игрока 18.10: покачивание-событие в случайный момент прогрева).
   sway   = { enabled = 1, amplitude = 0.05, freq_hz = 0.3, fade_time_s = 2,
-             start_delay_s = 1, duration_s = 5 },
+             duration_s = 4, random_delay_min_s = 1, random_delay_max_s = 8 },
   finish = { parking_brake_release_at_end = 1, auto_engage_after_warmup = 0 },
 }
 
@@ -62,6 +64,8 @@ local swayAmp = 0               -- текущая огибающая [0..amplitu
 local swayTarget = 0            -- целевая огибающая (amplitude при прогреве, 0 при off/done)
 local swayWritten = false       -- писали ли steering_input в прошлом кадре
 local wheelEngagedWarned = false -- INFO «sway отключён: wheel engaged» уже выдан
+local swayStart = nil           -- начало случайного окна свея (сек от start)
+local swayEnd = nil             -- конец окна свея (swayStart + duration_s)
 
 -- === Лог событий в GE (паттерн autopilotLivePedals.lua) ===
 local function toGE(level, msg)
@@ -106,12 +110,18 @@ local function validateConfig(c)
   pos('sway',   'freq_hz',          D.sway.freq_hz,            0.01, 2.0)
   pos('sway',   'fade_time_s',      D.sway.fade_time_s,        0.1,  30)
   pos('sway',   'duration_s',       D.sway.duration_s,         0.1,  600)
-  -- start_delay_s: 0 допустим (сразу после start) — pos() не подходит
-  -- (он требует > 0), поэтому отдельно: < 0 или NaN → дефолт.
+  -- random_delay_s: 0 допустим для min (сразу после start) — pos() не подходит
+  -- (он требует > 0), поэтому отдельно; max нормализуется к min (не может
+  -- быть меньше него — иначе math.random(min*100, max*100) упадёт).
   do
-    local v = c.sway.start_delay_s
-    if v == nil or v ~= v or v < 0 then c.sway.start_delay_s = D.sway.start_delay_s end
-    if c.sway.start_delay_s > 60 then c.sway.start_delay_s = 60 end
+    local vmin = c.sway.random_delay_min_s
+    local vmax = c.sway.random_delay_max_s
+    if vmin == nil or vmin ~= vmin or vmin < 0 then vmin = D.sway.random_delay_min_s end
+    if vmax == nil or vmax ~= vmax or vmax < 0 then vmax = D.sway.random_delay_max_s end
+    if vmin > 600 then vmin = 600 end
+    if vmax > 600 then vmax = 600 end
+    if vmax < vmin then vmax = vmin end
+    c.sway.random_delay_min_s, c.sway.random_delay_max_s = vmin, vmax
   end
   -- max_timeout не может быть меньше min_time (иначе done по таймауту
   -- обгоняет условие «минимум») — тихо поднимаем.
@@ -271,8 +281,10 @@ end
 -- Куб синусы даёт «плоские пики»: в крайних точках руль как бы замирает
 -- (производная сходится к 0), создавая эффект живого дыхания вместо
 -- механического «демо-режима». Знак сохраняется (нечётная степень).
--- ОКНО АКТИВНОСТИ (правка игрока 18.10): покачивание НЕ идёт весь прогрев —
--- только пока elapsed ∈ (start_delay_s, start_delay_s + duration_s);
+-- ОКНО АКТИВНОСТИ (правки игрока 18.10, рандом): покачивание НЕ идёт весь
+-- прогрев — только пока elapsed ∈ [sway_start_time, sway_start_time +
+-- duration_s]; начало генерируется при start() в [random_delay_min_s,
+-- random_delay_max_s] — событие в случайный момент прогрева;
 -- вне окна целевая огибающая = 0 → плавное затухание за fade_time_s.
 -- Огибающая (fade) растёт и тает линейно — без щелчка руля при старте/остановке.
 -- Запись electrics.values.steering_input — та же схема Фазы 4 (wheel):
@@ -284,11 +296,13 @@ local function swayStep(dt)
   if not cfg or cfg.sway.enabled <= 0 then return end
   swayTime = swayTime + dt
 
-  -- Фаза активности = идёт прогрев И elapsed внутри окна свея; иначе
+  -- Фаза активности = идёт прогрев И elapsed внутри СЛУЧАЙНОГО окна свея
+  -- (сгенерировано при start, см. autopilotLiveWarmupCmd.on); иначе
   -- (start/done/off/вне окна) — плавное затухание до 0.
   local activePhase = (state == 'starting_engine' or state == 'warming_up')
-    and elapsed > cfg.sway.start_delay_s
-    and elapsed < (cfg.sway.start_delay_s + cfg.sway.duration_s)
+    and swayStart ~= nil
+    and elapsed >= swayStart
+    and elapsed <= swayEnd
   swayTarget = activePhase and cfg.sway.amplitude or 0
   local step = cfg.sway.amplitude * dt / math.max(cfg.sway.fade_time_s, 0.1)
   if swayAmp < swayTarget then
@@ -379,6 +393,8 @@ local function resetState()
   swayTarget = 0
   swayWritten = false
   wheelEngagedWarned = false
+  swayStart = nil
+  swayEnd = nil
 end
 
 -- === Публичные команды (GE шлёт через queueLuaCommand) ===
@@ -392,6 +408,22 @@ function autopilotLiveWarmupCmd.on(confPath)
   end
   cfg, cfgFromFile = loadConfig(type(confPath) == 'string' and confPath or FALLBACK_CONF)
   resetState() -- state='off' → старт ниже
+  -- Рандомное окно свея (правка игрока 18.10): покачивание-СОБЫТИЕ в случайный
+  -- момент прогрева. sway_start_time = math.random(min*100, max*100)/100
+  -- (точность 0.01 с), окно = [start, start + duration_s]; новое окно при
+  -- каждом start(). Целые для math.random — через floor (float*100 даёт
+  -- хвосты типа 799.9999).
+  do
+    local rmin = math.floor(math.max(cfg.sway.random_delay_min_s, 0) * 100)
+    local rmax = math.floor(math.max(cfg.sway.random_delay_max_s, cfg.sway.random_delay_min_s) * 100)
+    if rmax < rmin then rmax = rmin end
+    swayStart = math.random(rmin, rmax) / 100
+    swayEnd = swayStart + cfg.sway.duration_s
+    if cfg.sway.enabled > 0 then
+      toGE('INFO', 'warmup: окно sway сгенерировано: ' .. fmt(swayStart) .. '-' ..
+        fmt(swayEnd) .. ' с от старта (длительность ' .. fmt(cfg.sway.duration_s) .. ' с)')
+    end
+  end
   if engineRunning() then
     state = 'warming_up'
     toGE('INFO', 'warmup: двигатель уже заведён — прогрев по температуре (мин ' ..
@@ -430,8 +462,8 @@ function autopilotLiveWarmupCmd.status()
       (cfg and fmt(cfg.engine.oil_threshold_c) or '?') .. '°C',
     'sway: ' .. (cfg and (cfg.sway.enabled > 0 and ('amp=' .. fmt(swayAmp) ..
       ' (цель ' .. fmt(swayTarget) .. '), ' .. fmt(cfg.sway.freq_hz) ..
-      'Гц, куб.синус, окно ' .. fmt(cfg.sway.start_delay_s) .. '-' ..
-      fmt(cfg.sway.start_delay_s + cfg.sway.duration_s) .. 'с (elapsed ' ..
+      'Гц, куб.синус, окно ' .. (swayStart and (fmt(swayStart) .. '-' .. fmt(swayEnd))
+        or 'н/д') .. 'с (elapsed ' ..
       fmt(elapsed) .. 'с)')
       or 'выключен') or '?') ..
       (wheelEngagedWarned and ' [wheel engaged — sway отключён]' or ''),
