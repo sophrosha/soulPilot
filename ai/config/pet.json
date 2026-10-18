@@ -16,7 +16,7 @@
     "breath_hz": 0.3,
     "breath_depth": 0.25,
     "volume": 2.0,
-    "no_pos": false
+    "no_pos": true
   },
   "cooldown": {
     "speed_gate_kph": 5.0,
