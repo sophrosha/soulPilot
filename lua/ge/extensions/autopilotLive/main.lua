@@ -991,73 +991,52 @@ local lightsAcc = 0          -- аккумулятор опроса времен
 local lightsCfg = nil        -- кэш конфига (перечитывается при каждом auto/status)
 local lightsWindow = nil     -- применённое окно {start=, ['end']=} строками ЧЧ:ММ
 local lightsIsNight = nil    -- состояние гистерезиса (nil — не инициализировано)
--- Фаза 7б: звуковой луп «мурчания» (живёт в GE: createSource + play, «дыхание»
--- громкости в M.onUpdate; pitch живого лупа из Lua не меняется — нет setPitch)
+-- Фаза 7б (правки после теста 3): звук — ПОВТОРЯЮЩИЙСЯ playOnce с позицией
+-- машины (createSource-луп не слышался). Каждые interval_s сек playOnce
+-- 'AudioGui' c {volume, pitch, position} → наложение (оверлап) звуков даёт
+-- непрерывное урчание. no_pos — фолбэк: играть БЕЗ позиции (глобально),
+-- чтобы проверить, слышен ли сам файл.
 local petSoundEvent = ''     -- FMOD-событие из pet.json ('' — без звука)
-local petSoundSourceId = nil -- id источника лупа (nil — не играет)
-local petSoundPitch = 0.7    -- тон лупа из конфига (фикс на всё время лупа)
-local petSoundBaseVol = 1.0  -- базовая громкость из конфига
+local petSoundActive = false -- звук идёт (true между start и stop)
+local petSoundPitch = 0.7    -- питч каждой пачки (playOnce штатно умеет)
+local petSoundBaseVol = 2.0  -- базовая громкость из конфига
+local petSoundInterval = 0.5 -- период playOnce, сек (оверлап)
+local petSoundNoPos = false  -- true — играть без позиции (глобально, отладка)
 local petSoundBreathHz = 0.3 -- частота «дыхания» громкости
 local petSoundBreathDepth = 0.25 -- глубина «дыхания» (0..1)
-local petSoundT = 0          -- время жизни лупа, сек (для дыхания)
-local petSoundAcc = 0        -- аккумулятор обновления громкости, сек
+local petSoundT = 0          -- время звука, сек (для дыхания)
+local petSoundTickAcc = 0    -- аккумулятор playOnce, сек
+local petSoundIds = {}       -- sourceId играющих пачек (для мгновенного стопа)
+local petSoundPosWarned = false -- WARN про позицию выведен
 
--- Плавная остановка лупа (fade 1 с) + удаление источника (идемпотентно)
+-- Мгновенная остановка: удаляем все играющие пачки playOnce (идемпотентно)
 local function petSoundStop()
-  if petSoundSourceId == nil then return end
-  local id = petSoundSourceId
-  petSoundSourceId = nil
-  pcall(function()
-    local src = scenetree.findObjectById(id)
-    if src then src:stop(1, 1) end
-  end)
-  pcall(function() Engine.Audio.deleteSource(id) end)
-  logLine('INFO', 'pet sound: луп остановлен')
+  if not petSoundActive and #petSoundIds == 0 then return end
+  petSoundActive = false
+  for _, id in ipairs(petSoundIds) do
+    pcall(function() Engine.Audio.deleteSource(id) end)
+  end
+  petSoundIds = {}
+  petSoundPosWarned = false
+  logLine('INFO', 'pet sound: стоп (все пачки удалены)')
 end
 
--- Старт непрерывного лупа (pet.json sound_event). ПОЗИЦИЯ машины обязательна
--- (иначе FMOD играет в 0,0,0 — не слышно; ванильный паттерн: gasStations
--- playOnce с position, audioEventsList previewer — position=машина).
--- opts (position/pitch/volume) — по playOnce-схеме; createSource их не
--- документирует, поэтому есть фолбэк без opts.
+-- Старт звука: первая playOnce — сразу, дальше каждые interval_s (onUpdate)
 local function petSoundStart()
-  petSoundStop() -- страховка от двойного лупа
+  petSoundStop() -- страховка от двойного запуска
   if petSoundEvent == '' then return end
-  -- Позиция машины игрока (на стоянке статична — гейт скорости гарантирует)
-  local pos = nil
-  local veh = getVehicle()
-  if veh then
-    local okPos, vp = pcall(function() return veh:getPosition() end)
-    if okPos and vp then pos = vec3(vp.x, vp.y, vp.z) end
-  end
-  if pos == nil then
-    logLine('WARN', 'pet sound: позиция машины недоступна — луп может быть не слышен')
-  end
-  local ok, id = pcall(function()
-    return Engine.Audio.createSource('AudioGui', petSoundEvent,
-      { position = pos, pitch = petSoundPitch, volume = petSoundBaseVol })
-  end)
-  if not ok or id == nil then
-    -- Фолбэк без opts (некоторые биндинги не принимают третий аргумент)
-    ok, id = pcall(function() return Engine.Audio.createSource('AudioGui', petSoundEvent) end)
-  end
-  if not ok or id == nil then
-    logLine('WARN', 'pet sound: createSource не смог (' .. petSoundEvent .. ')')
-    return
-  end
-  petSoundSourceId = id
+  petSoundActive = true
   petSoundT = 0
-  petSoundAcc = 0
-  pcall(function()
-    local src = scenetree.findObjectById(id)
-    if src then
-      if type(src.setVolume) == 'function' then src:setVolume(petSoundBaseVol) end
-      src:play(1, 1) -- бесконечный цикл (петля события)
-    end
-  end)
-  print('apl_pet: звук мурчания — НЕПРЕРЫВНЫЙ ЛУП: ' .. petSoundEvent ..
-    ' (дыхание громкости ' .. string.format('%.2f', petSoundBreathHz) .. ' Гц)')
-  logLine('INFO', 'pet sound: луп запущен (' .. petSoundEvent .. ')')
+  petSoundTickAcc = petSoundInterval -- playOnce случится на ближайшем тике
+  print('apl_pet: звук мурчания — playOnce каждые ' ..
+    string.format('%.2f', petSoundInterval) .. ' с (оверлап), volume ' ..
+    string.format('%.2f', petSoundBaseVol) .. ', питч ' ..
+    string.format('%.2f', petSoundPitch) ..
+    (petSoundNoPos and ', БЕЗ позиции (фолбэк)' or ', позиция=машина'))
+  logLine('INFO', 'pet sound: старт (' .. petSoundEvent .. ', every ' ..
+    string.format('%.2f', petSoundInterval) .. 's, vol ' ..
+    string.format('%.2f', petSoundBaseVol) ..
+    (petSoundNoPos and ', no_pos' or ', pos=vehicle') .. ')')
 end
 
 -- === Дефолты конфига (ДУБЛЬ lights.json — ТОЛЬКО fallback; истина — файл) ===
@@ -1185,15 +1164,17 @@ end
 
 -- === Фаза 7: конфиг «Погладить» (ДУБЛЬ pet.json — ТОЛЬКО fallback) ===
 -- Истина — файл; числа клампятся, sound_event — строка ('' — без звука).
--- Правки после 2-го теста 18.10: физика ВЫРЕЗАНА (pedals/тормоз штатные —
--- brakeOverride=1 сломал поведение), эффект = руль ×scale + звуковой луп
--- С ПОЗИЦИЕЙ машины (иначе не слышно) + «дыхание» громкости (pitch живого
--- лупа из Lua не меняется — движок не отдаёт setPitch).
+-- Правки после теста 3 18.10: газ ЛЁГКИЙ (0.05±0.05 → 0..0.1, тормоз НЕ
+-- используем — brakeOverride сломал физику), фиксация — ручник (vehicle),
+-- звук — playOnce-оверлап каждые interval_s с позицией машины + «дыхание»
+-- громкости, no_pos — фолбэк без позиции (проверка слышимости файла).
 local PET_DEFAULTS = {
   duration_s = 6.0,
+  throttle = { offset = 0.05, amp = 0.05, hz = 2.5 },
   steer_rate_scale = 0.5,
   sound = {
-    sound_event = '', pitch = 0.7, breath_hz = 0.3, breath_depth = 0.25, volume = 1.5,
+    sound_event = '', pitch = 0.7, interval_s = 0.5,
+    breath_hz = 0.3, breath_depth = 0.25, volume = 2.0, no_pos = false,
   },
   cooldown = { speed_gate_kph = 5.0, spam_max = 4, spam_window_s = 30.0, cooldown_s = 20.0 },
 }
@@ -1202,10 +1183,13 @@ local function loadPetConfig()
   local D = PET_DEFAULTS
   local c = {
     duration_s = D.duration_s,
+    offset = D.throttle.offset, amp = D.throttle.amp, hz = D.throttle.hz,
     steer_rate_scale = D.steer_rate_scale,
     sound_event = D.sound.sound_event,
-    pitch = D.sound.pitch, breath_hz = D.sound.breath_hz,
+    pitch = D.sound.pitch, sound_interval = D.sound.interval_s,
+    breath_hz = D.sound.breath_hz,
     breath_depth = D.sound.breath_depth, sound_volume = D.sound.volume,
+    sound_no_pos = D.sound.no_pos,
     speed_gate_kph = D.cooldown.speed_gate_kph,
     spam_max = D.cooldown.spam_max, spam_window_s = D.cooldown.spam_window_s,
     cooldown_s = D.cooldown.cooldown_s,
@@ -1229,11 +1213,18 @@ local function loadPetConfig()
       return v
     end
     c.duration_s = clampTop('duration_s', 1, 60, D.duration_s)
+    c.offset = clampNum('throttle', 'offset', 0, 0.3, D.throttle.offset)
+    c.amp = clampNum('throttle', 'amp', 0, 0.3, D.throttle.amp)
+    c.hz = clampNum('throttle', 'hz', 0.05, 10, D.throttle.hz)
     c.steer_rate_scale = clampTop('steer_rate_scale', 0.1, 1, D.steer_rate_scale)
     c.pitch = clampNum('sound', 'pitch', 0.2, 3, D.sound.pitch)
+    c.sound_interval = clampNum('sound', 'interval_s', 0.05, 10, D.sound.interval_s)
     c.breath_hz = clampNum('sound', 'breath_hz', 0, 5, D.sound.breath_hz)
     c.breath_depth = clampNum('sound', 'breath_depth', 0, 1, D.sound.breath_depth)
-    c.sound_volume = clampNum('sound', 'volume', 0, 3, D.sound.volume) -- 1.5+ допустимо
+    c.sound_volume = clampNum('sound', 'volume', 0, 3, D.sound.volume) -- 2.0 допустимо
+    if type(decoded.sound) == 'table' and type(decoded.sound.no_pos) == 'boolean' then
+      c.sound_no_pos = decoded.sound.no_pos
+    end
     if type(decoded.sound) == 'table' and type(decoded.sound.sound_event) == 'string' then
       c.sound_event = decoded.sound.sound_event
     end
@@ -1244,6 +1235,8 @@ local function loadPetConfig()
   else
     logLine('WARN', 'pet: конфиг не найден/бит (' .. PET_CONF .. ') — дефолты кода')
   end
+  -- Звук выключен, если событие пустое ИЛИ интервал 0
+  if c.sound_event == '' or c.sound_interval <= 0 then c.sound_interval = 0 end
   return c
 end
 
@@ -1443,16 +1436,18 @@ function apl_pet(mode)
     end
     local cfg = loadPetConfig()
     local cmd = string.format(
-      'autopilotLivePetCmd.start({duration=%.2f, rateScale=%.2f, ' ..
-      'speedGateKph=%.1f, spamMax=%d, spamWindow=%.1f, cooldown=%.1f})',
-      cfg.duration_s, cfg.steer_rate_scale,
+      'autopilotLivePetCmd.start({duration=%.2f, offset=%.3f, amp=%.3f, hz=%.3f, ' ..
+      'rateScale=%.2f, speedGateKph=%.1f, spamMax=%d, spamWindow=%.1f, cooldown=%.1f})',
+      cfg.duration_s, cfg.offset, cfg.amp, cfg.hz, cfg.steer_rate_scale,
       cfg.speed_gate_kph, cfg.spam_max, cfg.spam_window_s, cfg.cooldown_s)
     if sendToVehicle(cmd) then
-      -- Звук: непрерывный луп в GE (vehicle при guard-отказе шлёт rejected —
-      -- гасим луп колбэком onVehiclePetRejected)
+      -- Звук: playOnce-оверлап в GE (vehicle при guard-отказе шлёт rejected —
+      -- гасим звук колбэком onVehiclePetRejected)
       petSoundEvent = cfg.sound_event
       petSoundPitch = cfg.pitch
       petSoundBaseVol = cfg.sound_volume
+      petSoundInterval = cfg.sound_interval
+      petSoundNoPos = cfg.sound_no_pos
       petSoundBreathHz = cfg.breath_hz
       petSoundBreathDepth = cfg.breath_depth
       petSoundStart()
@@ -1463,26 +1458,30 @@ function apl_pet(mode)
     end
     return true
   elseif mode == 'off' then
-    petSoundStop() -- луп гасим мгновенно (не дожидаясь vehicle)
+    petSoundStop() -- звук гасим мгновенно (не дожидаясь vehicle)
     petSoundEvent = ''
     if sendToVehicle('autopilotLivePetCmd.stop()') then
-      print('apl_pet: ПОГЛАЖИВАНИЕ ПРЕРВАНО — руль в штатном rate, звук остановлен')
+      print('apl_pet: ПОГЛАЖИВАНИЕ ПРЕРВАНО — газ/ручник/руль штатные')
       logLine('INFO', 'pet: stop sent')
     end
     return true
   elseif mode == 'status' then
     local cfg = loadPetConfig()
-    print('apl_pet GE: звук=' .. (petSoundSourceId ~= nil and 'ИГРАЕТ (луп)' or
+    print('apl_pet GE: звук=' .. (petSoundActive and 'ИГРАЕТ (playOnce оверлап)' or
       (petSoundEvent ~= '' and 'остановлен' or 'off')) ..
       (petSoundEvent ~= '' and (' (' .. petSoundEvent .. ')') or ''))
     print('  конфиг=' .. (cfg.fromFile and 'файл' or 'ДЕФОЛТЫ') ..
-      ': длительность ' .. string.format('%.1f', cfg.duration_s) .. ' с, руль ×' ..
-      string.format('%.2f', cfg.steer_rate_scale) ..
-      ', физика штатная (педали не трогаются)')
+      ': длительность ' .. string.format('%.1f', cfg.duration_s) .. ' с, газ ' ..
+      string.format('%.2f', cfg.offset) .. '+±' .. string.format('%.2f', cfg.amp) ..
+      ' @ ' .. string.format('%.2f', cfg.hz) .. ' Гц (0..' ..
+      string.format('%.2f', cfg.offset + cfg.amp) .. '), ручник — vehicle' ..
+      ', руль ×' .. string.format('%.2f', cfg.steer_rate_scale) ..
+      ', тормоз НЕ используется')
     print('  звук: ' .. (cfg.sound_event ~= '' and
       (cfg.sound_event .. ' (питч ' .. string.format('%.2f', cfg.pitch) ..
        ', громкость ' .. string.format('%.2f', cfg.sound_volume) ..
-       ', дыхание ' .. string.format('%.2f', cfg.breath_hz) .. ' Гц)')
+       ', каждые ' .. string.format('%.2f', cfg.sound_interval) .. ' с, ' ..
+       (cfg.sound_no_pos and 'БЕЗ позиции' or 'с позицией машины') .. ')')
       or 'выключен (sound_event пуст в pet.json)') ..
       ', гейт скорости ' .. string.format('%.0f', cfg.speed_gate_kph) .. ' км/ч')
     if not sendToVehicle('autopilotLivePetCmd.status()') then
@@ -1767,21 +1766,51 @@ end
 -- vehicle-модуле: guard «lights_state ~= lastApplied»).
 function M.onUpdate(dtReal)
   if dtReal == nil or dtReal ~= dtReal or dtReal <= 0 or dtReal > 1 then return end
-  -- Фаза 7б: «дыхание» громкости звукового лупа (pitch живого лупа из Lua не
-  -- меняется — нет setPitch; осциллируем volume ~10 раз/сек)
-  if petSoundSourceId ~= nil then
+  -- Фаза 7б (тест 3): playOnce-оверлап — каждые interval_s новая пачка
+  -- 'AudioGui' с позицией машины (volume 2.0 с «дыханием») → непрерывное
+  -- урчание. no_pos — фолбэк: без позиции (глобально) для проверки файла.
+  if petSoundActive and petSoundEvent ~= '' and petSoundInterval > 0 then
     petSoundT = petSoundT + dtReal
-    petSoundAcc = petSoundAcc + dtReal
-    if petSoundAcc >= 0.1 then
-      petSoundAcc = 0
+    petSoundTickAcc = petSoundTickAcc + dtReal
+    if petSoundTickAcc >= petSoundInterval then
+      petSoundTickAcc = petSoundTickAcc - petSoundInterval
+      -- «Дыхание» громкости: volume ± depth/2 по синусу
       local half = petSoundBreathDepth / 2
       local m = 1 - half + half * math.sin(2 * math.pi * petSoundBreathHz * petSoundT)
-      pcall(function()
-        local src = scenetree.findObjectById(petSoundSourceId)
-        if src and type(src.setVolume) == 'function' then
-          src:setVolume(petSoundBaseVol * m)
+      local vol = petSoundBaseVol * m
+      -- Позиция машины игрока (playOnce-схема: position = vec3)
+      local pos = nil
+      local veh = getVehicle()
+      if veh then
+        local okPos, vp = pcall(function() return veh:getPosition() end)
+        if okPos and vp then pos = vec3(vp.x, vp.y, vp.z) end
+      end
+      if petSoundNoPos then pos = nil end -- ручной фолбэк из pet.json
+      if pos == nil and not petSoundNoPos and not petSoundPosWarned then
+        petSoundPosWarned = true
+        print('WARN apl_pet: позиция машины недоступна — звук играет БЕЗ позиции')
+        logLine('WARN', 'pet sound: нет позиции машины — playOnce без position')
+      end
+      local ok, res = pcall(function()
+        if pos then
+          return Engine.Audio.playOnce('AudioGui', petSoundEvent,
+            { volume = vol, pitch = petSoundPitch, position = pos })
         end
+        -- Фолбэк: глобальный звук без позиции (проверка слышимости файла)
+        return Engine.Audio.playOnce('AudioGui', petSoundEvent,
+          { volume = vol, pitch = petSoundPitch })
       end)
+      if not ok then
+        logLine('WARN', 'pet sound: playOnce не смог (' .. tostring(res) .. ')')
+      elseif type(res) == 'table' and res.sourceId then
+        table.insert(petSoundIds, res.sourceId)
+        -- Держим только свежие пачки (звук живёт ~interval*4), остальные —
+        -- playOnce сам доиграет; id нужен лишь для мгновенного стопа.
+        while #petSoundIds > 8 do
+          local oldId = table.remove(petSoundIds, 1)
+          pcall(function() Engine.Audio.deleteSource(oldId) end)
+        end
+      end
     end
   end
   if not lightsAuto then return end
