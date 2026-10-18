@@ -11,9 +11,11 @@
 --       - coolant >= temp_threshold_c И oil >= oil_threshold_c (нефтехимия
 --         медленнее — компромиссный порог 60°C, решение координатора 16.10);
 --       - либо max_timeout_s (зима/поломка) → done с WARN.
---   * Шаг 5.3: sway — плавное покачивание рулём (синус, амплитуда 0.05 ≈ 5°,
---     0.3 Гц, fade-огибающая). При wheel engaged — sway отключается
---     (вариант B, wheel.lua не трогаем).
+--   * Шаг 5.3 + правка игрока 18.10: sway — покачивание рулём КУБИЧЕСКИМ
+--     синусом (amplitude * sin^3 — «плоские пики», эффект дыхания; 0.05 ≈ 5°,
+--     0.3 Гц, fade-огибающая 2 с) ТОЛЬКО в окне elapsed ∈ (start_delay_s,
+--     start_delay_s + duration_s) = (1, 6) с — весь прогрев НЕ качает.
+--     При wheel engaged — sway отключается (вариант B, wheel.lua не трогаем).
 --   * done → ручник снимается штатным API (шаг 5.4, parking_brake_release_at_end),
 --     сообщение игроку (print GE + guihooks HUD + txt-лог) и сигнал GE
 --     onVehicleWarmupDone → GE при auto_engage_after_warmup=true включает
@@ -37,7 +39,10 @@ local FALLBACK_CONF = 'mods/unpacked/AutopilotLive/ai/config/warmup.json'
 local DEFAULTS = {
   timing = { min_time_s = 10, max_timeout_s = 120, start_timeout_s = 10 },
   engine = { temp_threshold_c = 85, oil_threshold_c = 60, temp_poll_hz = 1 },
-  sway   = { enabled = 1, amplitude = 0.05, freq_hz = 0.3, fade_time_s = 2 },
+  -- sway: окно активности start_delay_s..(start_delay_s+duration_s) от elapsed —
+  -- покачивание НЕ идёт весь прогрев (правка игрока 18.10).
+  sway   = { enabled = 1, amplitude = 0.05, freq_hz = 0.3, fade_time_s = 2,
+             start_delay_s = 1, duration_s = 5 },
   finish = { parking_brake_release_at_end = 1, auto_engage_after_warmup = 0 },
 }
 
@@ -100,6 +105,14 @@ local function validateConfig(c)
   pos('sway',   'amplitude',        D.sway.amplitude,          0.001, 0.3)
   pos('sway',   'freq_hz',          D.sway.freq_hz,            0.01, 2.0)
   pos('sway',   'fade_time_s',      D.sway.fade_time_s,        0.1,  30)
+  pos('sway',   'duration_s',       D.sway.duration_s,         0.1,  600)
+  -- start_delay_s: 0 допустим (сразу после start) — pos() не подходит
+  -- (он требует > 0), поэтому отдельно: < 0 или NaN → дефолт.
+  do
+    local v = c.sway.start_delay_s
+    if v == nil or v ~= v or v < 0 then c.sway.start_delay_s = D.sway.start_delay_s end
+    if c.sway.start_delay_s > 60 then c.sway.start_delay_s = 60 end
+  end
   -- max_timeout не может быть меньше min_time (иначе done по таймауту
   -- обгоняет условие «минимум») — тихо поднимаем.
   if c.timing.max_timeout_s < c.timing.min_time_s then
@@ -252,10 +265,16 @@ local function finish(timedOut)
   notifyDone(timedOut)
 end
 
--- === Шаг 5.3: sway — плавное покачивание рулём «как бабушка зарядку делает» ===
--- Синус малой амплитуды (sway.amplitude, 0.05 ≈ 5°) на низкой частоте
--- (sway.freq_hz, 0.3 Гц — «медленно перекладывает»). Огибающая (fade) растёт
--- и тает линейно за fade_time_s — без щелчка руля при старте/остановке.
+-- === Шаг 5.3/5.6: sway — плавное покачивание рулём «как бабушка зарядку делает» ===
+-- ФОРМУЛА (правка игрока 18.10): КУБИЧЕСКИЙ СИНОУС —
+--   steering_input = amplitude * (sin(2π·freq·t))^3
+-- Куб синусы даёт «плоские пики»: в крайних точках руль как бы замирает
+-- (производная сходится к 0), создавая эффект живого дыхания вместо
+-- механического «демо-режима». Знак сохраняется (нечётная степень).
+-- ОКНО АКТИВНОСТИ (правка игрока 18.10): покачивание НЕ идёт весь прогрев —
+-- только пока elapsed ∈ (start_delay_s, start_delay_s + duration_s);
+-- вне окна целевая огибающая = 0 → плавное затухание за fade_time_s.
+-- Огибающая (fade) растёт и тает линейно — без щелчка руля при старте/остановке.
 -- Запись electrics.values.steering_input — та же схема Фазы 4 (wheel):
 -- переживает кадр и применяется hydros (api_research_phase5.md §5).
 -- ВАРИАНТ B (решение координатора 16.10): если wheel engaged (active +
@@ -265,9 +284,11 @@ local function swayStep(dt)
   if not cfg or cfg.sway.enabled <= 0 then return end
   swayTime = swayTime + dt
 
-  -- Фаза активности: идёт прогрев — целевая огибающая = amplitude; иначе
-  -- (done/off) — плавное затухание до 0.
+  -- Фаза активности = идёт прогрев И elapsed внутри окна свея; иначе
+  -- (start/done/off/вне окна) — плавное затухание до 0.
   local activePhase = (state == 'starting_engine' or state == 'warming_up')
+    and elapsed > cfg.sway.start_delay_s
+    and elapsed < (cfg.sway.start_delay_s + cfg.sway.duration_s)
   swayTarget = activePhase and cfg.sway.amplitude or 0
   local step = cfg.sway.amplitude * dt / math.max(cfg.sway.fade_time_s, 0.1)
   if swayAmp < swayTarget then
@@ -295,7 +316,10 @@ local function swayStep(dt)
   end
   wheelEngagedWarned = false
 
-  local swayVal = swayAmp * math.sin(2 * math.pi * cfg.sway.freq_hz * swayTime)
+  -- Кубический синус: сглаженные «плоские пики» — руль замирает в крайних
+  -- точках (эффект дыхания), а не качается синусоидой-маятником.
+  local s = math.sin(2 * math.pi * cfg.sway.freq_hz * swayTime)
+  local swayVal = swayAmp * (s ^ 3)
   pcall(function() electrics.values.steering_input = swayVal end)
   swayWritten = true
 end
@@ -405,7 +429,10 @@ function autopilotLiveWarmupCmd.status()
       ' пороги: coolant>=' .. (cfg and fmt(cfg.engine.temp_threshold_c) or '?') .. '°C oil>=' ..
       (cfg and fmt(cfg.engine.oil_threshold_c) or '?') .. '°C',
     'sway: ' .. (cfg and (cfg.sway.enabled > 0 and ('amp=' .. fmt(swayAmp) ..
-      ' (цель ' .. fmt(swayTarget) .. '), ' .. fmt(cfg.sway.freq_hz) .. 'Гц')
+      ' (цель ' .. fmt(swayTarget) .. '), ' .. fmt(cfg.sway.freq_hz) ..
+      'Гц, куб.синус, окно ' .. fmt(cfg.sway.start_delay_s) .. '-' ..
+      fmt(cfg.sway.start_delay_s + cfg.sway.duration_s) .. 'с (elapsed ' ..
+      fmt(elapsed) .. 'с)')
       or 'выключен') or '?') ..
       (wheelEngagedWarned and ' [wheel engaged — sway отключён]' or ''),
     'конфиг=' .. (cfgFromFile and 'файл' or (cfg and 'ДЕФОЛТЫ' or 'не загружен')),

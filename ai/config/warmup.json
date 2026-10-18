@@ -1,4 +1,5 @@
 {
+  "_comment_sway": "sway: покачивание рулём КУБИЧЕСКИМ синусом — steering_input = amplitude * (sin(2*pi*freq*t))^3 (куб синусы даёт плоские пики: руль замирает в крайних точках — эффект живого дыхания вместо механического качания). Активен только в окне elapsed от start_delay_s до start_delay_s + duration_s — весь прогрев НЕ идёт.",
   "timing": {
     "min_time_s": 10.0,
     "max_timeout_s": 120.0,
@@ -13,7 +14,9 @@
     "enabled": 1,
     "amplitude": 0.05,
     "freq_hz": 0.3,
-    "fade_time_s": 2.0
+    "fade_time_s": 2.0,
+    "start_delay_s": 1.0,
+    "duration_s": 5.0
   },
   "finish": {
     "parking_brake_release_at_end": 1,
