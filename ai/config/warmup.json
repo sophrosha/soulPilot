@@ -2,18 +2,18 @@
   "_comment_sway": "sway: покачивание рулём КУБИЧЕСКИМ синусом — steering_input = amplitude * (sin(2*pi*freq*t))^3 (куб синусы даёт плоские пики: руль замирает в крайних точках — эффект живого дыхания). СОБЫТИЕ В СЛУЧАЙНЫЙ МОМЕНТ: при start() генерируется sway_start_time = random(random_delay_min_s, random_delay_max_s) с точностью 0.01с, окно = [sway_start_time, sway_start_time + duration_s] от elapsed. Вне окна sway = 0.",
   "timing": {
     "min_time_s": 10.0,
-    "max_timeout_s": 120.0,
+    "max_timeout_s": 30.0,
     "start_timeout_s": 10.0
   },
   "engine": {
-    "temp_threshold_c": 85.0,
+    "temp_threshold_c": 75.0,
     "oil_threshold_c": 60.0,
     "temp_poll_hz": 1.0
   },
   "sway": {
     "enabled": 1,
-    "amplitude": 0.05,
-    "freq_hz": 0.3,
+    "amplitude": 0.035,
+    "freq_hz": 0.2,
     "fade_time_s": 2.0,
     "duration_s": 4.0,
     "random_delay_min_s": 1.0,

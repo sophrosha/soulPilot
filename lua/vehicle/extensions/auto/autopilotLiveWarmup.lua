@@ -8,14 +8,17 @@
 --     контроллер сам снизит до 2 после схватки; для EV — уровень 2, см.
 --     api_research_phase5.md §1) и прогревается:
 --       - минимум min_time_s (даже если машина уже тёплая — спавн preHeated=80°C);
---       - coolant >= temp_threshold_c И oil >= oil_threshold_c (нефтехимия
---         медленнее — компромиссный порог 60°C, решение координатора 16.10);
---       - либо max_timeout_s (зима/поломка) → done с WARN.
+--       - coolant >= temp_threshold_c И oil >= oil_threshold_c (дефолт coolant
+--         75°C — на холостых движок держится 65-75°C, правка 18.10; масло 60°C,
+--         решение координатора 16.10); всё правится в warmup.json;
+--       - либо max_timeout_s (дефолт 30 с — правка 18.10, «не ждать вечность»;
+--         зима/поломка) → done с WARN (в лог пишется текущая t).
 --   * Шаг 5.3 + правки игрока 18.10: sway — покачивание рулём КУБИЧЕСКИМ
---     синусом (amplitude * sin^3 — «плоские пики», эффект дыхания; 0.05 ≈ 5°,
---     0.3 Гц, fade-огибающая 2 с) СЛУЧАЙНЫМ СОБЫТИЕМ: при start() генерируется
---     окно [sway_start_time, +duration_s] (random_delay_min..max от старта) —
---     весь прогрев НЕ качает, момент — случайный при каждом запуске.
+--     синусом (amplitude * sin^3 — «плоские пики», эффект дыхания; 0.035 ≈ 3.5°,
+--     0.2 Гц — «ещё плавнее», fade-огибающая 2 с) СЛУЧАЙНЫМ СОБЫТИЕМ: при
+--     start() генерируется окно [sway_start_time, +duration_s]
+--     (random_delay_min..max от старта) — весь прогрев НЕ качает,
+--     момент — случайный при каждом запуске.
 --     При wheel engaged — sway отключается (вариант B, wheel.lua не трогаем).
 --   * done → ручник снимается штатным API (шаг 5.4, parking_brake_release_at_end),
 --     сообщение игроку (print GE + guihooks HUD + txt-лог) и сигнал GE
@@ -36,14 +39,17 @@ local FALLBACK_CONF = 'mods/unpacked/AutopilotLive/ai/config/warmup.json'
 -- === Дефолты конфига (дубль warmup.json — ТОЛЬКО fallback при отсутствии/
 -- битом конфиге; источник истины — файл) ===
 -- Единицы: *_s — секунды, *_c — градусы Цельсия, amplitude — нормированный
--- руль [-1,1] (0.05 ≈ 5°), freq_hz — Гц.
+-- руль [-1,1] (0.035 ≈ 3.5°), freq_hz — Гц.
 local DEFAULTS = {
-  timing = { min_time_s = 10, max_timeout_s = 120, start_timeout_s = 10 },
-  engine = { temp_threshold_c = 85, oil_threshold_c = 60, temp_poll_hz = 1 },
+  -- Дефолты держим В СИНХРОНЕ с warmup.json (правка 18.10: на холостых
+  -- двигатель держится 65-75°C — порог 75°C и таймаут 30с, чтобы не ждать).
+  timing = { min_time_s = 10, max_timeout_s = 30, start_timeout_s = 10 },
+  engine = { temp_threshold_c = 75, oil_threshold_c = 60, temp_poll_hz = 1 },
   -- sway: СЛУЧАЙНОЕ окно активности [sway_start_time, sway_start_time+duration_s]
   -- от elapsed — генерируется при start() в [random_delay_min_s, random_delay_max_s]
-  -- (правка игрока 18.10: покачивание-событие в случайный момент прогрева).
-  sway   = { enabled = 1, amplitude = 0.05, freq_hz = 0.3, fade_time_s = 2,
+  -- (правки игрока 18.10: покачивание-событие в случайный момент прогрева;
+  -- 0.035 ≈ 3.5° и 0.2 Гц — «ещё плавнее» по фидбеку игрока).
+  sway   = { enabled = 1, amplitude = 0.035, freq_hz = 0.2, fade_time_s = 2,
              duration_s = 4, random_delay_min_s = 1, random_delay_max_s = 8 },
   finish = { parking_brake_release_at_end = 1, auto_engage_after_warmup = 0 },
 }
@@ -359,7 +365,7 @@ function M.updateGFX(dt)
       toGE('WARN', 'warmup: двигатель не завёлся за ' .. fmt(cfg.timing.start_timeout_s) ..
         ' с — идём по таймеру (без температурного условия)')
       -- НЕ блокируем: далее tempOk() при отсутствии термалов откатится на
-      -- тайминги, таймаут 120 с всё равно завершит прогрев.
+      -- тайминги, таймаут max_timeout_s (30 с) всё равно завершит прогрев.
       state = 'warming_up'
     end
   elseif state == 'warming_up' then
