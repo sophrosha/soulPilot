@@ -1,44 +1,37 @@
 -- AutopilotLive — Фаза 7: «Погладить» (vehicle-слой, кнопка/питомец)
 -- Подключается штатно (lua/vehicle/extensions/auto — автозагрузка расширений).
 --
--- Ответственность vehicle-слоя (Фаза 7а/7б):
---   * микро-подГАЗОВКА: electrics.values.throttleOverride синусоидой 0..amp
---     — ШТАТНЫЙ override из vehicleController.lua:455 (так делают ванильные
---     cruiseControl/drag/crashTest). НЕ дёргаем input.event, НЕ тормоз,
---     НЕ КПП/ручник. По завершении/остановке — nil (управление возвращается
---     чисто, обороты проседают естественно от микро-сброса газа).
---   * руль плавнее: на время эффекта зовём autopilotLiveWheelCmd.setRateScale
---     (наш Фаза-4 модуль), при завершении — возврат к 1.
---   * звук (7б): каждые params.soundInterval секунд шлём GE-мост
---     onVehiclePetSound(pitch, volume) — GE играет FMOD-событие из pet.json
---     (Engine.Audio — только GE-объект). Тон с лёгким «тремором» (синус
---     pitch_wobble), громкость плавно затухает к концу поглаживания.
---   * guard'ы: только на стоянке (скорость < speed_gate_kph), иначе отказ;
---     защита от спама — «кошачье устало» (кулдаун, WARN в консоли).
---
--- Время/звуковое событие/позиционирование звука живут ТОЛЬКО в GE (main.lua).
--- КПП/pedals/CSV — не трогаются.
+-- Ответственность vehicle-слоя (Фаза 7а/7б, правки после теста 18.10):
+--   * ДРОЖАНИЕ ПЕДАЛИ: electrics.values.throttleOverride = env * (offset +
+--     amp*sin(2*pi*hz*t)) — «дрожит» в 0.0..0.3 на малых оборотах (дефолт
+--     0.15+0.15 @ 2.5 Гц). ШТАТНЫЙ override из vehicleController.lua:455
+--     (как cruiseControl/drag). НЕ дёргаем input.event, НЕ КПП/ручник.
+--   * ТОРМОЗ ЗАЖАТ (главное после теста): пока эффект активен —
+--     electrics.values.brakeOverride = 1.0 (полный тормоз), иначе коробка
+--     видит газ, включает сцепление и машина УПОЛЗАЕТ. По завершении — nil.
+--   * руль плавнее: autopilotLiveWheelCmd.setRateScale (Фаза-4 модуль),
+--     при завершении — возврат к 1.
+--   * guard'ы: только на стоянке (< speed_gate_kph), иначе отказ (в GE —
+--     колбэк onVehiclePetRejected, там же гасится звуковой луп); защита от
+--     спама — «кошачье устало» (кулдаун, WARN в консоли).
+--   * ЗВУК живёт ТОЛЬКО в GE (createSource-луп + дыхание громкости в
+--     M.onUpdate): vehicle шлёт колбэки done/rejected, GE останавливает луп.
 
 local M = {}
 
 -- === Дефолты (дубль pet.json — ТОЛЬКО fallback; истина — параметры из GE) ===
 local DEFAULTS = {
   duration = 6.0,        -- сек
-  amp = 0.05,            -- амплитуда микро-газа (0..1)
-  hz = 0.5,              -- частота синусоиды
+  offset = 0.15,         -- оффсет микро-газа (0..1) — база дрожания
+  amp = 0.15,            -- амплитуда дрожания (0..1) — 0.0..(offset+amp)
+  hz = 2.5,              -- частота дрожания (вибрация, не покачивание)
   rateScale = 0.5,       -- множитель rate_limit руля на время эффекта
-  soundInterval = 0,     -- сек между «пыхтениями»; 0 — звук выключен
-  soundPitch = 0.7,
-  soundWobble = 0.04,
-  soundWobbleHz = 6.0,
-  soundVolume = 0.8,
   speedGateKph = 5.0,    -- «нельзя гладить на ходу»
 }
 
 -- === Состояние ===
 local active = false
 local elapsed = 0        -- сек от старта эффекта
-local nextSound = 0      -- elapsed-момент следующего «пыхта»
 local p = nil            -- параметры текущего поглаживания (с клампом)
 local spamTimes = {}     -- моменты последних активаций (os.time)
 local busyUntil = 0      -- кулдаун «усталости» (os.time)
@@ -52,12 +45,11 @@ local function toGE(level, msg)
   end)
 end
 
--- Звуковой «пыхт» в GE (стр 7б-мост; GE играет pet.json sound_event)
-local function sendSoundTick(pitch, vol)
+-- Колбэки в GE: поглаживание завершено / отклонено (GE гасит звуковой луп)
+local function notifyGE(fname)
   pcall(function()
-    obj:queueGameEngineLua(string.format(
-      'if autopilotLive_main and autopilotLive_main.onVehiclePetSound then autopilotLive_main.onVehiclePetSound(%.3f, %.3f) end',
-      pitch, vol))
+    obj:queueGameEngineLua(
+      'if autopilotLive_main and autopilotLive_main.' .. fname .. ' then autopilotLive_main.' .. fname .. '() end')
   end)
 end
 
@@ -86,10 +78,10 @@ end
 
 -- === Завершение эффекта (общее для off/таймайута/respawn) ===
 local function finish(reason)
-  -- Газ возвращаем первым: управление игроку — без задержек.
+  -- Управление возвращаем первым: газ и тормоз — игроку без задержек.
   pcall(function() electrics.values.throttleOverride = nil end)
-  -- Руль: rate_scale → 1 (если wheel-модуль активен — он применил быстрее;
-  -- если нет — функция всё равно безопасна).
+  pcall(function() electrics.values.brakeOverride = nil end)
+  -- Руль: rate_scale → 1 (безопасно и при активном wheel, и без него).
   pcall(function()
     if autopilotLiveWheelCmd and autopilotLiveWheelCmd.setRateScale then
       autopilotLiveWheelCmd.setRateScale(1)
@@ -97,10 +89,11 @@ local function finish(reason)
   end)
   if active then
     local msg = 'ПОГЛАЖИВАНИЕ ЗАВЕРШЕНО (' .. string.format('%.1f', elapsed) .. ' с' ..
-      (reason and (', ' .. reason) or '') .. ') — управление возвращено'
+      (reason and (', ' .. reason) or '') .. ') — газ/тормоз возвращены'
     print('aplPet: ' .. msg)
     toGE('INFO', 'pet done: ' .. string.format('%.1f', elapsed) .. 's' ..
       (reason and (' (' .. reason .. ')') or ''))
+    notifyGE('onVehiclePetDone') -- GE гасит звуковой луп (fade)
   end
   active = false
   p = nil
@@ -120,24 +113,12 @@ function M.updateGFX(dt)
   if progress > 0.75 then envOut = math.max(0, 1 - (progress - 0.75) / 0.25) end
   local env = envIn * envOut
 
-  -- Микро-подгазовка: синусоида 0..amp («педали слегка подёргиваются»)
-  local phase = 2 * math.pi * p.hz * elapsed
-  local thr = p.amp * env * (0.5 - 0.5 * math.cos(phase))
+  -- Дрожание педали: env * (offset + amp*sin(...)) — плавно колеблется
+  -- в 0.0..(offset+amp) на малых оборотах (вибрация @ hz)
+  local thr = env * (p.offset + p.amp * math.sin(2 * math.pi * p.hz * elapsed))
   pcall(function() electrics.values.throttleOverride = thr end)
-
-  -- Звук: «пыхтения» с интервалом; тон с кошачьим «тремором», громкость —
-  -- плавное затухание к концу поглаживания (с 60% времени)
-  if p.soundInterval > 0 then
-    if elapsed >= nextSound then
-      local volEnv = 1
-      if progress > 0.6 then volEnv = math.max(0, 1 - (progress - 0.6) / 0.4) end
-      if volEnv > 0.02 then
-        local pitch = p.soundPitch + p.soundWobble * math.sin(2 * math.pi * p.soundWobbleHz * elapsed)
-        sendSoundTick(pitch, p.soundVolume * volEnv)
-      end
-      nextSound = nextSound + p.soundInterval
-    end
-  end
+  -- Тормоз держим ЗАЖАТЫМ весь эффект (без огибающей — машина не уползает)
+  pcall(function() electrics.values.brakeOverride = 1.0 end)
 
   if elapsed >= p.duration then finish() end
 end
@@ -151,37 +132,36 @@ function autopilotLivePetCmd.start(params)
   local D = DEFAULTS
   local cfg = {
     duration = clampNum(t.duration, 1, 60, D.duration),
-    amp = clampNum(t.amp, 0, 0.3, D.amp),
-    hz = clampNum(t.hz, 0.05, 5, D.hz),
+    offset = clampNum(t.offset, 0, 0.5, D.offset),
+    amp = clampNum(t.amp, 0, 0.5, D.amp),
+    hz = clampNum(t.hz, 0.05, 10, D.hz),
     rateScale = clampNum(t.rateScale, 0.1, 1, D.rateScale),
-    soundInterval = clampNum(t.soundInterval, 0, 30, D.soundInterval),
-    soundPitch = clampNum(t.soundPitch, 0.2, 3, D.soundPitch),
-    soundWobble = clampNum(t.soundWobble, 0, 0.5, D.soundWobble),
-    soundWobbleHz = clampNum(t.soundWobbleHz, 0, 30, D.soundWobbleHz),
-    soundVolume = clampNum(t.soundVolume, 0, 1, D.soundVolume),
     speedGateKph = clampNum(t.speedGateKph, 0, 120, D.speedGateKph),
     spamMax = clampNum(t.spamMax, 1, 50, 4),
     spamWindow = clampNum(t.spamWindow, 1, 600, 30),
     cooldown = clampNum(t.cooldown, 0, 600, 20),
   }
 
-  -- Guard 1: уже гладит — не перезапускаем, продлеваем можно через off/on
-  if active then
-    print('aplPet: уже идёт поглаживание (' .. string.format('%.1f', elapsed) ..
-      ' из ' .. string.format('%.1f', p.duration) .. ' с) — apl_pet("off") прерывает')
-    toGE('WARN', 'pet refused: already active')
+  local function refuse(msg, logMsg)
+    print('aplPet: ' .. msg)
+    toGE('WARN', 'pet refused: ' .. logMsg)
+    notifyGE('onVehiclePetRejected') -- GE гасит уже запущенный луп
     return false
+  end
+
+  -- Guard 1: уже гладит — не перезапускаем
+  if active then
+    return refuse('уже идёт поглаживание (' .. string.format('%.1f', elapsed) ..
+      ' из ' .. string.format('%.1f', p.duration) .. ' с) — apl_pet("off") прерывает',
+      'already active')
   end
 
   -- Guard 2: «кошачье устало» — кулдаун после серии активаций
   local now = nowSec()
   if now < busyUntil then
-    local left = busyUntil - now
-    print('aplPet: кошачье устало — перерыв ещё ' .. tostring(left) .. ' с')
-    toGE('WARN', 'pet refused: cooldown ' .. tostring(left) .. 's left')
-    return false
+    return refuse('кошачье устало — перерыв ещё ' .. tostring(busyUntil - now) .. ' с',
+      'cooldown ' .. tostring(busyUntil - now) .. 's left')
   end
-  -- Счёт спама: сколько активаций за окно
   local kept = {}
   for _, ts in ipairs(spamTimes) do
     if now - ts <= cfg.spamWindow then table.insert(kept, ts) end
@@ -190,28 +170,25 @@ function autopilotLivePetCmd.start(params)
   table.insert(spamTimes, now)
   if #spamTimes > cfg.spamMax then
     busyUntil = now + math.floor(cfg.cooldown + 0.5)
-    print('aplPet: кошачье устало (ждали ' .. tostring(#spamTimes) ..
+    return refuse('кошачье устало (ждали ' .. tostring(#spamTimes) ..
       ' раз за ' .. tostring(cfg.spamWindow) .. ' с) — перерыв ' ..
-      tostring(cfg.cooldown) .. ' с, не дёргайте')
-    toGE('WARN', 'pet refused: spam ' .. tostring(#spamTimes) .. 'x in ' ..
-      tostring(cfg.spamWindow) .. 's, cooldown ' .. tostring(cfg.cooldown) .. 's')
-    return false
+      tostring(cfg.cooldown) .. ' с, не дёргайте',
+      'spam ' .. tostring(#spamTimes) .. 'x in ' .. tostring(cfg.spamWindow) .. 's')
   end
 
   -- Guard 3: «нельзя гладить на ходу»
   local v = speedKph()
   if v >= cfg.speedGateKph then
-    print('aplPet: НЕЛЬЗЯ гладить на ходу (' .. string.format('%.0f', v) ..
-      ' км/ч, гейт ' .. string.format('%.0f', cfg.speedGateKph) .. ' км/ч)')
-    toGE('WARN', 'pet refused: moving ' .. string.format('%.1f', v) .. ' kph')
-    return false
+    return refuse('НЕЛЬЗЯ гладить на ходу (' .. string.format('%.0f', v) ..
+      ' км/ч, гейт ' .. string.format('%.0f', cfg.speedGateKph) .. ' км/ч)',
+      'moving ' .. string.format('%.1f', v) .. ' kph')
   end
 
-  -- Старт эффекта
+  -- Старт эффекта: тормоз — ЗАЖАТ сразу (иначе газ → сцепление → едет)
   p = cfg
   elapsed = 0
-  nextSound = cfg.soundInterval > 0 and cfg.soundInterval or 0
   active = true
+  pcall(function() electrics.values.brakeOverride = 1.0 end)
   -- Руль: временно плавнее (rate_scale)
   pcall(function()
     if autopilotLiveWheelCmd and autopilotLiveWheelCmd.setRateScale then
@@ -219,15 +196,12 @@ function autopilotLivePetCmd.start(params)
     end
   end)
   print('aplPet: ПОГЛАЖИВАНИЕ НАЧАТО (' .. string.format('%.0f', cfg.duration) ..
-    ' с, микро-газ ' .. string.format('%.2f', cfg.amp) ..
-    ', руль ×' .. string.format('%.2f', cfg.rateScale) ..
-    (cfg.soundInterval > 0 and (', звук каждые ' .. string.format('%.1f', cfg.soundInterval) .. ' с')
-      or ', без звука') .. ')')
+    ' с, дрожание газа ' .. string.format('%.2f', cfg.offset) .. '+±' ..
+    string.format('%.2f', cfg.amp) .. ' @ ' .. string.format('%.1f', cfg.hz) ..
+    ' Гц, тормоз зажат, руль ×' .. string.format('%.2f', cfg.rateScale) .. ')')
   toGE('INFO', 'pet start: dur=' .. string.format('%.1f', cfg.duration) ..
-    ' amp=' .. string.format('%.2f', cfg.amp) ..
-    ' hz=' .. string.format('%.2f', cfg.hz) ..
-    ' scale=' .. string.format('%.2f', cfg.rateScale) ..
-    ' sound=' .. (cfg.soundInterval > 0 and string.format('%.1fs', cfg.soundInterval) or 'off'))
+    ' thr=' .. string.format('%.2f', cfg.offset) .. '+±' .. string.format('%.2f', cfg.amp) ..
+    ' @' .. string.format('%.2f', cfg.hz) .. 'Hz scale=' .. string.format('%.2f', cfg.rateScale))
   return true
 end
 
@@ -243,7 +217,7 @@ function autopilotLivePetCmd.status()
     '--- apl_pet status (vehicle) ---',
     'active=' .. tostring(active) ..
       (active and (' elapsed=' .. string.format('%.1f', elapsed) .. '/' ..
-        string.format('%.1f', p.duration) .. ' с') or ''),
+        string.format('%.1f', p.duration) .. ' с, тормоз=зажат') or ''),
     'speed=' .. string.format('%.1f', speedKph()) .. ' км/ч',
     'кулдаун=' .. tostring(math.max(0, busyUntil - nowSec())) .. ' с, активаций за окно=' ..
       tostring(#spamTimes),
@@ -256,7 +230,7 @@ end
 
 -- === Жизненный цикл ===
 function M.onReset()
-  -- Respawn: electrics сброшены (override уже нет) — эффект прерываем.
+  -- Respawn: electrics сброшены (override'ов уже нет) — эффект прерываем.
   if active then finish('respawn') end
 end
 

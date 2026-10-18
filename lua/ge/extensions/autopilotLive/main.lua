@@ -991,7 +991,61 @@ local lightsAcc = 0          -- аккумулятор опроса времен
 local lightsCfg = nil        -- кэш конфига (перечитывается при каждом auto/status)
 local lightsWindow = nil     -- применённое окно {start=, ['end']=} строками ЧЧ:ММ
 local lightsIsNight = nil    -- состояние гистерезиса (nil — не инициализировано)
-local petSoundEvent = ''     -- Фаза 7б: FMOD-событие из pet.json ('' — без звука)
+-- Фаза 7б: звуковой луп «мурчания» (живёт в GE: createSource + play, «дыхание»
+-- громкости в M.onUpdate; pitch живого лупа из Lua не меняется — нет setPitch)
+local petSoundEvent = ''     -- FMOD-событие из pet.json ('' — без звука)
+local petSoundSourceId = nil -- id источника лупа (nil — не играет)
+local petSoundPitch = 0.7    -- тон лупа из конфига (фикс на всё время лупа)
+local petSoundBaseVol = 1.0  -- базовая громкость из конфига
+local petSoundBreathHz = 0.3 -- частота «дыхания» громкости
+local petSoundBreathDepth = 0.25 -- глубина «дыхания» (0..1)
+local petSoundT = 0          -- время жизни лупа, сек (для дыхания)
+local petSoundAcc = 0        -- аккумулятор обновления громкости, сек
+
+-- Плавная остановка лупа (fade 1 с) + удаление источника (идемпотентно)
+local function petSoundStop()
+  if petSoundSourceId == nil then return end
+  local id = petSoundSourceId
+  petSoundSourceId = nil
+  pcall(function()
+    local src = scenetree.findObjectById(id)
+    if src then src:stop(1, 1) end
+  end)
+  pcall(function() Engine.Audio.deleteSource(id) end)
+  logLine('INFO', 'pet sound: луп остановлен')
+end
+
+-- Старт непрерывного лупа (pet.json sound_event). Питч подставляем best-effort:
+-- createSource питч не документирует (в отличие от playOnce) — если API его
+-- принимает — отлично, если нет — играет родной тембр события.
+local function petSoundStart()
+  petSoundStop() -- страховка от двойного лупа
+  if petSoundEvent == '' then return end
+  local ok, id = pcall(function()
+    return Engine.Audio.createSource('AudioGui', petSoundEvent, { pitch = petSoundPitch })
+  end)
+  if not ok or id == nil then
+    -- Фолбэк без opts (некоторые биндинги не принимают третий аргумент)
+    ok, id = pcall(function() return Engine.Audio.createSource('AudioGui', petSoundEvent) end)
+  end
+  if not ok or id == nil then
+    logLine('WARN', 'pet sound: createSource не смог (' .. petSoundEvent .. ')')
+    return
+  end
+  petSoundSourceId = id
+  petSoundT = 0
+  petSoundAcc = 0
+  pcall(function()
+    local src = scenetree.findObjectById(id)
+    if src then
+      if type(src.setVolume) == 'function' then src:setVolume(petSoundBaseVol) end
+      src:play(1, 1) -- бесконечный цикл (петля события)
+    end
+  end)
+  print('apl_pet: звук мурчания — НЕПРЕРЫВНЫЙ ЛУП: ' .. petSoundEvent ..
+    ' (дыхание громкости ' .. string.format('%.2f', petSoundBreathHz) .. ' Гц)')
+  logLine('INFO', 'pet sound: луп запущен (' .. petSoundEvent .. ')')
+end
 
 -- === Дефолты конфига (ДУБЛЬ lights.json — ТОЛЬКО fallback; истина — файл) ===
 -- night_state: дефолт 1 (ближний); значение 2 в файле читается и включает по
@@ -1118,13 +1172,15 @@ end
 
 -- === Фаза 7: конфиг «Погладить» (ДУБЛЬ pet.json — ТОЛЬКО fallback) ===
 -- Истина — файл; числа клампятся, sound_event — строка ('' — без звука).
+-- Правки после теста 18.10: газ = offset + amp*sin (дрожание 0..0.3 @2.5 Гц),
+-- звук — непрерывный ЛУП (createSource + play) с «дыханием» громкости
+-- (pitch живого лупа из Lua не меняется — движок не отдаёт setPitch).
 local PET_DEFAULTS = {
   duration_s = 6.0,
-  throttle = { amp = 0.05, hz = 0.5 },
+  throttle = { offset = 0.15, amp = 0.15, hz = 2.5 },
   steer_rate_scale = 0.5,
   sound = {
-    sound_event = '', pitch = 0.7, pitch_wobble = 0.04,
-    pitch_wobble_hz = 6.0, interval_s = 1.5, volume = 0.8,
+    sound_event = '', pitch = 0.7, breath_hz = 0.3, breath_depth = 0.25, volume = 1.0,
   },
   cooldown = { speed_gate_kph = 5.0, spam_max = 4, spam_window_s = 30.0, cooldown_s = 20.0 },
 }
@@ -1133,12 +1189,11 @@ local function loadPetConfig()
   local D = PET_DEFAULTS
   local c = {
     duration_s = D.duration_s,
-    amp = D.throttle.amp, hz = D.throttle.hz,
+    offset = D.throttle.offset, amp = D.throttle.amp, hz = D.throttle.hz,
     steer_rate_scale = D.steer_rate_scale,
     sound_event = D.sound.sound_event,
-    pitch = D.sound.pitch, pitch_wobble = D.sound.pitch_wobble,
-    pitch_wobble_hz = D.sound.pitch_wobble_hz,
-    sound_interval = D.sound.interval_s, sound_volume = D.sound.volume,
+    pitch = D.sound.pitch, breath_hz = D.sound.breath_hz,
+    breath_depth = D.sound.breath_depth, sound_volume = D.sound.volume,
     speed_gate_kph = D.cooldown.speed_gate_kph,
     spam_max = D.cooldown.spam_max, spam_window_s = D.cooldown.spam_window_s,
     cooldown_s = D.cooldown.cooldown_s,
@@ -1162,13 +1217,13 @@ local function loadPetConfig()
       return v
     end
     c.duration_s = clampTop('duration_s', 1, 60, D.duration_s)
-    c.amp = clampNum('throttle', 'amp', 0, 0.3, D.throttle.amp)
-    c.hz = clampNum('throttle', 'hz', 0.05, 5, D.throttle.hz)
+    c.offset = clampNum('throttle', 'offset', 0, 0.5, D.throttle.offset)
+    c.amp = clampNum('throttle', 'amp', 0, 0.5, D.throttle.amp)
+    c.hz = clampNum('throttle', 'hz', 0.05, 10, D.throttle.hz)
     c.steer_rate_scale = clampTop('steer_rate_scale', 0.1, 1, D.steer_rate_scale)
     c.pitch = clampNum('sound', 'pitch', 0.2, 3, D.sound.pitch)
-    c.pitch_wobble = clampNum('sound', 'pitch_wobble', 0, 0.5, D.sound.pitch_wobble)
-    c.pitch_wobble_hz = clampNum('sound', 'pitch_wobble_hz', 0, 30, D.sound.pitch_wobble_hz)
-    c.sound_interval = clampNum('sound', 'interval_s', 0, 30, D.sound.interval_s)
+    c.breath_hz = clampNum('sound', 'breath_hz', 0, 5, D.sound.breath_hz)
+    c.breath_depth = clampNum('sound', 'breath_depth', 0, 1, D.sound.breath_depth)
     c.sound_volume = clampNum('sound', 'volume', 0, 1, D.sound.volume)
     if type(decoded.sound) == 'table' and type(decoded.sound.sound_event) == 'string' then
       c.sound_event = decoded.sound.sound_event
@@ -1180,8 +1235,6 @@ local function loadPetConfig()
   else
     logLine('WARN', 'pet: конфиг не найден/бит (' .. PET_CONF .. ') — дефолты кода')
   end
-  -- Звук выключен, если событие пустое ИЛИ интервал 0
-  if c.sound_event == '' or c.sound_interval <= 0 then c.sound_interval = 0 end
   return c
 end
 
@@ -1380,46 +1433,49 @@ function apl_pet(mode)
       return false
     end
     local cfg = loadPetConfig()
-    petSoundEvent = cfg.sound_event -- для onVehiclePetSound (7б)
     local cmd = string.format(
-      'autopilotLivePetCmd.start({duration=%.2f, amp=%.3f, hz=%.3f, rateScale=%.2f, ' ..
-      'soundInterval=%.2f, soundPitch=%.2f, soundWobble=%.3f, soundWobbleHz=%.2f, ' ..
-      'soundVolume=%.2f, speedGateKph=%.1f, spamMax=%d, spamWindow=%.1f, cooldown=%.1f})',
-      cfg.duration_s, cfg.amp, cfg.hz, cfg.steer_rate_scale,
-      cfg.sound_interval, cfg.pitch, cfg.pitch_wobble, cfg.pitch_wobble_hz,
-      cfg.sound_volume, cfg.speed_gate_kph, cfg.spam_max, cfg.spam_window_s, cfg.cooldown_s)
+      'autopilotLivePetCmd.start({duration=%.2f, offset=%.3f, amp=%.3f, hz=%.3f, ' ..
+      'rateScale=%.2f, speedGateKph=%.1f, spamMax=%d, spamWindow=%.1f, cooldown=%.1f})',
+      cfg.duration_s, cfg.offset, cfg.amp, cfg.hz, cfg.steer_rate_scale,
+      cfg.speed_gate_kph, cfg.spam_max, cfg.spam_window_s, cfg.cooldown_s)
     if sendToVehicle(cmd) then
+      -- Звук: непрерывный луп в GE (vehicle при guard-отказе шлёт rejected —
+      -- гасим луп колбэком onVehiclePetRejected)
+      petSoundEvent = cfg.sound_event
+      petSoundPitch = cfg.pitch
+      petSoundBaseVol = cfg.sound_volume
+      petSoundBreathHz = cfg.breath_hz
+      petSoundBreathDepth = cfg.breath_depth
+      petSoundStart()
       print('apl_pet: команда отправлена (конфиг=' .. (cfg.fromFile and 'файл' or 'ДЕФОЛТЫ') ..
         ') — guard-отказы vehicle печатает сам (на ходу/усталость)')
-      if cfg.sound_event ~= '' then
-        print('apl_pet: звук мурчания: ' .. cfg.sound_event .. ' (питч ' ..
-          string.format('%.2f', cfg.pitch) .. ', каждые ' ..
-          string.format('%.1f', cfg.sound_interval) .. ' с)')
-      else
-        print('apl_pet: звук выключен (sound_event пуст в pet.json)')
-      end
       logLine('INFO', 'pet: start sent, conf=' .. (cfg.fromFile and 'file' or 'defaults') ..
         ' sound=' .. (cfg.sound_event ~= '' and cfg.sound_event or 'off'))
     end
     return true
   elseif mode == 'off' then
+    petSoundStop() -- луп гасим мгновенно (не дожидаясь vehicle)
     petSoundEvent = ''
     if sendToVehicle('autopilotLivePetCmd.stop()') then
-      print('apl_pet: ПОГЛАЖИВАНИЕ ПРЕРВАНО — управление возвращено')
+      print('apl_pet: ПОГЛАЖИВАНИЕ ПРЕРВАНО — газ/тормоз возвращены')
       logLine('INFO', 'pet: stop sent')
     end
     return true
   elseif mode == 'status' then
     local cfg = loadPetConfig()
-    print('apl_pet GE: звук=' .. (petSoundEvent ~= '' and petSoundEvent or 'off'))
+    print('apl_pet GE: звук=' .. (petSoundSourceId ~= nil and 'ИГРАЕТ (луп)' or
+      (petSoundEvent ~= '' and 'остановлен' or 'off')) ..
+      (petSoundEvent ~= '' and (' (' .. petSoundEvent .. ')') or ''))
     print('  конфиг=' .. (cfg.fromFile and 'файл' or 'ДЕФОЛТЫ') ..
-      ': длительность ' .. string.format('%.1f', cfg.duration_s) .. ' с, микро-газ ' ..
-      string.format('%.2f', cfg.amp) .. ' @ ' .. string.format('%.2f', cfg.hz) .. ' Гц' ..
+      ': длительность ' .. string.format('%.1f', cfg.duration_s) .. ' с, дрожание газа ' ..
+      string.format('%.2f', cfg.offset) .. '+±' .. string.format('%.2f', cfg.amp) ..
+      ' @ ' .. string.format('%.2f', cfg.hz) .. ' Гц' ..
       ', руль ×' .. string.format('%.2f', cfg.steer_rate_scale))
-    print('  звук: ' .. (cfg.sound_interval > 0 and
-      (cfg.sound_event .. ' питч ' .. string.format('%.2f', cfg.pitch) ..
-       ' каждые ' .. string.format('%.1f', cfg.sound_interval) .. ' с')
-      or 'выключен') .. ', гейт скорости ' .. string.format('%.0f', cfg.speed_gate_kph) .. ' км/ч')
+    print('  звук: ' .. (cfg.sound_event ~= '' and
+      (cfg.sound_event .. ' (питч ' .. string.format('%.2f', cfg.pitch) ..
+       ', дыхание ' .. string.format('%.2f', cfg.breath_hz) .. ' Гц)')
+      or 'выключен (sound_event пуст в pet.json)') ..
+      ', гейт скорости ' .. string.format('%.0f', cfg.speed_gate_kph) .. ' км/ч')
     if not sendToVehicle('autopilotLivePetCmd.status()') then
       print('WARN apl_pet: машина игрока не найдена — статус vehicle-слоя недоступен')
     end
@@ -1429,21 +1485,15 @@ function apl_pet(mode)
   return false
 end
 
--- Фаза 7б: vehicle присылает «пыхты» (каждые interval_s); GE играет FMOD-
--- событие из pet.json у позиции машины (Engine.Audio — только GE-объект).
-function M.onVehiclePetSound(pitch, vol)
-  if petSoundEvent == '' then return end
-  pitch = tonumber(pitch) or 0.7
-  vol = tonumber(vol) or 0.8
-  if pitch ~= pitch or vol ~= vol then return end
-  local veh = getVehicle()
-  if not veh then return end
-  local okPos, pos = pcall(function() return veh:getPosition() end)
-  pcall(function()
-    Engine.Audio.playOnce('AudioGui', petSoundEvent,
-      { volume = vol, pitch = pitch,
-        position = (okPos and pos) and vec3(pos.x, pos.y, pos.z) or nil })
-  end)
+-- Фаза 7б: vehicle сообщает завершение/отклонение — GE гасит луп (fade 1 с).
+function M.onVehiclePetDone()
+  petSoundStop()
+  logLine('INFO', 'pet: vehicle завершил поглаживание — луп остановлен')
+end
+
+function M.onVehiclePetRejected()
+  petSoundStop()
+  logLine('INFO', 'pet: vehicle отклонил (guard) — луп остановлен')
 end
 
 function apl_debug()
@@ -1707,8 +1757,25 @@ end
 -- 1/poll_hz; target шлём vehicle ТОЛЬКО при смене (анти-дёрганье живёт в
 -- vehicle-модуле: guard «lights_state ~= lastApplied»).
 function M.onUpdate(dtReal)
-  if not lightsAuto then return end
   if dtReal == nil or dtReal ~= dtReal or dtReal <= 0 or dtReal > 1 then return end
+  -- Фаза 7б: «дыхание» громкости звукового лупа (pitch живого лупа из Lua не
+  -- меняется — нет setPitch; осциллируем volume ~10 раз/сек)
+  if petSoundSourceId ~= nil then
+    petSoundT = petSoundT + dtReal
+    petSoundAcc = petSoundAcc + dtReal
+    if petSoundAcc >= 0.1 then
+      petSoundAcc = 0
+      local half = petSoundBreathDepth / 2
+      local m = 1 - half + half * math.sin(2 * math.pi * petSoundBreathHz * petSoundT)
+      pcall(function()
+        local src = scenetree.findObjectById(petSoundSourceId)
+        if src and type(src.setVolume) == 'function' then
+          src:setVolume(petSoundBaseVol * m)
+        end
+      end)
+    end
+  end
+  if not lightsAuto then return end
   local poll = lightsCfg and tonumber(lightsCfg.timing.poll_hz) or 1
   if poll ~= poll then poll = 1 end
   if poll < 0.1 then poll = 0.1 elseif poll > 10 then poll = 10 end
@@ -1769,7 +1836,8 @@ function M.onClientPostStartMission()
   lightsCfg = nil
   lightsWindow = nil
   lightsAcc = 0
-  petSoundEvent = '' -- Фаза 7: звук мурчания — только по явному on
+  petSoundStop() -- Фаза 7б: луп не переживает смену миссии
+  petSoundEvent = '' -- звук мурчания — только по явному on
   if not csvActive then return end
   stopCsvRecording()
   if csvActive then
