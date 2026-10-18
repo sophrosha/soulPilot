@@ -24,6 +24,9 @@ local mode = 'off'
 local target = 0          -- целевой state для auto (0/1/2, приходит из GE)
 local lastApplied = nil   -- что МЫ применили в auto (nil = ещё не применяли:
                           -- первое применение/после respawn — без interrupt)
+local suppress = false    -- Фаза 8: popup моргает — авто-логика молчит (не
+                          -- считает мигок ручным вмешательством, не применяет
+                          -- target)
 
 -- === Лог событий в GE (паттерн autopilotLiveWarmup.lua:77-83) ===
 local function toGE(level, msg)
@@ -99,6 +102,20 @@ function autopilotLiveLightsCmd.setManual(v)
   return true
 end
 
+-- Фаза 8 (popup): временная приостановка авто-логики — на время мигка
+-- popup-модуля (setLightsState(1)→(0)) interrupt НЕ срабатывает и target не
+-- применяется; после снятия suppress auto продолжается как прежде.
+function autopilotLiveLightsCmd.setSuppress(v)
+  suppress = v == true
+  return true
+end
+
+-- Фаза 8 (popup): активен ли авто-режим — popup отличает переходы Ф6-auto
+-- (ночь/день) от ручного вмешательства игрока.
+function autopilotLiveLightsCmd.isAuto()
+  return mode == 'auto'
+end
+
 function autopilotLiveLightsCmd.status()
   local applied = lastApplied ~= nil and tostring(lastApplied) or 'нет'
   local lines = {
@@ -121,6 +138,7 @@ end
 function M.updateGFX(dt)
   if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then return end -- NaN/перерывы
   if mode ~= 'auto' then return end
+  if suppress then return end -- Фаза 8: popup моргает — молчим (см. setSuppress)
 
   local cur = curState()
 
@@ -142,6 +160,8 @@ end
 function M.onReset()
   -- Respawn: electrics сброшены — в auto пере-применяем target на ближайшем
   -- кадре (lastApplied=nil гасит ложный interrupt на свежих нулях).
+  -- suppress сбрасываем страховочно (popup на respawn снимает свой сам).
+  suppress = false
   if mode == 'auto' then lastApplied = nil end
 end
 
@@ -149,6 +169,7 @@ function M.onVehicleDestroyed()
   mode = 'off'
   target = 0
   lastApplied = nil
+  suppress = false
 end
 
 return M

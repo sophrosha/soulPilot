@@ -984,6 +984,8 @@ local LIGHTS_CONF = 'mods/unpacked/AutopilotLive/ai/config/lights.json'
 local LIGHTS_MAP_CONF = 'mods/unpacked/AutopilotLive/ai/config/lights_by_map.json'
 -- Фаза 7: конфиг «Погладить» (паттерн lights: DEFAULTS = дубль файла)
 local PET_CONF = 'mods/unpacked/AutopilotLive/ai/config/pet.json'
+-- Фаза 8: конфиг pop-up фар (паттерн lights/pet: DEFAULTS = дубль файла)
+local POPUP_CONF = 'mods/unpacked/AutopilotLive/ai/config/popup.json'
 
 local lightsAuto = false     -- auto включён (только командой игрока)
 local lightsTarget = nil     -- последний отправленный vehicle target (0/1/2)
@@ -1047,7 +1049,6 @@ local LIGHTS_DEFAULTS = {
   timing = { poll_hz = 1, hysteresis_min = 15 },
   modes = { day_state = 1, night_state = 1 },
   night_window = { start = '20:00', ['end'] = '07:00' },
-  guard = { refuse_auto_on_popup = 1, popup_models = { 'bolide', 'wigeon' } },
 }
 
 -- "ЧЧ:ММ" → часы float (0..24); допускается число/числовой строка. nil — кривизна.
@@ -1100,11 +1101,9 @@ local function loadLightsConfig()
     timing = { poll_hz = D.timing.poll_hz, hysteresis_min = D.timing.hysteresis_min },
     modes = { day_state = D.modes.day_state, night_state = D.modes.night_state },
     night_window = { start = D.night_window.start, ['end'] = D.night_window['end'] },
-    guard = { refuse_auto_on_popup = D.guard.refuse_auto_on_popup, popup_models = {} },
     maps = {},
     fromFile = false,
   }
-  for _, m in ipairs(D.guard.popup_models) do table.insert(c.guard.popup_models, m) end
 
   local decoded = readJsonFile(LIGHTS_CONF)
   if decoded then
@@ -1126,17 +1125,6 @@ local function loadLightsConfig()
       end
       if parseHHMM(decoded.night_window['end']) then
         c.night_window['end'] = tostring(decoded.night_window['end'])
-      end
-    end
-    if type(decoded.guard) == 'table' then
-      local ra = tonumber(decoded.guard.refuse_auto_on_popup)
-      if ra ~= nil and ra == ra then c.guard.refuse_auto_on_popup = ra ~= 0 and 1 or 0 end
-      if type(decoded.guard.popup_models) == 'table' and decoded.guard.popup_models[1] ~= nil then
-        local list = {}
-        for _, v in ipairs(decoded.guard.popup_models) do
-          if type(v) == 'string' and v ~= '' then table.insert(list, v:lower()) end
-        end
-        if #list > 0 then c.guard.popup_models = list end
       end
     end
   else
@@ -1306,20 +1294,6 @@ function apl_lights(mode, value)
       return false
     end
     local cfg = loadLightsConfig()
-    -- Guard pop-up (Фаза 8): Bolide/Wigeon — авто-режим не активируем, анимацию
-    -- их фар не трогаем; ручные far/near/off работают (то же API, что в радиал-меню).
-    if cfg.guard.refuse_auto_on_popup > 0 then
-      local jb = playerJBeam(veh)
-      if jb then
-        for _, m in ipairs(cfg.guard.popup_models) do
-          if m == jb then
-            print('apl_lights: ' .. jb .. ' — pop-up фары: авто-режим НЕ активирован (Фаза 8); far/near/off работают')
-            logLine('INFO', 'lights auto refused: popup model=' .. jb)
-            return false
-          end
-        end
-      end
-    end
     local window, mapId, fromMap = windowForCurrentMap(cfg)
     lightsCfg = cfg
     lightsWindow = window
@@ -1502,6 +1476,176 @@ end
 function M.onVehiclePetRejected()
   petSoundStop()
   logLine('INFO', 'pet: vehicle отклонил (guard) — луп остановлен')
+end
+
+-- === Фаза 8 (2026-10-19): pop-up фары / «глазки» — случайное моргание ===
+-- Утверждено координатором 19.10: вариант А (моргание через setLightsState),
+-- интервалы день 120-180 с / ночь 180-300 с, blink 1.5-2 с, guard Ф6
+-- (refuse_auto_on_popup) СНЯТ — авто-свет Ф6 на Bolide/Wigeon работает.
+local popupAuto = false        -- авто-режим включён игроком (только apl_popup("auto"))
+local popupNightLast = false   -- последняя переданная vehicle ночь
+local popupNightAcc = 0        -- аккумулятор опроса ночи (тик ~2 с)
+
+-- Дефолты конфига (ДУБЛЬ popup.json — ТОЛЬКО fallback; истина — файл)
+local POPUP_DEFAULTS = {
+  models = { 'bolide', 'wigeon' },
+  day_min_s = 120, day_max_s = 180,
+  night_min_s = 180, night_max_s = 300,
+  blink_min_s = 1.5, blink_max_s = 2.0,
+  debug_force_blink_delay_s = 0,
+}
+
+-- Чтение popup.json с клампами; fromFile=false — дефолты, файл не найден.
+local function loadPopupConfig()
+  local D = POPUP_DEFAULTS
+  local c = {
+    models = {},
+    dayMin = D.day_min_s, dayMax = D.day_max_s,
+    nightMin = D.night_min_s, nightMax = D.night_max_s,
+    blinkMin = D.blink_min_s, blinkMax = D.blink_max_s,
+    debugDelay = D.debug_force_blink_delay_s,
+    fromFile = false,
+  }
+  for _, m in ipairs(D.models) do table.insert(c.models, m) end
+
+  local decoded = readJsonFile(POPUP_CONF)
+  if decoded then
+    c.fromFile = true
+    -- Кламп поля верхнего уровня (паттерн loadPetConfig.clampTop)
+    local function clampTop(key, lo, hi, dflt)
+      local v = tonumber(decoded[key])
+      if v == nil or v ~= v then return dflt end
+      if v < lo then return lo end
+      if v > hi then return hi end
+      return v
+    end
+    if type(decoded.models) == 'table' and decoded.models[1] ~= nil then
+      local list = {}
+      for _, v in ipairs(decoded.models) do
+        if type(v) == 'string' and v ~= '' then table.insert(list, v:lower()) end
+      end
+      if #list > 0 then c.models = list end
+    end
+    c.dayMin = clampTop('day_min_s', 5, 3600, c.dayMin)
+    c.dayMax = clampTop('day_max_s', 5, 3600, c.dayMax)
+    c.nightMin = clampTop('night_min_s', 5, 3600, c.nightMin)
+    c.nightMax = clampTop('night_max_s', 5, 3600, c.nightMax)
+    c.blinkMin = clampTop('blink_min_s', 0.2, 10, c.blinkMin)
+    c.blinkMax = clampTop('blink_max_s', 0.2, 10, c.blinkMax)
+    c.debugDelay = clampTop('debug_force_blink_delay_s', 0, 600, c.debugDelay)
+  end
+  if c.dayMax < c.dayMin then c.dayMax = c.dayMin end
+  if c.nightMax < c.nightMin then c.nightMax = c.nightMin end
+  if c.blinkMax < c.blinkMin then c.blinkMax = c.blinkMin end
+  return c
+end
+
+-- Сейчас ночь? Тот же механизм Ф6: игровое время (gameTodHours) против
+-- ночного окна карты (windowForCurrentMap из lights.json/lights_by_map.json).
+-- Гистерезис Ф6 не нужен — точность ±минуты для выбора интервала не критична.
+local function popupIsNightNow()
+  local cfg = loadLightsConfig()
+  local window = windowForCurrentMap(cfg)
+  local h = gameTodHours()
+  if h == nil then return false end
+  local ws = parseHHMM(window.start)
+  local we = parseHHMM(window['end'])
+  if ws == nil or we == nil then return false end
+  return inNightWindow(h, ws, we)
+end
+
+-- vehicle сообщает: авто-режим popup отключён (ручное вмешательство игрока)
+function M.onVehiclePopupAutoOff()
+  if not popupAuto then return end
+  popupAuto = false
+  logLine('WARN', 'popup: авто-моргание отключено — игрок сам трогает фары (ТЗ Фазы 8)')
+  print('apl_popup: авто-режим отключён (ручное вмешательство в фары)')
+end
+
+-- === apl_popup("auto" | "off" | "status") ===
+-- Включается ТОЛЬКО командой игрока (по умолчанию выкл, ТЗ Фазы 8).
+-- Модели: только Bolide/Wigeon (guard по veh.JBeam; другая — отказ INFO).
+function apl_popup(mode)
+  mode = tostring(mode or '')
+  local veh = getVehicle()
+  if veh == nil then
+    print('apl_popup: нет игрока за рулём')
+    return false
+  end
+
+  if mode == 'auto' then
+    if popupAuto then
+      print('apl_popup: авто-режим УЖЕ включён (apl_popup("off") чтобы выключить)')
+      return false
+    end
+    local jb = playerJBeam(veh)
+    local cfg = loadPopupConfig()
+    local allowed = false
+    if jb then
+      for _, m in ipairs(cfg.models) do
+        if m == jb then allowed = true break end
+      end
+    end
+    if not allowed then
+      print('apl_popup: ' .. tostring(jb or '?') .. ' — pop-up фары не поддерживаются (модель не из popup.json: ' ..
+        table.concat(cfg.models, ', ') .. ')')
+      logLine('INFO', 'popup refused: jbeam=' .. tostring(jb))
+      return false
+    end
+    local night = popupIsNightNow()
+    popupAuto = true
+    popupNightLast = night
+    popupNightAcc = 0
+    sendToVehicle(string.format(
+      'autopilotLivePopupCmd.start({dayMin=%.1f,dayMax=%.1f,nightMin=%.1f,nightMax=%.1f,blinkMin=%.2f,blinkMax=%.2f,debugDelay=%.1f,night=%s})',
+      cfg.dayMin, cfg.dayMax, cfg.nightMin, cfg.nightMax,
+      cfg.blinkMin, cfg.blinkMax, cfg.debugDelay, tostring(night)))
+    print('apl_popup: авто-моргание ВКЛ (' .. jb .. ', ' ..
+      (cfg.debugDelay > 0 and ('ТЕСТ-РЕЖИМ: каждые ' .. string.format('%.0f', cfg.debugDelay) .. ' с')
+        or ('день ' .. string.format('%.0f', cfg.dayMin) .. '-' .. string.format('%.0f', cfg.dayMax) ..
+            ' с, ночь ' .. string.format('%.0f', cfg.nightMin) .. '-' .. string.format('%.0f', cfg.nightMax) .. ' с')) ..
+      ', blink ' .. string.format('%.1f', cfg.blinkMin) .. '-' .. string.format('%.1f', cfg.blinkMax) .. ' с; ' ..
+      (night and 'сейчас НОЧЬ' or 'сейчас ДЕНЬ') .. '; моргание только при выключенном свете; ' ..
+      'ручное вмешательство отключает; ' .. (cfg.fromFile and 'popup.json' or 'ДЕФОЛТЫ (файл не найден)') .. ')')
+    logLine('INFO', 'popup auto ON: model=' .. jb .. ' night=' .. tostring(night) ..
+      ' debugDelay=' .. tostring(cfg.debugDelay))
+    return true
+  end
+
+  if mode == 'off' then
+    if not popupAuto then
+      print('apl_popup: авто-режим и так выключен')
+      return false
+    end
+    popupAuto = false
+    sendToVehicle('autopilotLivePopupCmd.stop()')
+    print('apl_popup: авто-моргание ВЫКЛ (глазки — штатно, светом по-прежнему)')
+    logLine('INFO', 'popup auto OFF (команда)')
+    return true
+  end
+
+  if mode == 'status' then
+    local cfg = loadPopupConfig()
+    print('--- apl_popup status ---')
+    print('auto=' .. tostring(popupAuto) .. ', сейчас ' ..
+      (popupIsNightNow() and 'НОЧЬ' or 'ДЕНЬ') ..
+      ' (ночь по окну ' .. (function()
+        local w = windowForCurrentMap(loadLightsConfig())
+        return w.start .. '-' .. w['end']
+      end)() .. ')')
+    print('конфиг: день ' .. string.format('%.0f', cfg.dayMin) .. '-' .. string.format('%.0f', cfg.dayMax) ..
+      ' с, ночь ' .. string.format('%.0f', cfg.nightMin) .. '-' .. string.format('%.0f', cfg.nightMax) ..
+      ' с, blink ' .. string.format('%.1f', cfg.blinkMin) .. '-' .. string.format('%.1f', cfg.blinkMax) ..
+      ' с, debug_force_blink_delay_s=' .. string.format('%.0f', cfg.debugDelay) ..
+      ' (' .. (cfg.fromFile and 'popup.json' or 'дефолты') .. ')')
+    print('модели: ' .. table.concat(cfg.models, ', ') .. '; guard Ф6 (refuse_auto_on_popup) СНЯТ — ' ..
+      'auto-свет Ф6 на этих моделях работает')
+    sendToVehicle('autopilotLivePopupCmd.status()')
+    return true
+  end
+
+  print('Использование: apl_popup("auto"|"off"|"status")')
+  return false
 end
 
 function apl_debug()
@@ -1813,6 +1957,24 @@ function M.onUpdate(dtReal)
       end
     end
   end
+  -- === Фаза 8: ночь popup (влияет на интервал следующего моргания) ===
+  -- Опрос раз в ~2 с: считываем ночь по окну (как Ф6) и шлём vehicle ТОЛЬКО
+  -- при смене — хронометр моргания не сбрасывается (интервал применится к
+  -- следующему мигку). Работает независимо от lightsAuto (Ф8 не требует Ф6).
+  if popupAuto then
+    popupNightAcc = popupNightAcc + dtReal
+    if popupNightAcc >= 2 then
+      popupNightAcc = 0
+      local n = popupIsNightNow()
+      if n ~= popupNightLast then
+        popupNightLast = n
+        if sendToVehicle('autopilotLivePopupCmd.setNight(' .. (n and 'true' or 'false') .. ')') then
+          logLine('INFO', 'popup: ночь→' .. tostring(n) .. ' (интервалы: ' ..
+            (n and 'ночные 180-300 с' or 'дневные 120-180 с') .. ')')
+        end
+      end
+    end
+  end
   if not lightsAuto then return end
   local poll = lightsCfg and tonumber(lightsCfg.timing.poll_hz) or 1
   if poll ~= poll then poll = 1 end
@@ -1874,6 +2036,9 @@ function M.onClientPostStartMission()
   lightsCfg = nil
   lightsWindow = nil
   lightsAcc = 0
+  popupAuto = false -- Фаза 8: авто-моргание не переживает смену миссии
+  popupNightLast = false
+  popupNightAcc = 0
   petSoundStop() -- Фаза 7б: луп не переживает смену миссии
   petSoundEvent = '' -- звук мурчания — только по явному on
   if not csvActive then return end
