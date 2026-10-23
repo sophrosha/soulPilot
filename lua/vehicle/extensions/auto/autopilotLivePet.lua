@@ -28,6 +28,8 @@ local DEFAULTS = {
   amp = 0.05,            -- амплитуда дрожания (0..1) — итог 0.0..(offset+amp)=0.1
   hz = 2.5,              -- частота дрожания (вибрация, не покачивание)
   rateScale = 0.5,       -- множитель rate_limit руля на время эффекта
+  randomInterval = 0.2,  -- сек: как часто новая случайная цель газа (0.05+rand*0.05)
+  rampS = 1.5,           -- сек: плавное снижение жёсткости руля (1 → rateScale)
   speedGateKph = 5.0,    -- «нельзя гладить на ходу»
 }
 
@@ -37,6 +39,11 @@ local elapsed = 0        -- сек от старта эффекта
 local p = nil            -- параметры текущего поглаживания (с клампом)
 local spamTimes = {}     -- моменты последних активаций (os.time)
 local busyUntil = 0      -- кулдаун «усталости» (os.time)
+local curScale = 1       -- текущий множитель руля (плавно 1 → rateScale)
+local lastAppliedScale = 1
+local thrRandT = 0       -- таймер смены случайной цели газа
+local thrRandVal = 0     -- случайная цель (0.05..0.10)
+local thrRandCur = 0     -- текущее сглаженное значение
 
 -- === Лог событий в GE (паттерн autopilotLiveLights.lua) ===
 local function toGE(level, msg)
@@ -113,6 +120,11 @@ local function finish(reason)
       (reason and (' (' .. reason .. ')') or ''))
     notifyGE('onVehiclePetDone') -- GE гасит звук
   end
+  curScale = 1
+  lastAppliedScale = 1
+  thrRandT = 0
+  thrRandVal = 0
+  thrRandCur = 0
   active = false
   p = nil
   elapsed = 0
@@ -131,10 +143,38 @@ function M.updateGFX(dt)
   if progress > 0.75 then envOut = math.max(0, 1 - (progress - 0.75) / 0.25) end
   local env = envIn * envOut
 
-  -- Лёгкое дрожание газа: 0.0..0.1 (offset 0.05 + amp 0.05*sin) — «еле урчит».
-  -- ТОРМОЗ НЕ трогаем (brakeOverride сломал физику — машина полетела назад).
-  local thr = env * (p.offset + p.amp * math.sin(2 * math.pi * p.hz * elapsed))
-  pcall(function() electrics.values.throttleOverride = thr end)
+  -- Руль: ПЛАВНО снижаем жёсткость 1 → rateScale за p.rampS (не мгновенно).
+  local targetScale = p.rateScale
+  if math.abs(curScale - targetScale) > 1e-4 then
+    local dS = dt / math.max(p.rampS or 1.5, 0.1)
+    if curScale > targetScale then curScale = math.max(curScale - dS, targetScale)
+    else curScale = math.min(curScale + dS, targetScale) end
+    if math.abs(lastAppliedScale - curScale) >= 0.04
+        or math.abs(curScale - targetScale) < 1e-4 then
+      lastAppliedScale = curScale
+      pcall(function()
+        if autopilotLiveWheelCmd and autopilotLiveWheelCmd.setRateScale then
+          autopilotLiveWheelCmd.setRateScale(curScale)
+        end
+      end)
+    end
+  end
+
+  -- Микро-подергивание газа (24.10): цель = offset + random*amp (0.05..0.10),
+  -- НОВАЯ каждые p.randomInterval (0.2 с); между целями плавно догоняем —
+  -- «движок еле урчит», без ступенек. ТОРМОЗ НЕ трогаем.
+  thrRandT = thrRandT + dt
+  if thrRandT >= (p.randomInterval or 0.2) or thrRandVal == 0 then
+    thrRandT = 0
+    thrRandVal = p.offset + math.random() * p.amp
+  end
+  local stepT = (p.offset + p.amp) * dt / 0.2
+  if thrRandCur < thrRandVal then
+    thrRandCur = math.min(thrRandCur + stepT, thrRandVal)
+  elseif thrRandCur > thrRandVal then
+    thrRandCur = math.max(thrRandCur - stepT, thrRandVal)
+  end
+  pcall(function() electrics.values.throttleOverride = env * thrRandCur end)
 
   if elapsed >= p.duration then finish() end
 end
@@ -152,6 +192,8 @@ function autopilotLivePetCmd.start(params)
     amp = clampNum(t.amp, 0, 0.3, D.amp),
     hz = clampNum(t.hz, 0.05, 10, D.hz),
     rateScale = clampNum(t.rateScale, 0.1, 1, D.rateScale),
+    randomInterval = clampNum(t.randomInterval, 0.05, 5, D.randomInterval),
+    rampS = clampNum(t.rampS, 0.1, 10, D.rampS),
     speedGateKph = clampNum(t.speedGateKph, 0, 120, D.speedGateKph),
     spamMax = clampNum(t.spamMax, 1, 50, 4),
     spamWindow = clampNum(t.spamWindow, 1, 600, 30),
@@ -192,6 +234,15 @@ function autopilotLivePetCmd.start(params)
       'spam ' .. tostring(#spamTimes) .. 'x in ' .. tostring(cfg.spamWindow) .. 's')
   end
 
+  -- Guard 2.5 (24.10): двигатель не заведён (прогрев/заглушён) — петмод НЕ работает,
+  -- чтобы не мешать заводу (throttleOverride на незаведённом двигателе бесполезен).
+  local engRunning = 0
+  pcall(function() engRunning = electrics.values.engineRunning or 0 end)
+  if engRunning <= 0 then
+    return refuse('двигатель не заведён — поглаживание недоступно (прогрев/заглушён)',
+      'engine off')
+  end
+
   -- Guard 3: «нельзя гладить на ходу»
   local v = speedKph()
   if v >= cfg.speedGateKph then
@@ -205,19 +256,22 @@ function autopilotLivePetCmd.start(params)
   p = cfg
   elapsed = 0
   active = true
+  curScale = 1
+  lastAppliedScale = 1
+  thrRandT = 0
+  thrRandVal = 0
+  thrRandCur = 0
   setHandbrake(1)
-  pcall(function()
-    if autopilotLiveWheelCmd and autopilotLiveWheelCmd.setRateScale then
-      autopilotLiveWheelCmd.setRateScale(cfg.rateScale)
-    end
-  end)
+  -- Руль снижаем ПЛАВНО в updateGFX (rampS) — не дёргаем setRateScale здесь.
   print('aplPet: ПОГЛАЖИВАНИЕ НАЧАТО (' .. string.format('%.0f', cfg.duration) ..
-    ' с, газ ' .. string.format('%.2f', cfg.offset) .. '+±' ..
-    string.format('%.2f', cfg.amp) .. ' @ ' .. string.format('%.1f', cfg.hz) ..
-    ' Гц, ручник поднят, тормоз НЕ трогаем, руль ×' .. string.format('%.2f', cfg.rateScale) .. ')')
+    ' с, газ ' .. string.format('%.2f', cfg.offset) .. '+rand*' ..
+    string.format('%.2f', cfg.amp) .. ' каждые ' .. string.format('%.2f', cfg.randomInterval) ..
+    ' с, ручник поднят, тормоз НЕ трогаем, руль ×' .. string.format('%.2f', cfg.rateScale) ..
+    ' плавно за ' .. string.format('%.1f', cfg.rampS) .. ' с)')
   toGE('INFO', 'pet start: dur=' .. string.format('%.1f', cfg.duration) ..
-    ' thr=' .. string.format('%.2f', cfg.offset) .. '+±' .. string.format('%.2f', cfg.amp) ..
-    ' @' .. string.format('%.2f', cfg.hz) .. 'Hz handbrake=1 scale=' .. string.format('%.2f', cfg.rateScale))
+    ' thr=' .. string.format('%.2f', cfg.offset) .. '+rand*' .. string.format('%.2f', cfg.amp) ..
+    ' every ' .. string.format('%.2f', cfg.randomInterval) .. 's handbrake=1 scale=' ..
+    string.format('%.2f', cfg.rateScale) .. ' ramp=' .. string.format('%.1f', cfg.rampS) .. 's')
   return true
 end
 

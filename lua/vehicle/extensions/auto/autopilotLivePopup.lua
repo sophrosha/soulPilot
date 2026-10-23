@@ -305,6 +305,9 @@ end
 -- vehicle оставался с night=false (баг 24.10, GE показывал НОЧЬ, vehicle — нет).
 function autopilotLivePopupCmd.setNight(v)
   local nb = v == true
+  -- Явное подтверждение ПРИЁМА (диагностика рассинхрона GE/vehicle 24.10)
+  print('aplPopup: ПОЛУЧЕН setNight=' .. tostring(nb) ..
+    ' (было ' .. tostring(night) .. ')')
   if nb ~= night then
     night = nb
     lastNightCmd = tostring(nb)
