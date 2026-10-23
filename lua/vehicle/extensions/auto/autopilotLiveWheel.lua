@@ -30,9 +30,9 @@ local FALLBACK_CONF = 'mods/unpacked/AutopilotLive/ai/config/wheel.json'
 -- Единицы: rate — нормированные [-1,1] единицы/сек (1.0 = полный упор);
 -- tau — секунды. steer_rise = от центра к упору, steer_fall = возврат в центр.
 local DEFAULTS = {
-  rate_limit = { steer_rise = 3.5, steer_fall = 5.0 },
-  ema_tau    = { steer = 0.06 },
-  lerp_tau   = { steer = 0.08 },
+  rate_limit = { steer_rise = 6.0, steer_fall = 7.0 },
+  ema_tau    = { steer = 0.04 },
+  lerp_tau   = { steer = 0.05 },
 }
 
 -- === Состояние ===

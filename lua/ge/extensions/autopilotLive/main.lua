@@ -1605,8 +1605,9 @@ function apl_popup(mode)
         or ('день ' .. string.format('%.0f', cfg.dayMin) .. '-' .. string.format('%.0f', cfg.dayMax) ..
             ' с, ночь ' .. string.format('%.0f', cfg.nightMin) .. '-' .. string.format('%.0f', cfg.nightMax) .. ' с')) ..
       ', blink ' .. string.format('%.1f', cfg.blinkMin) .. '-' .. string.format('%.1f', cfg.blinkMax) .. ' с; ' ..
-      (night and 'сейчас НОЧЬ' or 'сейчас ДЕНЬ') .. '; моргание только при выключенном свете; ' ..
-      'ручное вмешательство отключает; ' .. (cfg.fromFile and 'popup.json' or 'ДЕФОЛТЫ (файл не найден)') .. ')')
+      (night and 'сейчас НОЧЬ (моргание подавлено — фары горят постоянно)' or 'сейчас ДЕНЬ') ..
+      '; глаза открыты в покое; ручное вмешательство отключает; ' ..
+      (cfg.fromFile and 'popup.json' or 'ДЕФОЛТЫ (файл не найден)') .. ')')
     logLine('INFO', 'popup auto ON: model=' .. jb .. ' night=' .. tostring(night) ..
       ' debugDelay=' .. tostring(cfg.debugDelay))
     return true

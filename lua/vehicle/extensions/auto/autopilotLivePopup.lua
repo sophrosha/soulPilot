@@ -1,47 +1,40 @@
--- AutopilotLive — Фаза 8: pop-up фары / «глазки» (vehicle-слой)
--- Подключается штатно (lua/vehicle/extensions/auto — автозагрузка расширений).
+-- AutopilotLive — Фаза 8: pop-up фары / «глазки»
+-- ИНВЕРТИРОВАННАЯ логика (утв. 24.10): в покое глаза ОТКРЫТЫ (state 1, горят
+-- как ДХО), моргание = кратковременное ЗАКРЫТИЕ (state 0) и возврат в 1.
+-- Разделить гидравлику и лампы нельзя: lowhighbeam пересчитывается каждый
+-- кадр из lights_state (electrics.lua:407/433), hydros читает его же
+-- (hydros.lua:301) — выбран вариант «в покое свет 1».
 --
--- Ответственность vehicle-слоя (Фаза 8):
---   * СЛУЧАЙНОЕ МОРГАНИЕ днём при ВЫКЛЮЧЕННОМ свете: один цикл —
---     electrics.setLightsState(1) → пауза blink (случайно 1.5-2 с, ванильный
---     hydro выдвигает фару ~1.4 с) → setLightsState(0). Один выезд/заезд —
---     без лишних переключений (ТЗ). Штатный API (как радиал-меню/Ф6), БЕЗ
---     input.event. Выезд фар — ванильный hydro от lowhighbeam (jbeam), свет
---     — тем же setLightsState: глазки выезжают и МИГАЮТ светом (Вариант А,
---     утверждён координатором 19.10).
---   * ИНТЕРВАЛЫ: днём 120-180 с (чаще), ночью 180-300 с (реже) — когда свет
---     включён (глазки выеханы ванилью) — моргание ПОДАВЛЕНО, таймер стоит.
---     Ночной auto-свет Ф6 включает фары сам (один ванильный выезд) — мы не
---     мешаем (правило безотказности).
---   * РУЧНОЕ ВМЕШАТЕЛЬСТВО: игрок сам изменил свет (не Ф6-auto) →
---     popup auto OFF + WARN (ТЗ: «не мешаем»).
---   * СОВМЕСТИМОСТЬ с Ф6: перед мигком ставим autopilotLiveLightsCmd.
---     setSuppress(true) — их auto-логика молчит (мигок не считается их
---     interrupt'ом, target не применяется); внешние переходы Ф6-auto
---     отличаем через isAuto() — это НЕ вмешательство.
---   * Включается ТОЛЬКО командой игрока GE (apl_popup("auto")), модель —
---     только Bolide/Wigeon (guard по veh.JBeam в GE).
+-- Режимы: 'sleep' (закрыты; прогрев/выкл) | 'awake' (открыты, ждём таймер) |
+-- 'blink' (закрыты blink_s, потом снова 1).
+-- Ночь: моргание ПОДАВЛЕНО (не гасим фары на ходу).
+-- Ручное вмешательство игрока (не переходы Ф6-auto) → auto OFF + WARN.
+-- Совместимость с Ф6: на время мигка/сна setSuppress(true), wake/конец мигка —
+-- false; переходы Ф6-auto отличаем через isAuto()/getTarget().
 
 local M = {}
 
--- === Дефолты (дубль popup.json — ТОЛЬКО fallback; истина — параметры из GE) ===
+local EYES_OPEN = 1
+local EYES_CLOSED = 0
+
 local DEFAULTS = {
-  dayMin = 120, dayMax = 180,       -- сек, интервал днём
-  nightMin = 180, nightMax = 300,   -- сек, интервал ночью
-  blinkMin = 1.5, blinkMax = 2.0,   -- сек, глазки открыты при моргании
-  debugDelay = 0,                   -- >0 — тест-режим: ВСЕ интервалы = N сек
+  dayMin = 120, dayMax = 180,
+  nightMin = 180, nightMax = 300,
+  blinkMin = 1.2, blinkMax = 1.2,   -- сколько секунд глаза ЗАКРЫТЫ при мигке
+  debugDelay = 0,                   -- 0 = норма; >0 = тест-режим (все интервалы)
 }
 
--- === Состояние ===
 local active = false
-local cfg = nil           -- параметры текущего сеанса (с клампом)
-local night = false       -- ночь/день от GE (выбор интервала)
-local phase = 'wait'      -- 'wait' (таймер) | 'open' (глазки открыты, мигок)
-local timer = 0           -- сек до следующего события
-local lastSeen = 0        -- последний наблюдённый lights_state (след)
-local suppressHeld = false -- держим ли suppress у Ф6
+local cfg = nil
+local night = false
+local phase = 'sleep'
+local timer = 0
+local suppressHeld = false
+local lastSeen = 0          -- ожидаемый/наблюдённый lights_state (след)
+local warmupHold = false    -- sleep() от прогрева (работает и без auto)
+local savedState = nil      -- состояние света до сна (для wake без auto)
+local graceT = 0            -- сек: после нашей команды не считаем смену «ручной»
 
--- === Лог событий в GE (паттерн autopilotLiveLights.lua) ===
 local function toGE(level, msg)
   pcall(function()
     obj:queueGameEngineLua(string.format(
@@ -57,7 +50,6 @@ local function notifyGE(fname)
   end)
 end
 
--- === Утилиты ===
 local function clampNum(v, lo, hi, dflt)
   v = tonumber(v)
   if v == nil or v ~= v then return dflt end
@@ -74,25 +66,14 @@ local function curState()
   return math.floor(s + 0.5)
 end
 
-local function applyLights(v)
-  if curState() == v then return end -- guard Ф6/techCore: без лишних щелчков
-  pcall(function() electrics.setLightsState(v) end)
+local function applyEyes(v)
+  if curState() ~= v then
+    pcall(function() electrics.setLightsState(v) end)
+    graceT = 0.5 -- setLightsState применяется не мгновенно — не считаем «ручным»
+  end
+  lastSeen = v
 end
 
--- Случайный интервал по фазе (ночь/день) либо тест-режим debugDelay
-local function nextDelay()
-  local c = cfg
-  if c.debugDelay > 0 then return c.debugDelay end
-  local lo, hi
-  if night then lo, hi = c.nightMin, c.nightMax else lo, hi = c.dayMin, c.dayMax end
-  return lo + (hi - lo) * math.random()
-end
-
-local function randBlink()
-  return cfg.blinkMin + (cfg.blinkMax - cfg.blinkMin) * math.random()
-end
-
--- suppress у Ф6 (мигок не должен выключать их auto по interrupt)
 local function setSuppress(v)
   if v == suppressHeld then return end
   suppressHeld = v
@@ -105,190 +86,244 @@ end
 
 local function isLightsAuto()
   local ok, r = pcall(function()
-    if autopilotLiveLightsCmd and autopilotLiveLightsCmd.isAuto then
-      return autopilotLiveLightsCmd.isAuto()
-    end
-    return false
+    return autopilotLiveLightsCmd and autopilotLiveLightsCmd.isAuto
+      and autopilotLiveLightsCmd.isAuto() or false
   end)
   return ok and r == true
 end
 
-local function releaseOpen()
-  -- Завершение/прерывание мигка: возвращаем выключенный свет (если это мы
-  -- включили) и снимаем suppress.
-  if lastSeen ~= 0 then applyLights(0); lastSeen = 0 end
-  setSuppress(false)
+local function lightsTarget()
+  local ok, r = pcall(function()
+    return autopilotLiveLightsCmd and autopilotLiveLightsCmd.getTarget
+      and autopilotLiveLightsCmd.getTarget() or nil
+  end)
+  return ok and tonumber(r) or nil
 end
 
+local function nextDelay()
+  local c = cfg
+  if c.debugDelay > 0 then return c.debugDelay end
+  local lo, hi
+  if night then lo, hi = c.nightMin, c.nightMax else lo, hi = c.dayMin, c.dayMax end
+  return lo + (hi - lo) * math.random()
+end
+
+local function blinkDuration()
+  return cfg.blinkMin + (cfg.blinkMax - cfg.blinkMin) * math.random()
+end
+
+-- Авто-стоп по ручному вмешательству (не бьёмся с игроком)
 local function autoOff(reason)
-  releaseOpen()
+  if phase == 'blink' and curState() == EYES_CLOSED then
+    applyEyes(EYES_OPEN) -- вернуть свет, который мы сами погасили
+  end
+  if phase == 'blink' then setSuppress(false) end
   active = false
-  phase = 'wait'
-  print('aplPopup: АВТО-РЕЖИМ ОТКЛЮЧЁН — ' .. reason)
+  warmupHold = false
+  phase = 'sleep'
+  print('aplPopup: АВТО-ОТКЛЮЧЕНО — ' .. reason)
   toGE('WARN', 'popup auto off: ' .. reason)
   notifyGE('onVehiclePopupAutoOff')
 end
 
--- === Кадр ===
+-- Можно ли моргать сейчас? (день + не мешаем Ф6, если его target не 1)
+local function blinkAllowed()
+  if night then return false, 'ночь — фары должны гореть постоянно' end
+  if isLightsAuto() then
+    local t = lightsTarget()
+    if t ~= nil and t ~= 1 then
+      return false, 'Ф6-auto target=' .. tostring(t) .. ' — не вмешиваемся'
+    end
+  end
+  return true
+end
+
 function M.updateGFX(dt)
   if not active or cfg == nil then return end
-  if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then return end -- NaN/перерывы
+  if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then return end
 
   local cur = curState()
 
-  if phase == 'wait' then
-    -- Внешнее изменение света (не наше моргание)?
-    if cur ~= lastSeen then
-      if isLightsAuto() then
-        lastSeen = cur -- переход Ф6-auto (ночь/день) — НЕ вмешательство
-        toGE('INFO', 'popup: переход Ф6-auto (lights_state=' .. tostring(cur) ..
-          ') — моргание подавлено, пока свет не выключен')
-      else
-        autoOff('игрок сам трогает фары (lights_state=' .. tostring(cur) .. ')')
-        return
-      end
+  if phase == 'sleep' then
+    -- Сон (прогрев/старт): держим закрытыми
+    applyEyes(EYES_CLOSED)
+    lastSeen = EYES_CLOSED
+    return
+  end
+
+  -- awake/blink: детект вмешательства извне (не наш мигок, не Ф6-auto)
+  if graceT > 0 then
+    graceT = graceT - dt -- окно после нашей команды
+  elseif cur ~= lastSeen then
+    if isLightsAuto() then
+      lastSeen = cur -- переход Ф6-auto (ночь/день) — не вмешательство
+      toGE('INFO', 'popup: переход Ф6-auto (lights_state=' .. tostring(cur) .. ')')
+    else
+      autoOff('игрок сам трогает фары (lights_state=' .. tostring(cur) .. ')')
+      return
     end
-    -- Моргаем ТОЛЬКО когда свет выключен (глазки закрыты) и таймер истёк
-    if lastSeen == 0 then
-      timer = timer - dt
-      if timer <= 0 then
-        -- Старт мигка: suppress Ф6, фары выезжают и мигают
-        setSuppress(true)
-        applyLights(1)
-        lastSeen = 1
-        phase = 'open'
-        timer = randBlink()
-        local mode = night and 'ночь' or 'день'
-        print('aplPopup: МОРГАНИЕ (' .. mode .. ', глазки открыты ' ..
-          string.format('%.1f', timer) .. ' с)')
-        toGE('INFO', 'popup blink: ' .. (night and 'night' or 'day') ..
-          ' open=' .. string.format('%.1f', timer) .. 's')
-      end
-    end
-  elseif phase == 'open' then
-    -- Глазки открыты: следим за внешним вмешательством во время мигка
-    if cur ~= lastSeen then
-      if isLightsAuto() then
-        -- Ф6 под suppress молчит, но подстраховка: принять как своё
-        lastSeen = cur
-      else
-        autoOff('игрок изменил свет во время моргания (lights_state=' ..
-          tostring(cur) .. ')')
-        return
-      end
+  end
+
+  if phase == 'awake' then
+    -- Глаза открыты; при активном Ф6 не навязываем 1 (у Ф6 может быть 2)
+    if not isLightsAuto() and curState() ~= EYES_OPEN then
+      applyEyes(EYES_OPEN)
+      lastSeen = EYES_OPEN
     end
     timer = timer - dt
     if timer <= 0 then
-      applyLights(0)
-      lastSeen = 0
+      local okBlink, why = blinkAllowed()
+      if not okBlink then
+        timer = nextDelay()
+        toGE('INFO', 'popup: моргание отложено (' .. why .. ')')
+        return
+      end
+      setSuppress(true)
+      applyEyes(EYES_CLOSED)
+      lastSeen = EYES_CLOSED
+      phase = 'blink'
+      timer = blinkDuration()
+      print('aplPopup: МОРГАНИЕ (закрыты на ' .. string.format('%.1f', timer) .. ' с)')
+      toGE('INFO', 'popup blink close=' .. string.format('%.1f', timer) .. 's')
+    end
+  elseif phase == 'blink' then
+    timer = timer - dt
+    if timer <= 0 then
+      applyEyes(EYES_OPEN)
+      lastSeen = EYES_OPEN
       setSuppress(false)
-      phase = 'wait'
+      phase = 'awake'
       timer = nextDelay()
       print('aplPopup: моргание завершено, следующее через ' ..
         string.format('%.0f', timer) .. ' с')
-      toGE('INFO', 'popup: blink done, next in ' .. string.format('%.0f', timer) .. 's')
+      toGE('INFO', 'popup blink done, next in ' .. string.format('%.0f', timer) .. 's')
     end
   end
 end
 
--- === Публичные команды (GE шлёт через queueLuaCommand) ===
 autopilotLivePopupCmd = {}
 
--- start(params): GE присылает параметры popup.json (см. DEFAULTS) + ночь.
 function autopilotLivePopupCmd.start(params)
   if active then return false end
   local t = type(params) == 'table' and params or {}
   local D = DEFAULTS
-  local c = {
+  cfg = {
     dayMin = clampNum(t.dayMin, 5, 3600, D.dayMin),
     dayMax = clampNum(t.dayMax, 5, 3600, D.dayMax),
     nightMin = clampNum(t.nightMin, 5, 3600, D.nightMin),
     nightMax = clampNum(t.nightMax, 5, 3600, D.nightMax),
-    blinkMin = clampNum(t.blinkMin, 0.2, 10, D.blinkMin),
-    blinkMax = clampNum(t.blinkMax, 0.2, 10, D.blinkMax),
+    blinkMin = clampNum(t.blinkMin, 0.1, 10, D.blinkMin),
+    blinkMax = clampNum(t.blinkMax, 0.1, 10, D.blinkMax),
     debugDelay = clampNum(t.debugDelay, 0, 600, D.debugDelay),
   }
-  if c.dayMax < c.dayMin then c.dayMax = c.dayMin end
-  if c.nightMax < c.nightMin then c.nightMax = c.nightMin end
-  if c.blinkMax < c.blinkMin then c.blinkMax = c.blinkMin end
-  cfg = c
+  if cfg.dayMax < cfg.dayMin then cfg.dayMax = cfg.dayMin end
+  if cfg.nightMax < cfg.nightMin then cfg.nightMax = cfg.nightMin end
+  if cfg.blinkMax < cfg.blinkMin then cfg.blinkMax = cfg.blinkMin end
   night = t.night == true
-  lastSeen = curState() -- базовая точка: свет при старте не наш
-  phase = 'wait'
-  timer = nextDelay()
   active = true
-  print('aplPopup: АВТО-МОРГАНИЕ ВКЛ (' ..
-    (c.debugDelay > 0 and ('ТЕСТ-РЕЖИМ: каждые ' .. string.format('%.0f', c.debugDelay) .. ' с')
-      or ('день ' .. string.format('%.0f', c.dayMin) .. '-' .. string.format('%.0f', c.dayMax) ..
-          ' с, ночь ' .. string.format('%.0f', c.nightMin) .. '-' .. string.format('%.0f', c.nightMax) .. ' с')) ..
-    '; первый миг через ' .. string.format('%.0f', timer) .. ' с; ' ..
-    (night and 'сейчас НОЧЬ' or 'сейчас ДЕНЬ') ..
-    '; моргание только при выключенном свете; ручное вмешательство отключает')
-  toGE('INFO', 'popup auto ON, first in ' .. string.format('%.0f', timer) ..
-    's, night=' .. tostring(night) ..
-    (c.debugDelay > 0 and (', DEBUG every ' .. string.format('%.0f', c.debugDelay) .. 's') or ''))
+  warmupHold = false
+  savedState = nil
+  local cur = curState()
+  if cur == EYES_CLOSED then applyEyes(EYES_OPEN) end -- открыть; 1/2 не понижаем
+  lastSeen = curState()
+  phase = 'awake'
+  timer = nextDelay()
+  print('aplPopup: ВКЛ. Глаза ОТКРЫТЫ (state=' .. tostring(lastSeen) ..
+    '). Следующее моргание через ' .. string.format('%.0f', timer) .. ' с' ..
+    (night and ' (сейчас ночь — моргание подавлено)' or ''))
+  toGE('INFO', 'popup auto ON, eyes open, first blink in ' ..
+    string.format('%.0f', timer) .. 's, night=' .. tostring(night))
+  return true
+end
+
+-- Сон: прогрев/пауза. Работает и без active (warmup-сценарий).
+function autopilotLivePopupCmd.sleep()
+  if savedState == nil then savedState = curState() end
+  warmupHold = true
+  setSuppress(true) -- Ф6 не откроет фары во время сна
+  phase = 'sleep'
+  applyEyes(EYES_CLOSED)
+  lastSeen = EYES_CLOSED
+  print('aplPopup: СОН (глаза закрыты' .. (active and '' or ', auto не активен') .. ')')
+  return true
+end
+
+-- Пробуждение: открыть глаза. Без active — восстановить прежний state
+-- (не ломаем дальний свет), иначе 1.
+function autopilotLivePopupCmd.wake_up()
+  if not active and not warmupHold then return false end
+  setSuppress(false)
+  warmupHold = false
+  if active then
+    applyEyes(EYES_OPEN)
+    lastSeen = curState()
+    phase = 'awake'
+    timer = nextDelay()
+    print('aplPopup: ПРОБУЖДЕНИЕ (глаза открыты, следующее моргание через ' ..
+      string.format('%.0f', timer) .. ' с)')
+  else
+    local restore = EYES_OPEN
+    if savedState == 1 or savedState == 2 then restore = savedState end
+    applyEyes(restore)
+    savedState = nil
+    print('aplPopup: ПРОБУЖДЕНИЕ (warmup, восстановлен state=' .. tostring(restore) .. ')')
+  end
   return true
 end
 
 function autopilotLivePopupCmd.stop()
-  if not active then return false end
-  releaseOpen()
+  if not active and not warmupHold then return false end
+  if phase == 'blink' and curState() == EYES_CLOSED then
+    applyEyes(EYES_OPEN) -- не оставляем свет погашенным
+  end
+  setSuppress(false)
   active = false
-  phase = 'wait'
-  cfg = nil
-  print('aplPopup: авто-моргание ВЫКЛ (глазки — штатно)')
-  toGE('INFO', 'popup auto OFF (команда)')
-  return true
-end
-
--- Смена ночь/день от GE (влияет на СЛЕДУЮЩИЙ интервал)
-function autopilotLivePopupCmd.setNight(v)
-  night = v == true
+  warmupHold = false
+  savedState = nil
+  phase = 'sleep'
+  print('aplPopup: ВЫКЛ (свет оставлен как есть)')
+  toGE('INFO', 'popup auto OFF')
   return true
 end
 
 function autopilotLivePopupCmd.status()
+  local f6auto = isLightsAuto()
   local lines = {
     '--- apl_popup status (vehicle) ---',
-    'active=' .. tostring(active) ..
-      (active and (' phase=' .. phase .. ' timer=' .. string.format('%.1f', timer) .. ' с') or ''),
-    'night=' .. tostring(night) .. ' lights_state=' .. tostring(curState()) ..
-      ' (моргание только при 0)',
+    'active=' .. tostring(active) .. (active and (' phase=' .. phase ..
+      ' timer=' .. string.format('%.1f', timer) .. ' с') or '') ..
+      ' warmupHold=' .. tostring(warmupHold),
+    'lights_state=' .. tostring(curState()) .. ' lastSeen=' .. tostring(lastSeen) ..
+      ' night=' .. tostring(night) .. ' (моргание ночью подавлено)',
+    'Ф6: auto=' .. tostring(f6auto) .. ' target=' .. tostring(lightsTarget()) ..
+      ' suppress=' .. tostring(suppressHeld),
     cfg and ('интервалы: день ' .. string.format('%.0f', cfg.dayMin) .. '-' ..
-      string.format('%.0f', cfg.dayMax) .. ' с, ночь ' .. string.format('%.0f', cfg.nightMin) .. '-' ..
-      string.format('%.0f', cfg.nightMax) .. ' с, blink ' .. string.format('%.1f', cfg.blinkMin) .. '-' ..
+      string.format('%.0f', cfg.dayMax) .. ' с, ночь ' ..
+      string.format('%.0f', cfg.nightMin) .. '-' .. string.format('%.0f', cfg.nightMax) ..
+      ' с, blink ' .. string.format('%.1f', cfg.blinkMin) .. '-' ..
       string.format('%.1f', cfg.blinkMax) .. ' с' ..
-      (cfg.debugDelay > 0 and ('; ТЕСТ каждые ' .. string.format('%.0f', cfg.debugDelay) .. ' с') or ''))
-      or nil,
-    'Ф6 suppress=' .. tostring(suppressHeld),
+      (cfg.debugDelay > 0 and ('; ТЕСТ каждые ' .. string.format('%.0f', cfg.debugDelay) .. ' с') or '')) or nil,
   }
   for _, l in ipairs(lines) do if l then print('aplPopup: ' .. l) end end
-  toGE('INFO', 'popup status: active=' .. tostring(active) ..
-    ' phase=' .. phase .. ' lights=' .. tostring(curState()))
   return true
 end
 
--- === Жизненный цикл ===
 function M.onReset()
-  -- Respawn: electrics сброшены (свет 0) — мигок прерываем, suppress снимаем
+  setSuppress(false)
   if active then
-    suppressHeld = false
-    pcall(function()
-      if autopilotLiveLightsCmd and autopilotLiveLightsCmd.setSuppress then
-        autopilotLiveLightsCmd.setSuppress(false)
-      end
-    end)
-    lastSeen = 0
-    phase = 'wait'
-    timer = nextDelay() -- ждём заново (cfg может быть nil после stop — guard)
+    phase = 'awake'
+    applyEyes(EYES_OPEN)
+    lastSeen = curState()
+    timer = nextDelay()
   end
 end
 
 function M.onVehicleDestroyed()
   active = false
-  cfg = nil
-  phase = 'wait'
-  suppressHeld = false
+  warmupHold = false
+  savedState = nil
+  phase = 'sleep'
+  setSuppress(false)
 end
 
 return M

@@ -51,7 +51,8 @@ local DEFAULTS = {
   -- 0.035 ≈ 3.5° и 0.2 Гц — «ещё плавнее» по фидбеку игрока).
   sway   = { enabled = 1, amplitude = 0.035, freq_hz = 0.2, fade_time_s = 2,
              duration_s = 4, random_delay_min_s = 1, random_delay_max_s = 8 },
-  finish = { parking_brake_release_at_end = 1, auto_engage_after_warmup = 0 },
+  finish = { parking_brake_release_at_end = 1, auto_engage_after_warmup = 0,
+             ai_mode_after_warmup = 'traffic' }, -- режим AI после прогрева ('' = не включать)
 }
 
 -- === Состояние ===
@@ -165,6 +166,20 @@ local function loadConfig(path)
       end
     end
   end
+  -- Строковое поле режима AI (не tonumber!): whitelist известных режимов.
+  -- '' = AI после прогрева не включаем; неизвестное значение → '' (безопасно).
+  do
+    local fm = type(decoded.finish) == 'table' and decoded.finish.ai_mode_after_warmup or nil
+    if type(fm) == 'string' then
+      fm = fm:lower():gsub('%s+', '')
+      local allowed = { [''] = true, traffic = true, span = true, chase = true,
+                        follow = true, random = true, manual = true }
+      c.finish.ai_mode_after_warmup = allowed[fm] and fm or ''
+      if fm ~= '' and not allowed[fm] then
+        toGE('WARN', 'warmup: неизвестный ai_mode_after_warmup="' .. fm .. '" — AI не включаем')
+      end
+    end
+  end
   validateConfig(c)
   return c, true
 end
@@ -271,13 +286,50 @@ local function finish(timedOut)
   else
     toGE('INFO', 'warmup: ПРОГРЕВ ЗАВЕРШЁН (' .. fmt(elapsed) .. ' с, ' .. cool .. ')')
   end
-  -- HUD-сообщение игроку (паттерн electrics.lua:357) + txt-лог уже ушёл toGE.
+  
+  -- HUD-сообщение игроку
   pcall(function()
     guihooks.message({ txt = timedOut
         and 'AutopilotLive: прогрев по таймауту — машина готова'
         or 'AutopilotLive: прогрев завершён, машина готова', context = {} }, 5,
       'autopilotLive.warmup')
   end)
+
+  -- 1. ПРОБУЖДАЕМ ФАРЫ (если модуль Фазы 8 активен)
+  pcall(function()
+    if autopilotLivePopupCmd and autopilotLivePopupCmd.wake_up then
+      autopilotLivePopupCmd.wake_up()
+    end
+  end)
+
+  -- 2. АВТО-ЗАПУСК НАШИХ МОДУЛЕЙ (если включено в конфиге)
+  if cfg.finish.auto_engage_after_warmup > 0 then
+    pcall(function()
+      if autopilotLivePedalsCmd and autopilotLivePedalsCmd.on then
+        autopilotLivePedalsCmd.on('mods/unpacked/AutopilotLive/ai/config/pedals.json')
+      end
+      if autopilotLiveWheelCmd and autopilotLiveWheelCmd.on then
+        autopilotLiveWheelCmd.on('mods/unpacked/AutopilotLive/ai/config/wheel.json')
+      end
+      toGE('INFO', 'warmup: наши pedals/wheel включены (auto_engage)')
+    end)
+  end
+
+  -- 3. РЕЖИМ AI ПОСЛЕ ПРОГРЕВА (24.10): "машина завелась и сама поехала".
+  -- Работает и при auto_engage=0 (это отдельная опция). Пустая строка = не трогаем.
+  -- Вызов только через GE-слой, с guard'ами (безопасно при отсутствии ai).
+  local aiMode = tostring(cfg.finish.ai_mode_after_warmup or '')
+  if aiMode ~= '' then
+    pcall(function()
+      obj:queueGameEngineLua(string.format(
+        'if ai and ai.setMode then ai.setMode("%s") end ' ..
+        'if ai and ai.setDriving then ai.setDriving(true) end', aiMode))
+    end)
+    toGE('INFO', 'warmup: запрос AI-режима "' .. aiMode .. '" отправлен в GE')
+  else
+    toGE('INFO', 'warmup: ai_mode_after_warmup="" — AI не включаем')
+  end
+
   notifyDone(timedOut)
 end
 
@@ -419,6 +471,12 @@ function autopilotLiveWarmupCmd.on(confPath)
   -- (точность 0.01 с), окно = [start, start + duration_s]; новое окно при
   -- каждом start(). Целые для math.random — через floor (float*100 даёт
   -- хвосты типа 799.9999).
+  -- УСЫПЛЯЕМ ГЛАЗКИ при старте прогрева
+  pcall(function()
+    if autopilotLivePopupCmd and autopilotLivePopupCmd.sleep then
+      autopilotLivePopupCmd.sleep()
+    end
+  end)
   do
     local rmin = math.floor(math.max(cfg.sway.random_delay_min_s, 0) * 100)
     local rmax = math.floor(math.max(cfg.sway.random_delay_max_s, cfg.sway.random_delay_min_s) * 100)
@@ -448,6 +506,12 @@ function autopilotLiveWarmupCmd.off()
   if state == 'off' then return false end
   local was = state
   state = 'off'
+  -- Если прогрев отменён — глаза не оставляем закрытыми (Ф8.1)
+  pcall(function()
+    if autopilotLivePopupCmd and autopilotLivePopupCmd.wake_up then
+      autopilotLivePopupCmd.wake_up()
+    end
+  end)
   toGE('INFO', 'warmup: остановлен игроком (фаза ' .. was .. ', прошло ' .. fmt(elapsed) ..
     ' с). Двигатель НЕ глушится, ручник не трогается.')
   return true

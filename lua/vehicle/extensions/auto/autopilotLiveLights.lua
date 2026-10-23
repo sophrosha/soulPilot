@@ -116,6 +116,12 @@ function autopilotLiveLightsCmd.isAuto()
   return mode == 'auto'
 end
 
+-- Фаза 8 (popup): текущий целевой state Ф6 (0/1/2) — popup не моргает, если
+-- target ≠ 1 (не бьётся за свет), и не навязывает 1.
+function autopilotLiveLightsCmd.getTarget()
+  return target
+end
+
 function autopilotLiveLightsCmd.status()
   local applied = lastApplied ~= nil and tostring(lastApplied) or 'нет'
   local lines = {

@@ -73,6 +73,14 @@ local pipe = {
 
 -- Последние значения для статуса/CSV
 local lastOut  = { engaged = false, throttle = 0, brake = 0, clutch = 0 }
+
+-- Ф8.1 (24.10): watchdog «залипания газа». osClockHP у AI-событий ПУСТОЙ
+-- (ai.lua:438: source="ai", timestamp=nil) → свои таймеры: rawHoldT — сколько
+-- raw не меняется; stuckT — сколько out>0.9 при raw≈0 (симптом «газ 0.99»).
+local rawHoldT = 0
+local lastRawSample = 0
+local stuckT = 0
+local stuckWarned = false
 local lastRaw  = { throttle = 0, brake = 0, clutch = 0 }
 
 -- === Лог событий в GE (паттерн autopilotLive.lua) ===
@@ -144,6 +152,11 @@ local function resetState()
   lastRaw = { throttle = 0, brake = 0, clutch = 0 }
   predictiveOn = false
   startT = 0
+  -- Ф8.1: watchdog чистим вместе с конвейером
+  rawHoldT = 0
+  lastRawSample = 0
+  stuckT = 0
+  stuckWarned = false
   stepGarbageWarned = {}
   outGarbageWarned = {}
 end
@@ -367,6 +380,14 @@ function M.updateGFX(dt)
   local cltRaw = readRaw('clutch')
   lastRaw.throttle, lastRaw.brake, lastRaw.clutch = thrRaw, brkRaw, cltRaw
 
+  -- Watchdog (24.10): время неизменности raw (диагностика «застоя»/залипания)
+  if math.abs(thrRaw - lastRawSample) > 1e-6 then
+    lastRawSample = thrRaw
+    rawHoldT = 0
+  else
+    rawHoldT = rawHoldT + dt
+  end
+
   local speed = getSpeed()
   local gear = tostring(electrics.values.gear or '')
 
@@ -437,6 +458,33 @@ function M.updateGFX(dt)
   -- НИКОГДА не унесут мусор (5.8e17 и т.п.) в контроллер.
   thrOut = sanitizeOut(thrOut, thrRaw, 'throttle_out')
   local brkOut = sanitizeOut(pipe.brake.out, brkRaw, 'brake_out')
+
+  -- === WATCHDOG ЗАЛИПАНИЯ ГАЗА (24.10) ===
+  -- Симптом игрока: газ застревает ~0.99 (чаще Gavril). Если цель raw уже ≈0,
+  -- а out высокий > 2 с — конвейер/override залип → WARN + дамп + ресинк на raw.
+  if thrOut > 0.9 and thrRaw < 0.05 then
+    stuckT = stuckT + dt
+  else
+    stuckT = 0
+    stuckWarned = false
+  end
+  if stuckT > 2.0 then
+    if not stuckWarned then
+      stuckWarned = true
+      local src = '?'
+      pcall(function() src = tostring(input.state.throttle.source) end)
+      toGE('WARN', string.format(
+        'pedals: ЗАЛИПАНИЕ ГАЗА — out=%s при raw=%s (raw неизменен %.1f с, source=%s) → ресинк на raw',
+        diagFmt(thrOut), diagFmt(thrRaw), rawHoldT, src))
+      print('aplPedals: WARN залипание газа — ресинк конвейера на raw')
+      diagDump('WATCHDOG: залипание газа', string.format(
+        'raw=%s out=%s pipe.rl=%s pipe.ema=%s pipe.out=%s rawHold=%.1f',
+        tostring(thrRaw), tostring(thrOut), tostring(pipe.throttle.rl),
+        tostring(pipe.throttle.ema), tostring(pipe.throttle.out), rawHoldT))
+    end
+    pipe.throttle.rl, pipe.throttle.ema, pipe.throttle.out = thrRaw, thrRaw, thrRaw
+    thrOut = thrRaw
+  end
 
   -- === Запись Override — КАЖДЫЙ кадр при engaged (У1) ===
   -- Fix 2: пишем САНИТИЗИРОВАННЫЕ значения (brkOut, thrOut) — мусор не уходит
@@ -530,6 +578,25 @@ function autopilotLivePedalsCmd.status()
       diagFmt(lastRaw.clutch), diagFmt(lastOut.clutch), tostring(clutchWritten)),
     'predictive=' .. tostring(predictiveOn) .. ' smoothStartCap=' .. diagFmt(cap) ..
     ' startT=' .. tostring(startT) .. 'с',
+    -- Ф8.1 (24.10): диагностика газа/override (залипание 0.99 на Gavril)
+    (function()
+      local src, ovr, inp, ctrl = '?', 'nil', '?', '?'
+      pcall(function() src = tostring(input.state.throttle.source) end)
+      pcall(function() ovr = electrics.values.throttleOverride end)
+      pcall(function() inp = input.throttle end)
+      pcall(function()
+        local c = controller and controller.getController and controller.getController('vehicleController')
+        if c then ctrl = tostring(c.name or 'vehicleController') end
+      end)
+      local function n(v)
+        v = tonumber(v)
+        return v and diagFmt(v) or tostring(v)
+      end
+      return 'gas: input=' .. n(inp) .. ' override=' .. n(ovr) ..
+        ' source=' .. src .. ' controller=' .. ctrl ..
+        ' | watchdog: rawHold=' .. string.format('%.1f', rawHoldT) ..
+        'с stuck=' .. string.format('%.1f', stuckT) .. 'с'
+    end)(),
     -- ЛОВУШКА (диагностика 2026-10-15, доказательство 2026-10-16): независимый
     -- ДУБЛЬ тех же значений. lastOut пишется только из sanitizeOut ∈ [0,1]
     -- (по кадру 8.67e17: throttle out=1.000 ⇒ cut=1 ⇒ pipe.brake.out ≤ 0.1).
