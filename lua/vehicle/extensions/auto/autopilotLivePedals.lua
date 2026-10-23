@@ -34,8 +34,8 @@ local FALLBACK_CONF = 'mods/unpacked/AutopilotLive/ai/config/pedals.json'
 -- Наш модуль — пассивный passthrough: raw > 0 → проброс raw (лаг 1 кадр),
 -- raw = 0 → nil (штатная КПП). Ноль вреда; нажатие действует мгновенно.
 local DEFAULTS = {
-  rate_limit   = { throttle_rise = 2.5, throttle_fall = 5.0,
-                   brake_rise = 2.5, brake_fall = 2.5 },
+  rate_limit   = { throttle_rise = 1.2, throttle_fall = 3.0,
+                   brake_rise = 1.7, brake_fall = 2.5 },
   ema_tau      = { throttle = 0.10, brake = 0.08 },
   lerp_tau     = { throttle = 0.15, brake = 0.12 },
   arbitration  = { brake_start = 0.1, brake_full = 0.5 },
@@ -490,6 +490,20 @@ function M.updateGFX(dt)
     if thrOut > prev + up then thrOut = prev + up end
     if thrOut < prev - down then thrOut = prev - down end
     if thrOut < 0 then thrOut = 0 elseif thrOut > 1 then thrOut = 1 end
+  end
+
+  -- === ЖЁСТКИЙ КЛАМП ТОРМОЗА (24.10) ===
+  -- Раньше тормоз не клампился — отсюда выбросы 3.02/с при капе 2.5 (needInit
+  -- и фолбэки). Теперь обычный кап brake_rise/fall (чуть резче газа): 0→1 за
+  -- ~0.6 с. Отчёт больше не должен видеть «скачков» тормоза.
+  do
+    local prev = tonumber(lastOut.brake) or 0
+    if prev ~= prev or prev < 0 then prev = 0 elseif prev > 1 then prev = 1 end
+    local up = (cfg.rate_limit.brake_rise or 1.7) * dt
+    local down = (cfg.rate_limit.brake_fall or 2.5) * dt
+    if brkOut > prev + up then brkOut = prev + up end
+    if brkOut < prev - down then brkOut = prev - down end
+    if brkOut < 0 then brkOut = 0 elseif brkOut > 1 then brkOut = 1 end
   end
 
   -- === WATCHDOG ЗАЛИПАНИЯ ГАЗА (24.10) ===

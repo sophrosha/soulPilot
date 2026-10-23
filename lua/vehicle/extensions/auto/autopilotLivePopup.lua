@@ -34,6 +34,7 @@ local lastSeen = 0          -- ожидаемый/наблюдённый lights_
 local warmupHold = false    -- sleep() от прогрева (работает и без auto)
 local savedState = nil      -- состояние света до сна (для wake без auto)
 local graceT = 0            -- сек: после нашей команды не считаем смену «ручной»
+local dbgT = 0              -- аккумулятор диагностического print (10 с)
 
 local function toGE(level, msg)
   pcall(function()
@@ -151,6 +152,10 @@ function M.updateGFX(dt)
   end
   if not active or cfg == nil then return end
 
+  -- ВАЖНО: curState() читаем ЗДЕСЬ; после applyEyes НЕ перечитывать (значение
+  -- применяется не мгновенно) — иначе ложное «вмешательство» (баг 24.10).
+  local cur = curState()
+
   -- awake/blink: детект вмешательства извне (не наш мигок, не Ф6-auto)
   if graceT > 0 then
     graceT = graceT - dt -- окно после нашей команды
@@ -171,10 +176,18 @@ function M.updateGFX(dt)
       lastSeen = EYES_OPEN
     end
     timer = timer - dt
+    -- Диагностика (24.10): heartbeat раз в 10 с — видно, тикает ли таймер
+    dbgT = dbgT + dt
+    if dbgT >= 10 then
+      dbgT = 0
+      print(string.format('aplPopup: TICK awake — timer=%.1f с, state=%d, night=%s, f6auto=%s, suppress=%s',
+        timer, cur, tostring(night), tostring(isLightsAuto()), tostring(suppressHeld)))
+    end
     if timer <= 0 then
       local okBlink, why = blinkAllowed()
       if not okBlink then
         timer = nextDelay()
+        print('aplPopup: моргание отложено (' .. why .. ')')
         toGE('INFO', 'popup: моргание отложено (' .. why .. ')')
         return
       end

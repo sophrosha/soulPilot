@@ -190,7 +190,12 @@ def build_report(path, df, caps):
         for i in idx[1:]:
             if i <= 0 or not np.isfinite(v[i]) or not np.isfinite(v[i - 1]):
                 continue
-            rate = abs(v[i] - v[i - 1]) / dt_med
+            # dt конкретной пары строк (не медиана!) — иначе алиасинг CSV
+            # (кадр 40-60 мс при подписанных 50 мс) даёт ложные «скачки».
+            dti = t[i] - t[i - 1]
+            if not np.isfinite(dti) or dti <= 1e-6:
+                dti = dt_med
+            rate = abs(v[i] - v[i - 1]) / dti
             if rate > thr:
                 jumps.append((ch, float(t[i]), rate))
     out["sections"]["jumps"] = jumps[:50]
