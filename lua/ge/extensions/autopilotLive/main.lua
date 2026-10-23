@@ -1561,6 +1561,17 @@ local function painRoadPose(veh)
   return n1.pos.x, n1.pos.y, n1.pos.z + 1.5, qx, qy, qz, qw
 end
 
+-- Принудительный телепорт: гасим скорости (вода/пляж), setPosRot, снова гасим.
+local function painTeleportNow(veh)
+  local x, y, z, qx, qy, qz, qw = painRoadPose(veh)
+  if not x then return false, 'road pose не найден' end
+  pcall(function() veh:setVelocity(vec3(0, 0, 0)) end)
+  pcall(function() veh:applyAngularVelocity(vec3(0, 0, 0)) end)
+  local okT = pcall(function() veh:setPosRot(x, y, z, qx, qy, qz, qw) end)
+  pcall(function() veh:setVelocity(vec3(0, 0, 0)) end)
+  return okT, string.format('(%.1f, %.1f, %.1f)', x, y, z)
+end
+
 -- Надёжное восстановление: resetVehicle(0) (ремонт + на колёса), затем
 -- ОТЛОЖЕННЫЙ на 0.2 с setPosRot (физике нужно обновиться; без повторов).
 local function painRecover(veh, kind)
@@ -2123,31 +2134,42 @@ function M.onUpdate(dtReal)
   -- Звук петмода: ОДИН Engine.Audio.playOnce в apl_pet("on") (24.10) —
   -- повторов/тика здесь больше нет.
   -- Фаза 9.1: damageSum доступен только в GE — шлём vehicle каждые 2 с
-  if painAuto then    painDamageAcc = painDamageAcc + dtReal
+  if painAuto then
+    painDamageAcc = painDamageAcc + dtReal
     if painDamageAcc >= 2 then
       painDamageAcc = 0
-      local veh = getVehicle()
-      local d = nil
-      if veh and veh.getSectionDamageSum then
-        local ok, v = pcall(function() return veh:getSectionDamageSum() end)
-        if ok and v ~= nil then d = tonumber(v) end
-      end
-      if d then
-        local cmd = string.format('autopilotLivePainCmd.setDamage(%.6f)', d)
-        local sent = sendToVehicle(cmd)
-        if not sent and veh and veh.queueLuaCommand then
-          local okq = pcall(function() veh:queueLuaCommand(cmd) end)
-          sent = okq and veh or nil
-          print('apl_pain: sendToVehicle не сработал → queueLuaCommand ok=' .. tostring(okq))
+      local okAll, errAll = pcall(function()
+        local veh = getVehicle() or (getPlayerVehicle and getPlayerVehicle(0))
+        local d = nil
+        if veh and veh.getSectionDamageSum then
+          local ok, v = pcall(function() return veh:getSectionDamageSum() end)
+          if ok and v ~= nil then d = tonumber(v) end
         end
-        print(string.format('apl_pain: SEND damageSum=%.1f → vehicle (%s)',
-          d, sent and 'ok' or 'FAIL'))
-        painDbgAcc = painDbgAcc + 2
-        if painDbgAcc >= 10 then
-          painDbgAcc = 0
-          print(string.format('apl_pain: damageSum(raw)=%.4f (порог %.3f)',
-            d, loadPainConfig().damage_threshold))
+        if not veh then
+          print('apl_pain: WARN veh=nil — damageSum не прочитать')
+        elseif d == nil then
+          print('apl_pain: WARN getSectionDamageSum вернул nil/ошибку')
         end
+        if d then
+          local cmd = string.format('autopilotLivePainCmd.setDamage(%.6f)', d)
+          local sent = sendToVehicle(cmd)
+          if not sent and veh and veh.queueLuaCommand then
+            local okq = pcall(function() veh:queueLuaCommand(cmd) end)
+            sent = okq and veh or nil
+            print('apl_pain: sendToVehicle не сработал → queueLuaCommand ok=' .. tostring(okq))
+          end
+          print(string.format('apl_pain: SEND damageSum=%.1f → vehicle (%s)',
+            d, sent and 'ok' or 'FAIL'))
+          painDbgAcc = painDbgAcc + 2
+          if painDbgAcc >= 10 then
+            painDbgAcc = 0
+            print(string.format('apl_pain: damageSum(raw)=%.4f (порог %.3f)',
+              d, loadPainConfig().damage_threshold))
+          end
+        end
+      end)
+      if not okAll then
+        print('apl_pain: WARN onUpdate pain error: ' .. tostring(errAll))
       end
     end
   end
@@ -2181,16 +2203,14 @@ function M.onUpdate(dtReal)
     painTpDelayT = painTpDelayT - dtReal
     if painTpDelayT <= 0 then
       painTpPending = false
-      local veh = getVehicle()
-      if veh then
-        local x, y, z, qx, qy, qz, qw = painRoadPose(veh)
-        local okT = false
-        if x then
-          okT = pcall(function() veh:setPosRot(x, y, z, qx, qy, qz, qw) end)
+      pcall(function()
+        local veh = getVehicle()
+        if veh then
+          local okT, where = painTeleportNow(veh)
+          painTpT = 1.0
+          print('aplPain: отложенный setPosRot ok=' .. tostring(okT) .. ' ' .. tostring(where or ''))
         end
-        painTpT = 1.0
-        print('aplPain: отложенный setPosRot ok=' .. tostring(okT))
-      end
+      end)
     end
   end
 
@@ -2198,19 +2218,21 @@ function M.onUpdate(dtReal)
   if painTpT > 0 then
     painTpT = painTpT - dtReal
     if painTpT <= 0 then
-      local veh = getVehicle()
-      local moved = -1
-      if veh and painTpFrom then
-        local ok, p = pcall(function() return veh:getPosition() end)
-        if ok and p then moved = (p - painTpFrom):length() end
-      end
-      painLastTp = moved
-      if moved >= 2 then
-        print(string.format('aplPain: ТЕЛЕПОРТ проверка — moved=%.1f м (ok)', moved))
-      else
-        print(string.format('aplPain: WARN телепорт мог не сработать (moved=%.1f м) — повторов нет', moved))
-        logLine('WARN', 'pain teleport moved=' .. string.format('%.1f', moved))
-      end
+      pcall(function()
+        local veh = getVehicle()
+        local moved = -1
+        if veh and painTpFrom then
+          local ok, p = pcall(function() return veh:getPosition() end)
+          if ok and p then moved = (p - painTpFrom):length() end
+        end
+        painLastTp = moved
+        if moved >= 2 then
+          print(string.format('aplPain: ТЕЛЕПОРТ проверка — moved=%.1f м (ok)', moved))
+        else
+          print(string.format('aplPain: WARN телепорт мог не сработать (moved=%.1f м) — повторов нет', moved))
+          logLine('WARN', 'pain teleport moved=' .. string.format('%.1f', moved))
+        end
+      end)
     end
   end
   -- === Фаза 8: ночь popup (влияет на интервал следующего моргания) ===

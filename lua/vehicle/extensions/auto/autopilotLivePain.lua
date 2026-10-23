@@ -137,13 +137,18 @@ function M.updateGFX(dt)
   local up = upDot()
   local drv = aiDriving()
 
-  -- FLIPPED: лежим на боку/крыше дольше flipped_time_s
-  if up < cfg.flipped_up_dot then
+  -- FLIPPED: сначала проверяем порог, затем обновляем таймер. Если up >= порога
+  -- (машина стоит ровно) — таймер СБРАСЫВАЕТСЯ (ложные срабатывания 24.10).
+  local isFlipped = up < cfg.flipped_up_dot
+  if isFlipped then
     flippedT = flippedT + step
   else
+    if flippedT > 0 then
+      print(string.format('aplPain: FLIPPED сброс — up=%.2f >= %.2f', up, cfg.flipped_up_dot))
+    end
     flippedT = 0
   end
-  if flippedT >= cfg.flipped_time_s then
+  if isFlipped and flippedT >= cfg.flipped_time_s and up < cfg.flipped_up_dot then
     report('FLIPPED', string.format('up=%.2f %.1fs', up, flippedT))
     return
   end
