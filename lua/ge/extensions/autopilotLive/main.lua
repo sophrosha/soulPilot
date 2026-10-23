@@ -986,6 +986,8 @@ local LIGHTS_MAP_CONF = 'mods/unpacked/AutopilotLive/ai/config/lights_by_map.jso
 local PET_CONF = 'mods/unpacked/AutopilotLive/ai/config/pet.json'
 -- Фаза 8: конфиг pop-up фар (паттерн lights/pet: DEFAULTS = дубль файла)
 local POPUP_CONF = 'mods/unpacked/AutopilotLive/ai/config/popup.json'
+-- Фаза 9.1: «Система Боли» — авто-восстановление
+local PAIN_CONF = 'mods/unpacked/AutopilotLive/ai/config/pain.json'
 
 local lightsAuto = false     -- auto включён (только командой игрока)
 local lightsTarget = nil     -- последний отправленный vehicle target (0/1/2)
@@ -1494,6 +1496,44 @@ local popupNightLast = false   -- последняя переданная vehicl
 local popupNightAcc = 0        -- аккумулятор опроса ночи (тик 5 с)
 local popupNightDbgAcc = 0     -- аккумулятор печати keepalive (30 с)
 
+-- === Фаза 9.1: «Система Боли» — авто-восстановление ===
+local painAuto = false         -- включается ТОЛЬКО apl_pain("auto")
+local painDamageAcc = 0        -- аккумулятор отправки damageSum vehicle (2 с)
+local PAIN_DEFAULTS = {
+  check_hz = 1, damage_threshold = 0.5,
+  stuck_speed_kph = 5, stuck_time_s = 5, stuck_throttle_min = 0.5,
+  flipped_up_dot = 0.3, flipped_time_s = 2, cooldown_s = 15,
+  restore_ai = 1, warmup_after = 1, warmup_sway = 0,
+}
+
+local function loadPainConfig()
+  local D = PAIN_DEFAULTS
+  local c = {}
+  for k, v in pairs(D) do c[k] = v end
+  local decoded = readJsonFile(PAIN_CONF)
+  if decoded then
+    local function num(key, lo, hi, dflt)
+      local v = tonumber(decoded[key])
+      if v == nil or v ~= v then return dflt end
+      if v < lo then return lo end
+      if v > hi then return hi end
+      return v
+    end
+    c.check_hz = num('check_hz', 0.1, 10, D.check_hz)
+    c.damage_threshold = num('damage_threshold', 0, 1e6, D.damage_threshold)
+    c.stuck_speed_kph = num('stuck_speed_kph', 0, 200, D.stuck_speed_kph)
+    c.stuck_time_s = num('stuck_time_s', 1, 120, D.stuck_time_s)
+    c.stuck_throttle_min = num('stuck_throttle_min', 0.1, 1, D.stuck_throttle_min)
+    c.flipped_up_dot = num('flipped_up_dot', 0, 0.9, D.flipped_up_dot)
+    c.flipped_time_s = num('flipped_time_s', 0.5, 60, D.flipped_time_s)
+    c.cooldown_s = num('cooldown_s', 1, 600, D.cooldown_s)
+    c.restore_ai = num('restore_ai', 0, 1, D.restore_ai)
+    c.warmup_after = num('warmup_after', 0, 1, D.warmup_after)
+    c.warmup_sway = num('warmup_sway', 0, 1, D.warmup_sway)
+  end
+  return c
+end
+
 -- Дефолты конфига (ДУБЛЬ popup.json — ТОЛЬКО fallback; истина — файл)
 local POPUP_DEFAULTS = {
   models = { 'bolide', 'wigeon' },
@@ -1660,6 +1700,114 @@ function apl_popup(mode)
 
   print('Использование: apl_popup("auto"|"off"|"status")')
   return false
+end
+
+-- === Фаза 9.1: «Система Боли» — apl_pain("auto"|"off"|"status") ===
+function apl_pain(mode)
+  mode = tostring(mode or ''):lower()
+  local veh = getVehicle()
+  if veh == nil then
+    print('apl_pain: нет игрока за рулём')
+    return false
+  end
+
+  if mode == 'auto' then
+    if painAuto then
+      print('apl_pain: уже включено (apl_pain("off") чтобы выключить)')
+      return false
+    end
+    local cfg = loadPainConfig()
+    painAuto = true
+    painDamageAcc = 0
+    sendToVehicle(string.format(
+      'autopilotLivePainCmd.start({check_hz=%.2f,damage_threshold=%.3f,' ..
+      'stuck_speed_kph=%.1f,stuck_time_s=%.1f,stuck_throttle_min=%.2f,' ..
+      'flipped_up_dot=%.2f,flipped_time_s=%.1f,cooldown_s=%.1f})',
+      cfg.check_hz, cfg.damage_threshold, cfg.stuck_speed_kph, cfg.stuck_time_s,
+      cfg.stuck_throttle_min, cfg.flipped_up_dot, cfg.flipped_time_s, cfg.cooldown_s))
+    print(string.format('apl_pain: АВТО-ВОССТАНОВЛЕНИЕ ВКЛ — damage>=%.2f, stuck %.0f км/ч/%.0f с, ' ..
+      'flip up<%.2f, cooldown %.0f с, warmup_after=%d, restore_ai=%d',
+      cfg.damage_threshold, cfg.stuck_speed_kph, cfg.stuck_time_s,
+      cfg.flipped_up_dot, cfg.cooldown_s, cfg.warmup_after, cfg.restore_ai))
+    logLine('INFO', 'pain auto ON')
+    return true
+  end
+
+  if mode == 'off' then
+    if not painAuto then
+      print('apl_pain: и так выключено')
+      return false
+    end
+    painAuto = false
+    sendToVehicle('autopilotLivePainCmd.stop()')
+    print('apl_pain: ВЫКЛ')
+    logLine('INFO', 'pain auto OFF')
+    return true
+  end
+
+  if mode == 'status' then
+    local cfg = loadPainConfig()
+    local dmg = '?'
+    if veh.getSectionDamageSum then
+      local ok, v = pcall(function() return veh:getSectionDamageSum() end)
+      if ok and v ~= nil then dmg = string.format('%.3f', tonumber(v) or 0) end
+    end
+    print('--- apl_pain status ---')
+    print('auto=' .. tostring(painAuto) .. ', damageSum=' .. tostring(dmg))
+    print(string.format('пороги: damage>=%.2f, stuck<=%.0f км/ч %.0f с (газ>=%.2f), flip up<%.2f %.1f с, cooldown %.0f с',
+      cfg.damage_threshold, cfg.stuck_speed_kph, cfg.stuck_time_s, cfg.stuck_throttle_min,
+      cfg.flipped_up_dot, cfg.flipped_time_s, cfg.cooldown_s))
+    print('после: warmup_after=' .. tostring(cfg.warmup_after) ..
+      ' (sway=' .. tostring(cfg.warmup_sway) .. '), restore_ai=' .. tostring(cfg.restore_ai))
+    sendToVehicle('autopilotLivePainCmd.status()')
+    return true
+  end
+
+  print('Использование: apl_pain("auto"|"off"|"status")')
+  return false
+end
+
+-- Vehicle сообщает: STUCK/FLIPPED/DAMAGE — выполняем восстановление
+function M.onVehiclePain(kind, info)
+  if not painAuto then return end
+  local cfg = loadPainConfig()
+  local veh = getVehicle()
+  print('[aplPain] ' .. tostring(kind) .. ': ' .. tostring(info))
+  logLine('WARN', 'pain ' .. tostring(kind) .. ': ' .. tostring(info))
+
+  if kind == 'DAMAGE' then
+    -- Ремонт на месте (MCP: be:resetVehicle — "reset/repair in place")
+    local ok, err = pcall(function() be:resetVehicle(0) end)
+    print('aplPain: ремонт be:resetVehicle(0) ok=' .. tostring(ok) .. (ok and '' or (' err=' .. tostring(err))))
+  else
+    -- STUCK/FLIPPED: ванильный recovery на дорогу (+ ремонт)
+    local ok = false
+    if spawn and spawn.teleportToLastRoad then
+      ok = pcall(function() spawn.teleportToLastRoad(veh, { resetVehicle = true }) end)
+    end
+    if not ok then
+      -- Fallback: ближайшая дорога через навиграф
+      pcall(function()
+        local m = map.getMap()
+        local n1Id, n2Id = map.findClosestRoad(veh:getPosition())
+        local n1 = n1Id and m.nodes[n1Id] or nil
+        if n1 then
+          veh:setPosRot(n1.pos.x, n1.pos.y, n1.pos.z + 1.0, 0, 0, 0, 1)
+        end
+      end)
+    end
+    print('aplPain: телепорт на дорогу ok=' .. tostring(ok))
+  end
+
+  -- Быстрый прогрев (sway отключается флагом noSway)
+  if cfg.warmup_after > 0 then
+    sendToVehicle(string.format("autopilotLiveWarmupCmd.on('%s', {noSway=%s})",
+      WARMUP_CONF, tostring(cfg.warmup_sway == 0)))
+  end
+  -- Вернуть автопилот
+  if cfg.restore_ai > 0 then
+    sendToVehicle('if ai and ai.setMode then ai.setMode("traffic") end')
+  end
 end
 
 function apl_debug()
@@ -1947,6 +2095,22 @@ function M.onUpdate(dtReal)
   if dtReal == nil or dtReal ~= dtReal or dtReal <= 0 or dtReal > 1 then return end
   -- Звук петмода: ОДИН Engine.Audio.playOnce в apl_pet("on") (24.10) —
   -- повторов/тика здесь больше нет.
+  -- Фаза 9.1: damageSum доступен только в GE — шлём vehicle каждые 2 с
+  if painAuto then
+    painDamageAcc = painDamageAcc + dtReal
+    if painDamageAcc >= 2 then
+      painDamageAcc = 0
+      local veh = getVehicle()
+      local d = nil
+      if veh and veh.getSectionDamageSum then
+        local ok, v = pcall(function() return veh:getSectionDamageSum() end)
+        if ok and v ~= nil then d = tonumber(v) end
+      end
+      if d then
+        sendToVehicle(string.format('autopilotLivePainCmd.setDamage(%.6f)', d))
+      end
+    end
+  end
   -- === Фаза 8: ночь popup (влияет на интервал следующего моргания) ===
   -- Опрос раз в ~2 с: считываем ночь по окну (как Ф6) и шлём vehicle ТОЛЬКО
   -- при смене — хронометр моргания не сбрасывается (интервал применится к
@@ -2049,6 +2213,8 @@ function M.onClientPostStartMission()
   popupAuto = false -- Фаза 8: авто-моргание не переживает смену миссии
   popupNightLast = false
   popupNightAcc = 0
+  painAuto = false -- Фаза 9.1: авто-восстановление не переживает смену миссии
+  painDamageAcc = 0
   petSoundStop() -- Фаза 7б: луп не переживает смену миссии
   petSoundEvent = '' -- звук мурчания — только по явному on
   if not csvActive then return end

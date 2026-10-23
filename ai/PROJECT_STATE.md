@@ -67,7 +67,12 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 
 **ФАЗА 8.9 (2026-10-24): звук петмода — GE `Engine.Audio.playOnce`.** Рабочий путь — **чистый VFS без `file:` и без ведущего слэша**: `art/sound/apl_pet.wav` (проверено игроком: `playOnce('AudioGui','art/sound/apl_pet.wav',{volume=2})` звучит). Один вызов при `apl_pet("on")` (файл 10 с > 6 с петмода), volume 2.0, pitch 0.8. Vehicle-слой звук НЕ создаёт: `createSFXSource`/`playSFX` крашили FMOD (`failed to load ... through FMOD`), per-source delete в API нет. Газ в петмоде убран (только звук + руль + force-ручник), в warmup finish добавлены `apl_popup("auto")` + `apl_lights("auto")` через GE.
 
-В Фазу 9 НЕ заходить.
+**ФАЗА 9.1 (2026-10-24): «Система Боли» — авто-восстановление.** Включается ТОЛЬКО `apl_pain("auto")`; конфиг `ai/config/pain.json` (пороги/кулдаун/warmup_after/restore_ai).
+- **Vehicle `autopilotLivePain.lua`:** детекторы 1 Гц — STUCK (`ai.isDriving()` + газ ≥ порога + скорость ≤ порога дольше `stuck_time_s`), FLIPPED (`getDirectionVectorUp():dot(0,0,1) < flipped_up_dot` дольше `flipped_time_s`), DAMAGE (порог; `getSectionDamageSum()` доступен только в GE — шлётся `setDamage` каждые 2 с). Guard'ы: не трогает при прогреве (`warmupCmd.getState()`) и поглаживании (`petCmd.isActive()`), кулдаун.
+- **GE `apl_pain("auto"|"off"|"status")`:** STUCK/FLIPPED → `spawn.teleportToLastRoad(veh,{resetVehicle=true})`, fallback — `map.findClosestRoad` + `veh:setPosRot`; DAMAGE → `be:resetVehicle(0)` (reset/repair на месте). После — `autopilotLiveWarmupCmd.on(conf,{noSway=true})` и `ai.setMode("traffic")` при `restore_ai=1`.
+- **Warmup:** `on(confPath, opts)` + `opts.noSway` (быстрый прогрев); геттеры `warmupCmd.getState()`, `petCmd.isActive()`.
+
+Ожидается тест игроком: авария/переворот/status. В Фазу 9 (LiDAR и пр.) не заходить без команды.
 
 ### Статус шагов Фазы 6 (фары день/ночь; порядок 6.1→6.5, каждый шаг — отдельный коммит)
 

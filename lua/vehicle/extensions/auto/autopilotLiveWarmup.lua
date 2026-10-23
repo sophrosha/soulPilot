@@ -492,13 +492,18 @@ end
 -- === Публичные команды (GE шлёт через queueLuaCommand) ===
 autopilotLiveWarmupCmd = {}
 
-function autopilotLiveWarmupCmd.on(confPath)
+function autopilotLiveWarmupCmd.on(confPath, opts)
   if state == 'starting_engine' or state == 'warming_up' then
     toGE('WARN', 'warmup: уже идёт (фаза ' .. state .. ', ' .. fmt(elapsed) ..
       ' с) — повторный start игнорирован')
     return false
   end
   cfg, cfgFromFile = loadConfig(type(confPath) == 'string' and confPath or FALLBACK_CONF)
+  -- Фаза 9.1: быстрый прогрев после восстановления — без покачивания рулём
+  if type(opts) == 'table' and opts.noSway then
+    cfg.sway.enabled = 0
+    print('aplWarmup: noSway — покачивание рулём отключено (быстрый прогрев)')
+  end
   resetState() -- state='off' → старт ниже
   -- Рандомное окно свея (правка игрока 18.10): покачивание-СОБЫТИЕ в случайный
   -- момент прогрева. sway_start_time = math.random(min*100, max*100)/100
@@ -550,6 +555,10 @@ function autopilotLiveWarmupCmd.off()
   toGE('INFO', 'warmup: остановлен игроком (фаза ' .. was .. ', прошло ' .. fmt(elapsed) ..
     ' с). Двигатель НЕ глушится, ручник не трогается.')
   return true
+end
+
+function autopilotLiveWarmupCmd.getState()
+  return state -- 'off'|'starting_engine'|'warming_up'|'done' (для pain/pet)
 end
 
 function autopilotLiveWarmupCmd.status()

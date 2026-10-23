@@ -303,6 +303,10 @@ function autopilotLivePetCmd.stop()
   return true
 end
 
+function autopilotLivePetCmd.isActive()
+  return active -- для pain: не трогаем машину во время поглаживания
+end
+
 function autopilotLivePetCmd.status()
   local lines = {
     '--- apl_pet status (vehicle) ---',
