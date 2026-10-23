@@ -83,6 +83,9 @@ local stuckT = 0
 local stuckWarned = false
 local aiWasDriving = false  -- детект пауза/резюме AI (диагностика Gavril)
 local resumeT = 99          -- сек с последнего resume (watchdog молчит 0.5 с)
+local thrHighT = 0          -- сек подряд thrOut > 0.9 (независимо от raw!)
+local thrHighWarnAcc = 0    -- печать WARN раз в 5 с при затяжном газе
+local rampT = 0             -- print рамп-апа каждые 0.2 с
 local lastRaw  = { throttle = 0, brake = 0, clutch = 0 }
 
 -- === Лог событий в GE (паттерн autopilotLive.lua) ===
@@ -161,6 +164,9 @@ local function resetState()
   stuckWarned = false
   aiWasDriving = false
   resumeT = 99
+  thrHighT = 0
+  thrHighWarnAcc = 0
+  rampT = 0
   stepGarbageWarned = {}
   outGarbageWarned = {}
 end
@@ -506,6 +512,44 @@ function M.updateGFX(dt)
     if brkOut < 0 then brkOut = 0 elseif brkOut > 1 then brkOut = 1 end
   end
 
+  -- === WATCHDOG «ГАЗ > 0.9» (24.10): независимо от raw ===
+  -- Если out держится >0.9 дольше 5 с — печатаем gear/rpm (КПП могла застрять).
+  if thrOut > 0.9 then
+    thrHighT = thrHighT + dt
+  else
+    thrHighT = 0
+    thrHighWarnAcc = 0
+  end
+  if thrHighT >= 5.0 then
+    thrHighWarnAcc = thrHighWarnAcc + dt
+    if thrHighWarnAcc >= 5.0 then
+      thrHighWarnAcc = 0
+      local gear, rpm = '?', 0
+      pcall(function() gear = tostring(electrics.values.gear) end)
+      pcall(function() rpm = tonumber(electrics.values.rpm) or 0 end)
+      print(string.format('aplPedals: WARN газ %.0f%% уже %.0f с — gear=%s rpm=%.0f raw=%s brakeOut=%s',
+        thrOut * 100, thrHighT, gear, rpm, diagFmt(thrRaw), diagFmt(brkOut)))
+      toGE('WARN', string.format('pedals: газ %.0f%% %.0f с, gear=%s rpm=%.0f',
+        thrOut * 100, thrHighT, gear, rpm))
+    end
+  end
+
+  -- === Диагностика рамп-апа: print каждые 0.2 с, пока газ РАСТЁТ ===
+  local prevThr = tonumber(lastOut.throttle) or 0
+  if thrOut > prevThr + 1e-6 and thrOut > 0.02 and thrOut < 0.98 then
+    rampT = rampT + dt
+    if rampT >= 0.2 then
+      rampT = 0
+      local gear, rpm = '?', 0
+      pcall(function() gear = tostring(electrics.values.gear) end)
+      pcall(function() rpm = tonumber(electrics.values.rpm) or 0 end)
+      print(string.format('aplPedals: ramp out=%.2f raw=%.2f gear=%s rpm=%.0f',
+        thrOut, thrRaw, gear, rpm))
+    end
+  else
+    rampT = 0
+  end
+
   -- === WATCHDOG ЗАЛИПАНИЯ ГАЗА (24.10) ===
   -- Симптом игрока: газ застревает ~0.99 (чаще Gavril). Если цель raw уже ≈0,
   -- а out высокий > 2 с — конвейер/override залип → WARN + дамп + ресинк на raw.
@@ -533,11 +577,17 @@ function M.updateGFX(dt)
     thrOut = thrRaw
   end
 
-  -- === Запись Override — КАЖДЫЙ кадр при engaged (У1) ===
-  -- Fix 2: пишем САНИТИЗИРОВАННЫЕ значения (brkOut, thrOut) — мусор не уходит
-  -- в контроллер и не залипает в lastOut/CSV.
+  -- Запись Override — КАЖДЫЙ кадр при engaged (У1).
+  -- ВАЖНО (24.10): brakeOverride < 0.02 НЕ пишем (nil). Ванильный апшифт
+  -- требует M.brake <= 0 (automaticGearbox.lua:355) — микро-хвост сглаживания
+  -- (0.001-0.02) блокировал переключение передач (CSV Gavril: gear=1, rpm 2650,
+  -- brake_out в (0,0.02) 583 из 584 кадров).
   electrics.values.throttleOverride = thrOut
-  electrics.values.brakeOverride = brkOut
+  if brkOut >= 0.02 then
+    electrics.values.brakeOverride = brkOut
+  else
+    electrics.values.brakeOverride = nil
+  end
   -- Clutch — ТОЛЬКО passthrough (решение 2026-10-12, api_research §15;
   -- актуализация 2026-10-15): AI сам clutch не пишет через driveCar/scriptai
   -- (ai.lua:427-436), НО ванильная КПП-автоматика/защита пишет его при
@@ -647,6 +697,17 @@ function autopilotLivePedalsCmd.status()
         ' source=' .. src .. ' controller=' .. ctrl ..
         ' | watchdog: rawHold=' .. string.format('%.1f', rawHoldT) ..
         'с stuck=' .. string.format('%.1f', stuckT) .. 'с'
+    end)(),
+    (function()
+      local g, r, ect, eb = '?', 0, 'nil', 'nil'
+      pcall(function() g = tostring(electrics.values.gear) end)
+      pcall(function() r = tonumber(electrics.values.rpm) or 0 end)
+      pcall(function() ect = electrics.values.throttle end)
+      pcall(function() eb = electrics.values.brakeOverride end)
+      return 'shift: gear=' .. g .. ' rpm=' .. string.format('%.0f', r) ..
+        ' | controller: throttle=' .. tostring(ect) ..
+        ' brakeOvr=' .. tostring(eb) ..
+        ' | gasHigh=' .. string.format('%.1f', thrHighT) .. 'с'
     end)(),
     -- ЛОВУШКА (диагностика 2026-10-15, доказательство 2026-10-16): независимый
     -- ДУБЛЬ тех же значений. lastOut пишется только из sanitizeOut ∈ [0,1]

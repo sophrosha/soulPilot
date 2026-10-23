@@ -158,7 +158,14 @@ def build_report(path, df, caps):
         s = pd.to_numeric(df[f"{ch}_smoothed"], errors="coerce")
         dev = (s - r)[m].abs()
         lag = lag_seconds(s[m], r[m], dt_med)
-        dsm = np.abs(np.diff(s[m].to_numpy())) / dt_med if m.sum() > 2 else np.array([0.0])
+        sm_vals = s[m].to_numpy()
+        tm_vals = t[m.to_numpy()]
+        if len(sm_vals) > 2:
+            dts = np.diff(tm_vals)
+            dts[dts <= 1e-6] = dt_med
+            dsm = np.abs(np.diff(sm_vals)) / dts
+        else:
+            dsm = np.array([0.0])
         rise = caps.get(f"{ch}_rise", CAP_DEFAULT.get(f"{ch}_rise", 0))
         fall = caps.get(f"{ch}_fall", CAP_DEFAULT.get(f"{ch}_fall", 0))
         cap = max(rise, fall) or 1.0
@@ -236,6 +243,36 @@ def build_report(path, df, caps):
                           f"эпизодов ≥2 с: {len(stuck)}"
                           + (f" (макс {max(s[2] for s in stuck):.1f} с)" if stuck else "")))
 
+    # 6b. ГАЗ > 0.9 дольше 3 с (НЕЗАВИСИМО от raw) — жалоба «газ 99%, нет
+    # переключения». Выводим передачи/rpm: видно, застряла ли КПП.
+    high = []
+    if "throttle_smoothed" in df.columns:
+        s = pd.to_numeric(df["throttle_smoothed"], errors="coerce")
+        mask = (s > 0.9).fillna(False).to_numpy()
+        gcol = df["gear"].astype(str).to_numpy() if "gear" in df.columns else None
+        rcol = (pd.to_numeric(df["rpm"], errors="coerce").to_numpy()
+                if "rpm" in df.columns else None)
+        rw = (pd.to_numeric(df["throttle_raw"], errors="coerce").to_numpy()
+              if "throttle_raw" in df.columns else None)
+        bcol = (pd.to_numeric(df["brake_smoothed"], errors="coerce").to_numpy()
+                if "brake_smoothed" in df.columns else None)
+        for a, b, dur in find_events(mask, t):
+            if dur >= 3.0:
+                i0 = int(np.searchsorted(t, a))
+                i1 = min(len(t) - 1, int(np.searchsorted(t, b)))
+                high.append({
+                    "t0": float(a), "t1": float(b), "dur": float(dur),
+                    "gears": sorted(set(gcol[i0:i1 + 1])) if gcol is not None else [],
+                    "rpm_max": float(np.nanmax(rcol[i0:i1 + 1])) if rcol is not None else None,
+                    "raw_min": float(np.nanmin(rw[i0:i1 + 1])) if rw is not None else None,
+                    "brake_max": float(np.nanmax(bcol[i0:i1 + 1])) if bcol is not None else None,
+                })
+    out["sections"]["high_throttle"] = high
+    stuck_gear = [h for h in high if len(h["gears"]) <= 1]
+    out["checks"].append(("газ>0.9 ≥3с", not stuck_gear,
+                          f"эпизодов: {len(high)}"
+                          + (f", без переключения передач: {len(stuck_gear)}" if high else "")))
+
     # 7. Руль: недоход на пиках |raw| (окно ±1 с)
     undershoot = []
     if {"steer_raw", "steer_smoothed"}.issubset(df.columns):
@@ -308,6 +345,19 @@ def render_md(rep):
     if rep["sections"]["stuck_throttle"]:
         for a, b, d in rep["sections"]["stuck_throttle"]:
             L.append(f"- t={a:.1f}–{b:.1f} с ({d:.1f} с)")
+    else:
+        L.append("Нет.")
+    L += ["", "## Газ > 0.9 дольше 3 с (независимо от raw)", ""]
+    ht = rep["sections"].get("high_throttle") or []
+    if ht:
+        L.append("| t0, с | t1, с | длит, с | передачи | rpm max | raw min | brake max |")
+        L.append("|---|---|---|---|---|---|---|")
+        for h in ht:
+            rpm = '-' if h["rpm_max"] is None else f"{h['rpm_max']:.0f}"
+            rawm = '-' if h["raw_min"] is None else f"{h['raw_min']:.3f}"
+            brkm = '-' if h["brake_max"] is None else f"{h['brake_max']:.3f}"
+            L.append(f"| {h['t0']:.1f} | {h['t1']:.1f} | {h['dur']:.1f} | "
+                     f"{','.join(h['gears']) or '?'} | {rpm} | {rawm} | {brkm} |")
     else:
         L.append("Нет.")
     L += ["", "## Недоход руля (пики)", ""]

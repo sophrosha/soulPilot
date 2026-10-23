@@ -170,10 +170,10 @@ function M.updateGFX(dt)
   end
 
   if phase == 'awake' then
-    -- Глаза открыты; при активном Ф6 не навязываем 1 (у Ф6 может быть 2)
-    if not isLightsAuto() and curState() ~= EYES_OPEN then
+    -- Глаза открыты. НОЧЬЮ state НЕ трогаем вовсе (игрок/Ф6: 1=ближний, 2=дальний) —
+    -- иначе затирали дальний и фары «слабые». Днём открываем 1, если Ф6 не авто.
+    if not night and not isLightsAuto() and curState() ~= EYES_OPEN then
       applyEyes(EYES_OPEN)
-      lastSeen = EYES_OPEN
     end
     timer = timer - dt
     -- Диагностика (24.10): heartbeat раз в 10 с — видно, тикает ли таймер
@@ -274,11 +274,20 @@ function autopilotLivePopupCmd.wake_up()
   setSuppress(false)
   warmupHold = false
   if active then
-    applyEyes(EYES_OPEN) -- lastSeen ставит applyEyes (не перечитываем state!)
-    phase = 'awake'
-    timer = nextDelay()
-    print(string.format('aplPopup: ПРОБУЖДЕНИЕ — state %d → %d, глаза открыты, следующее моргание через %.0f с',
-      before, curState(), timer))
+    if night then
+      -- Ночью state не трогаем (дальний/ближний — решение игрока/Ф6)
+      lastSeen = curState()
+      phase = 'awake'
+      timer = nextDelay()
+      print(string.format('aplPopup: ПРОБУЖДЕНИЕ (ночь) — state %d оставлен как есть, моргание подавлено',
+        lastSeen))
+    else
+      applyEyes(EYES_OPEN) -- lastSeen ставит applyEyes (не перечитываем state!)
+      phase = 'awake'
+      timer = nextDelay()
+      print(string.format('aplPopup: ПРОБУЖДЕНИЕ — state %d → %d, глаза открыты, следующее моргание через %.0f с',
+        before, curState(), timer))
+    end
   else
     local restore = EYES_OPEN
     if savedState == 1 or savedState == 2 then restore = savedState end
