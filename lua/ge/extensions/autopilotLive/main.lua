@@ -1423,6 +1423,16 @@ function apl_pet(mode)
       -- GE playOnce не умеет кастомные .ogg (нет SFX-профиля).
       petSoundEvent = cfg.sound_event
       petSoundActive = false
+      -- Звук: ОДИН playOnce (файл 10 с > 6 с петмода). Рабочий путь — чистый
+      -- VFS без file: и без ведущего слэша (проверено: art/sound/apl_pet.wav).
+      if cfg.sound_event ~= '' then
+        local okSnd, resSnd = pcall(function()
+          return Engine.Audio.playOnce('AudioGui', cfg.sound_event,
+            { volume = cfg.sound_volume, pitch = cfg.pitch })
+        end)
+        print('apl_pet: звук playOnce ' .. cfg.sound_event .. ' → ' ..
+          (okSnd and resSnd ~= nil and 'OK' or 'nil/ошибка'))
+      end
       print('apl_pet: команда отправлена (конфиг=' .. (cfg.fromFile and 'файл' or 'ДЕФОЛТЫ') ..
         ') — guard-отказы vehicle печатает сам (на ходу/усталость)')
       logLine('INFO', 'pet: start sent, conf=' .. (cfg.fromFile and 'file' or 'defaults') ..
@@ -1935,74 +1945,8 @@ end
 -- vehicle-модуле: guard «lights_state ~= lastApplied»).
 function M.onUpdate(dtReal)
   if dtReal == nil or dtReal ~= dtReal or dtReal <= 0 or dtReal > 1 then return end
-  -- Звук петмода ПЕРЕНЕСЁН в Vehicle-слой (24.10): GE playOnce не играет
-  -- кастомный .ogg (нет SFX-профиля). Блок оставлен отключённым.
-  if false and petSoundActive and petSoundEvent ~= '' and petSoundInterval > 0 then
-    petSoundT = petSoundT + dtReal
-    petSoundTickAcc = petSoundTickAcc + dtReal
-    if petSoundTickAcc >= petSoundInterval then
-      petSoundTickAcc = petSoundTickAcc - petSoundInterval
-      -- «Дыхание» громкости: volume ± depth/2 по синусу
-      local half = petSoundBreathDepth / 2
-      local m = 1 - half + half * math.sin(2 * math.pi * petSoundBreathHz * petSoundT)
-      local vol = petSoundBaseVol * m
-      -- Позиция машины игрока (playOnce-схема: position = vec3)
-      local pos = nil
-      local veh = getVehicle()
-      if veh then
-        local okPos, vp = pcall(function() return veh:getPosition() end)
-        if okPos and vp then pos = vec3(vp.x, vp.y, vp.z) end
-      end
-      if petSoundNoPos then pos = nil end -- ручной фолбэк из pet.json
-      if pos == nil and not petSoundNoPos and not petSoundPosWarned then
-        petSoundPosWarned = true
-        print('WARN apl_pet: позиция машины недоступна — звук играет БЕЗ позиции')
-        logLine('WARN', 'pet sound: нет позиции машины — playOnce без position')
-      end
-      -- Путь/событие (24.10): свой файл пробуем в вариантах 'file:...':
-      --   file:apl_pet.ogg → file:/apl_pet.ogg → file:mods/unpacked/AutopilotLive/apl_pet.ogg
-      -- Первый успешный запоминаем (petSoundResolved), чтобы не перебирать каждый раз.
-      local candidates
-      if petSoundResolved then
-        candidates = { petSoundResolved }
-      elseif petSoundEvent:match('^file:') then
-        local base = petSoundEvent:sub(6):gsub('^/+', '')
-        candidates = { petSoundEvent, 'file:/' .. base,
-                       'file:mods/unpacked/AutopilotLive/' .. base }
-      else
-        candidates = { petSoundEvent }
-      end
-      local ok, res, used = false, nil, nil
-      for _, ev in ipairs(candidates) do
-        local ok1, r1 = pcall(function()
-          local opt = { volume = vol, pitch = petSoundPitch }
-          if pos then opt.position = pos end
-          return Engine.Audio.playOnce('AudioGui', ev, opt)
-        end)
-        if ok1 and r1 then ok, res, used = true, r1, ev break end
-      end
-      if not ok then
-        logLine('WARN', 'pet sound: playOnce не смог (' .. tostring(petSoundEvent) .. ')')
-        if not petSoundPosWarned then
-          petSoundPosWarned = true
-          print('WARN apl_pet: звук НЕ создан — проверить путь/событие: ' .. tostring(petSoundEvent))
-        end
-      elseif used ~= petSoundResolved then
-        petSoundResolved = used
-        print('apl_pet: звук OK → ' .. used)
-        logLine('INFO', 'pet sound resolved: ' .. used)
-      end
-      if res and type(res) == 'table' and res.sourceId then
-        table.insert(petSoundIds, res.sourceId)
-        -- Держим только свежие пачки (звук живёт ~interval*4), остальные —
-        -- playOnce сам доиграет; id нужен лишь для мгновенного стопа.
-        while #petSoundIds > 8 do
-          local oldId = table.remove(petSoundIds, 1)
-          pcall(function() Engine.Audio.deleteSource(oldId) end)
-        end
-      end
-    end
-  end
+  -- Звук петмода: ОДИН Engine.Audio.playOnce в apl_pet("on") (24.10) —
+  -- повторов/тика здесь больше нет.
   -- === Фаза 8: ночь popup (влияет на интервал следующего моргания) ===
   -- Опрос раз в ~2 с: считываем ночь по окну (как Ф6) и шлём vehicle ТОЛЬКО
   -- при смене — хронометр моргания не сбрасывается (интервал применится к
