@@ -32,6 +32,8 @@ local DEFAULTS = {
   rateScale = 0.5,       -- множитель rate_limit руля на время эффекта
   randomInterval = 0.2,  -- сек: как часто новая случайная цель газа (0.05+rand*0.05)
   rampS = 1.5,           -- сек: плавное снижение жёсткости руля (1 → rateScale)
+  soundEvent = 'file:art/sound/apl_pet.ogg', -- звук (Vehicle-слой SFX)
+  soundInterval = 0.5,   -- сек: период новой пачки (оверлап → «урчание»)
   speedGateKph = 5.0,    -- «нельзя гладить на ходу»
 }
 
@@ -47,6 +49,10 @@ local thrRandT = 0       -- таймер смены случайной цели 
 local thrRandVal = 0     -- случайная цель (0.05..0.10)
 local thrRandCur = 0     -- текущее сглаженное значение
 local thrOverrideWritten = false -- писали ли throttleOverride в этом кадре/сеансе
+local petSfx = {}        -- объекты SFX (obj:createSFXSource) — звук в Vehicle-слое
+local sfxT = 0           -- аккумулятор пачки звука
+local sfxWarned = false  -- WARN «звук не создан» уже выдан
+local sfxOk = false      -- звук успешно создан (print один раз)
 
 -- === Лог событий в GE (паттерн autopilotLiveLights.lua) ===
 local function toGE(level, msg)
@@ -132,6 +138,12 @@ local function finish(reason)
   thrRandVal = 0
   thrRandCur = 0
   thrOverrideWritten = false
+  -- Звук: останавливаем все пачки (obj:stopSFX)
+  for _, snd in ipairs(petSfx) do
+    pcall(function() obj:stopSFX(snd) end)
+  end
+  petSfx = {}
+  sfxT = 0
   active = false
   p = nil
   elapsed = 0
@@ -180,6 +192,45 @@ function M.updateGFX(dt)
     setHandbrake(0)
   end
 
+  -- Звук (Vehicle-слой, 24.10): GE playOnce не играет кастомный .ogg (нет
+  -- SFX-профиля) → createSFXSource + playSFX каждые soundInterval с
+  -- наложением. Сбой — WARN с ТОЧНЫМ путём (один раз).
+  if p.soundEvent and p.soundEvent ~= '' then
+    sfxT = sfxT + dt
+    if sfxT >= (p.soundInterval or 0.5) then
+      sfxT = 0
+      local snd = nil
+      local ok, err = pcall(function()
+        snd = obj:createSFXSource(p.soundEvent, 'AudioDefault3D', 'aplPet', -1)
+        if not snd and p.soundEvent:match('^file:') then
+          local alt = 'file:/' .. p.soundEvent:sub(6):gsub('^/+', '')
+          snd = obj:createSFXSource(alt, 'AudioDefault3D', 'aplPet', -1)
+        end
+        if snd then obj:playSFX(snd) end
+      end)
+      if not ok or not snd then
+        if not sfxWarned then
+          sfxWarned = true
+          print('aplPet: WARN звук НЕ создан: ' .. tostring(p.soundEvent) ..
+            ' (err=' .. tostring(err) .. ')')
+          toGE('WARN', 'pet sfx fail: ' .. tostring(p.soundEvent) ..
+            ' err=' .. tostring(err))
+        end
+      else
+        table.insert(petSfx, snd)
+        while #petSfx > 8 do
+          local old = table.remove(petSfx, 1)
+          pcall(function() obj:stopSFX(old) end)
+        end
+        if not sfxOk then
+          sfxOk = true
+          print('aplPet: звук OK → ' .. tostring(p.soundEvent))
+          toGE('INFO', 'pet sfx OK: ' .. tostring(p.soundEvent))
+        end
+      end
+    end
+  end
+
   if elapsed >= p.duration then finish() end
 end
 
@@ -200,6 +251,9 @@ function autopilotLivePetCmd.start(params)
     rateScale = clampNum(t.rateScale, 0.1, 1, D.rateScale),
     randomInterval = clampNum(t.randomInterval, 0.05, 5, D.randomInterval),
     rampS = clampNum(t.rampS, 0.1, 10, D.rampS),
+    soundEvent = (type(t.soundEvent) == 'string' and t.soundEvent ~= '')
+      and t.soundEvent or D.soundEvent,
+    soundInterval = clampNum(t.soundInterval, 0.1, 5, D.soundInterval),
     speedGateKph = clampNum(t.speedGateKph, 0, 120, D.speedGateKph),
     spamMax = clampNum(t.spamMax, 1, 50, 4),
     spamWindow = clampNum(t.spamWindow, 1, 600, 30),
@@ -280,6 +334,10 @@ function autopilotLivePetCmd.start(params)
     setHandbrake(0)
   end
   thrOverrideWritten = false
+  petSfx = {}
+  sfxT = cfg.soundInterval -- первый звук сразу
+  sfxWarned = false
+  sfxOk = false
   -- Руль снижаем ПЛАВНО в updateGFX (rampS) — не дёргаем setRateScale здесь.
   print('aplPet: ПОГЛАЖИВАНИЕ НАЧАТО (' .. string.format('%.0f', cfg.duration) ..
     ' с; газ НЕ трогаем (только звук и руль); ' ..
@@ -323,6 +381,11 @@ function M.onReset()
   -- Respawn: electrics сброшены (override'ов уже нет, ручник штатный) —
   -- эффект прерываем БЕЗ setHandbrake (машина только что заспавнена).
   if active then
+    for _, snd in ipairs(petSfx) do
+      pcall(function() obj:stopSFX(snd) end)
+    end
+    petSfx = {}
+    sfxT = 0
     active = false
     p = nil
     elapsed = 0
@@ -332,6 +395,11 @@ function M.onReset()
 end
 
 function M.onVehicleDestroyed()
+  for _, snd in ipairs(petSfx) do
+    pcall(function() obj:stopSFX(snd) end)
+  end
+  petSfx = {}
+  sfxT = 0
   active = false
   p = nil
   elapsed = 0

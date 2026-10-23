@@ -65,6 +65,8 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - **Popup/ночь:** прямой `setNight` сразу после `apl_popup("auto")` + print результата отправки; vehicle печатает `START получен — night=...`; keepalive печатает `sent=true/false`. Диагностика «GE НОЧЬ / vehicle false».
 - Звук: `Engine.Audio.setPitchMultiplier` в 0.39.4 отсутствует — питч двигателя из Lua не меняем (playOnce pitch=0.7).
 
+**ФАЗА 8.9 (2026-10-24): звук петмода перенесён в Vehicle-слой.** `Engine.Audio.playOnce` из GE не создаёт источник для кастомного `.ogg` (нет SFX-профиля). Решение: `obj:createSFXSource('file:art/sound/apl_pet.ogg', 'AudioDefault3D', 'aplPet', -1)` + `obj:playSFX` каждые `sound_interval` (0.5 с, оверлап → урчание), `obj:stopSFX` в finish/onReset/onVehicleDestroyed; fallback `file:/...`. GE-тик playOnce отключён, параметры звука передаются vehicle в `start(...)`. Файл — `art/sound/apl_pet.ogg`. Газ в петмоде убран (только звук + руль + force-ручник), в warmup finish добавлены `apl_popup("auto")` + `apl_lights("auto")` через GE.
+
 В Фазу 9 НЕ заходить.
 
 ### Статус шагов Фазы 6 (фары день/ночь; порядок 6.1→6.5, каждый шаг — отдельный коммит)

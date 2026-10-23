@@ -1413,20 +1413,16 @@ function apl_pet(mode)
     local cfg = loadPetConfig()
     local cmd = string.format(
       'autopilotLivePetCmd.start({duration=%.2f, offset=%.3f, amp=%.3f, hz=%.3f, ' ..
-      'rateScale=%.2f, speedGateKph=%.1f, spamMax=%d, spamWindow=%.1f, cooldown=%.1f})',
+      'rateScale=%.2f, speedGateKph=%.1f, spamMax=%d, spamWindow=%.1f, cooldown=%.1f, ' ..
+      'soundEvent="%s", soundInterval=%.2f, soundVolume=%.2f})',
       cfg.duration_s, cfg.offset, cfg.amp, cfg.hz, cfg.steer_rate_scale,
-      cfg.speed_gate_kph, cfg.spam_max, cfg.spam_window_s, cfg.cooldown_s)
+      cfg.speed_gate_kph, cfg.spam_max, cfg.spam_window_s, cfg.cooldown_s,
+      (cfg.sound_event or ''):gsub('"', '\\"'), cfg.sound_interval, cfg.sound_volume)
     if sendToVehicle(cmd) then
-      -- Звук: playOnce-оверлап в GE (vehicle при guard-отказе шлёт rejected —
-      -- гасим звук колбэком onVehiclePetRejected)
+      -- Звук теперь в Vehicle-слое (obj:createSFXSource/playSFX, 24.10):
+      -- GE playOnce не умеет кастомные .ogg (нет SFX-профиля).
       petSoundEvent = cfg.sound_event
-      petSoundPitch = cfg.pitch
-      petSoundBaseVol = cfg.sound_volume
-      petSoundInterval = cfg.sound_interval
-      petSoundNoPos = cfg.sound_no_pos
-      petSoundBreathHz = cfg.breath_hz
-      petSoundBreathDepth = cfg.breath_depth
-      petSoundStart()
+      petSoundActive = false
       print('apl_pet: команда отправлена (конфиг=' .. (cfg.fromFile and 'файл' or 'ДЕФОЛТЫ') ..
         ') — guard-отказы vehicle печатает сам (на ходу/усталость)')
       logLine('INFO', 'pet: start sent, conf=' .. (cfg.fromFile and 'file' or 'defaults') ..
@@ -1443,9 +1439,8 @@ function apl_pet(mode)
     return true
   elseif mode == 'status' then
     local cfg = loadPetConfig()
-    print('apl_pet GE: звук=' .. (petSoundActive and 'ИГРАЕТ (playOnce оверлап)' or
-      (petSoundEvent ~= '' and 'остановлен' or 'off')) ..
-      (petSoundEvent ~= '' and (' (' .. petSoundEvent .. ')') or ''))
+    print('apl_pet GE: звук=Vehicle-SFX (' .. (cfg.sound_event ~= '' and cfg.sound_event or 'off') ..
+      '), каждые ' .. string.format('%.2f', cfg.sound_interval) .. ' с')
     print('  конфиг=' .. (cfg.fromFile and 'файл' or 'ДЕФОЛТЫ') ..
       ': длительность ' .. string.format('%.1f', cfg.duration_s) .. ' с, газ ' ..
       string.format('%.2f', cfg.offset) .. '+±' .. string.format('%.2f', cfg.amp) ..
@@ -1940,10 +1935,9 @@ end
 -- vehicle-модуле: guard «lights_state ~= lastApplied»).
 function M.onUpdate(dtReal)
   if dtReal == nil or dtReal ~= dtReal or dtReal <= 0 or dtReal > 1 then return end
-  -- Фаза 7б (тест 3): playOnce-оверлап — каждые interval_s новая пачка
-  -- 'AudioGui' с позицией машины (volume 2.0 с «дыханием») → непрерывное
-  -- урчание. no_pos — фолбэк: без позиции (глобально) для проверки файла.
-  if petSoundActive and petSoundEvent ~= '' and petSoundInterval > 0 then
+  -- Звук петмода ПЕРЕНЕСЁН в Vehicle-слой (24.10): GE playOnce не играет
+  -- кастомный .ogg (нет SFX-профиля). Блок оставлен отключённым.
+  if false and petSoundActive and petSoundEvent ~= '' and petSoundInterval > 0 then
     petSoundT = petSoundT + dtReal
     petSoundTickAcc = petSoundTickAcc + dtReal
     if petSoundTickAcc >= petSoundInterval then

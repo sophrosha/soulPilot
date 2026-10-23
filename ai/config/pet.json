@@ -10,7 +10,7 @@
   },
   "steer_rate_scale": 0.5,
   "sound": {
-    "sound_event": "file:apl_pet.ogg",
+    "sound_event": "file:art/sound/apl_pet.ogg",
     "pitch": 0.7,
     "interval_s": 0.5,
     "breath_hz": 0.3,
