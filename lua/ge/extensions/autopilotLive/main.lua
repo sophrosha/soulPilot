@@ -1756,7 +1756,7 @@ function apl_pain(mode)
     end
     print('--- apl_pain status ---')
     print('auto=' .. tostring(painAuto) .. ', damageSum(raw)=' .. tostring(dmg) ..
-      ', порог damage_threshold=' .. string.format('%.3f', cfg.damage_threshold) ..
+      ', порог damage_threshold=' .. string.format('%.3f', cfg.damage_threshold))
     print(string.format('пороги: damage>=%.2f, stuck<=%.0f км/ч %.0f с (газ>=%.2f), flip up<%.2f %.1f с, cooldown %.0f с',
       cfg.damage_threshold, cfg.stuck_speed_kph, cfg.stuck_time_s, cfg.stuck_throttle_min,
       cfg.flipped_up_dot, cfg.flipped_time_s, cfg.cooldown_s))
