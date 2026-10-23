@@ -1,5 +1,5 @@
 {
-  "_comment_modes": "Фаза 7 (правки после теста 3, 18.10): кнопка «Погладить» (apl_pet). Физика: (1) газ — ЛЕГКОЕ дрожание throttleOverride = offset + amp*sin (0.05+±0.05 → 0.0..0.1, «еле урчит»); (2) ТОРМОЗ brakeOverride НЕ ИСПОЛЬЗУЕТСЯ (из-за него машина полетела назад); (3) ручник — smartParkingBrake(1) на время эффекта, smartParkingBrake(0) в конце — машина не катится. Плюс руль плавнее (steer_rate_scale) + звук.",
+  "_comment_modes": "Фаза 8.9 (24.10): газ в петмоде УБРАН полностью (только звук + мягкий руль + force-ручник на стоянке). Звук: sound_event может быть событием 'event:>...' (синтаксис ванили, БЕЗ прямых слэшей!) или своим файлом 'file:apl_pet.ogg' (лежит в корне мода). Если путь не сработал — в консоли будет 'apl_pet: звук OK → ...' (рабочий вариант) или WARN.",
   "_comment_sound": "sound (7б): звук через Engine.Audio.playOnce каждые interval_s сек (наложение/оверлап → непрерывное урчание), volume 2.0, питч 0.7, position = машина. Если звук не слышно — поставьте \"no_pos\": true (звук глобально без позиции, для проверки файла). pitch живого звука из Lua... playOnce умеет pitch штатно. breath_hz/breath_depth — «дыхание» громкости каждой пачки. sound_event ПУСТОЙ — звук выключен.",
   "_comment_guard": "cooldown: если активаций больше spam_max за spam_window_s секунд — «кошачье устало»: игнор on + кулдаун cooldown_s (WARN в консоли). speed_gate_kph — «нельзя гладить на ходу»: эффект только когда скорость ниже порога (км/ч).",
   "duration_s": 6.0,
@@ -10,7 +10,7 @@
   },
   "steer_rate_scale": 0.5,
   "sound": {
-    "sound_event": "event:>Engine>Shutoff>v8_20xy_eng",
+    "sound_event": "file:apl_pet.ogg",
     "pitch": 0.7,
     "interval_s": 0.5,
     "breath_hz": 0.3,

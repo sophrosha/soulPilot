@@ -1010,6 +1010,7 @@ local petSoundT = 0          -- время звука, сек (для дыхан
 local petSoundTickAcc = 0    -- аккумулятор playOnce, сек
 local petSoundIds = {}       -- sourceId играющих пачек (для мгновенного стопа)
 local petSoundPosWarned = false -- WARN про позицию выведен
+local petSoundResolved = nil  -- рабочий путь 'file:...'/event (кэш, 24.10)
 
 -- Мгновенная остановка: удаляем все играющие пачки playOnce (идемпотентно)
 local function petSoundStop()
@@ -1026,6 +1027,7 @@ end
 -- Старт звука: первая playOnce — сразу, дальше каждые interval_s (onUpdate)
 local function petSoundStart()
   petSoundStop() -- страховка от двойного запуска
+  petSoundResolved = nil -- событие могло смениться — путь пере-резолвим
   if petSoundEvent == '' then return end
   petSoundActive = true
   petSoundT = 0
@@ -1963,18 +1965,40 @@ function M.onUpdate(dtReal)
         print('WARN apl_pet: позиция машины недоступна — звук играет БЕЗ позиции')
         logLine('WARN', 'pet sound: нет позиции машины — playOnce без position')
       end
-      local ok, res = pcall(function()
-        if pos then
-          return Engine.Audio.playOnce('AudioGui', petSoundEvent,
-            { volume = vol, pitch = petSoundPitch, position = pos })
-        end
-        -- Фолбэк: глобальный звук без позиции (проверка слышимости файла)
-        return Engine.Audio.playOnce('AudioGui', petSoundEvent,
-          { volume = vol, pitch = petSoundPitch })
-      end)
+      -- Путь/событие (24.10): свой файл пробуем в вариантах 'file:...':
+      --   file:apl_pet.ogg → file:/apl_pet.ogg → file:mods/unpacked/AutopilotLive/apl_pet.ogg
+      -- Первый успешный запоминаем (petSoundResolved), чтобы не перебирать каждый раз.
+      local candidates
+      if petSoundResolved then
+        candidates = { petSoundResolved }
+      elseif petSoundEvent:match('^file:') then
+        local base = petSoundEvent:sub(6):gsub('^/+', '')
+        candidates = { petSoundEvent, 'file:/' .. base,
+                       'file:mods/unpacked/AutopilotLive/' .. base }
+      else
+        candidates = { petSoundEvent }
+      end
+      local ok, res, used = false, nil, nil
+      for _, ev in ipairs(candidates) do
+        local ok1, r1 = pcall(function()
+          local opt = { volume = vol, pitch = petSoundPitch }
+          if pos then opt.position = pos end
+          return Engine.Audio.playOnce('AudioGui', ev, opt)
+        end)
+        if ok1 and r1 then ok, res, used = true, r1, ev break end
+      end
       if not ok then
-        logLine('WARN', 'pet sound: playOnce не смог (' .. tostring(res) .. ')')
-      elseif type(res) == 'table' and res.sourceId then
+        logLine('WARN', 'pet sound: playOnce не смог (' .. tostring(petSoundEvent) .. ')')
+        if not petSoundPosWarned then
+          petSoundPosWarned = true
+          print('WARN apl_pet: звук НЕ создан — проверить путь/событие: ' .. tostring(petSoundEvent))
+        end
+      elseif used ~= petSoundResolved then
+        petSoundResolved = used
+        print('apl_pet: звук OK → ' .. used)
+        logLine('INFO', 'pet sound resolved: ' .. used)
+      end
+      if res and type(res) == 'table' and res.sourceId then
         table.insert(petSoundIds, res.sourceId)
         -- Держим только свежие пачки (звук живёт ~interval*4), остальные —
         -- playOnce сам доиграет; id нужен лишь для мгновенного стопа.

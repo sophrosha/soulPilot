@@ -314,7 +314,12 @@ local function finish(timedOut)
       if autopilotLiveWheelCmd and autopilotLiveWheelCmd.on then
         autopilotLiveWheelCmd.on('mods/unpacked/AutopilotLive/ai/config/wheel.json')
       end
-      toGE('INFO', 'warmup: наши pedals/wheel включены (auto_engage)')
+      -- Фары после прогрева (24.10): глазки + авто-свет — через GE, там
+      -- игровое время и окно карты (vehicle-слой ночь не знает).
+      obj:queueGameEngineLua('if apl_popup then apl_popup("auto") end')
+      obj:queueGameEngineLua('if apl_lights then apl_lights("auto") end')
+      print('aplWarmup: запрос apl_popup("auto") + apl_lights("auto") (GE)')
+      toGE('INFO', 'warmup: наши pedals/wheel включены (auto_engage) + запрос фар (popup/lights auto)')
     end)
   end
 

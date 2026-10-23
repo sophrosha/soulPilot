@@ -167,35 +167,17 @@ function M.updateGFX(dt)
     end
   end
 
-  -- Микро-подергивание газа (24.10): режим зависит от того, ЕДЕТ ли машина.
-  --   СТОИМ (нет ИИ или speed < 2 км/ч): газ НЕ пишем вовсе (машина не уезжает),
-  --     ручник держим каждый кадр (ваниль снимает его при throttle > 0);
-  --   ЕДЕМ (ИИ ведёт): микро-газ 0.02 + random*0.03 — мотор слышен, без дёрганья.
+  -- Газ НЕ трогаем вообще (24.10, по просьбе игрока): остаются только звук
+  -- (GE playOnce) и мягкий руль. На стоянке — force-ручник каждый кадр
+  -- (ваниль снимает smart-ручник при throttle > 0); под ИИ — ручник снят.
   local aiDrv = false
   pcall(function() aiDrv = (ai and ai.isDriving and ai.isDriving()) or false end)
   local standing = (not aiDrv) or (speedKph() < 2.0)
 
   if standing then
-    setHandbrake(1, true) -- форсим КАЖДЫЙ кадр: ваниль снимает ручник при газе
-    if thrOverrideWritten then
-      pcall(function() electrics.values.throttleOverride = nil end)
-      thrOverrideWritten = false
-    end
-  else
-    if hbState ~= 0 then setHandbrake(0) end
-    thrRandT = thrRandT + dt
-    if thrRandT >= (p.randomInterval or 0.2) or thrRandVal == 0 then
-      thrRandT = 0
-      thrRandVal = p.moveOffset + math.random() * p.moveAmp
-    end
-    local stepT = (p.moveOffset + p.moveAmp) * dt / 0.2
-    if thrRandCur < thrRandVal then
-      thrRandCur = math.min(thrRandCur + stepT, thrRandVal)
-    elseif thrRandCur > thrRandVal then
-      thrRandCur = math.max(thrRandCur - stepT, thrRandVal)
-    end
-    pcall(function() electrics.values.throttleOverride = env * thrRandCur end)
-    thrOverrideWritten = true
+    setHandbrake(1, true)
+  elseif hbState ~= 0 then
+    setHandbrake(0)
   end
 
   if elapsed >= p.duration then finish() end
@@ -300,9 +282,8 @@ function autopilotLivePetCmd.start(params)
   thrOverrideWritten = false
   -- Руль снижаем ПЛАВНО в updateGFX (rampS) — не дёргаем setRateScale здесь.
   print('aplPet: ПОГЛАЖИВАНИЕ НАЧАТО (' .. string.format('%.0f', cfg.duration) ..
-    ' с; ' .. ((not aiStart) and 'СТОЯНКА: газ НЕ пишем, ручник держим'
-      or ('ДВИЖЕНИЕ: микро-газ ' .. string.format('%.2f', cfg.moveOffset) ..
-          '+rand*' .. string.format('%.2f', cfg.moveAmp))) ..
+    ' с; газ НЕ трогаем (только звук и руль); ' ..
+    ((not aiStart) and 'СТОЯНКА: ручник держим' or 'ДВИЖЕНИЕ: ручник снят') ..
     ', руль ×' .. string.format('%.2f', cfg.rateScale) ..
     ' плавно за ' .. string.format('%.1f', cfg.rampS) .. ' с)')
   toGE('INFO', 'pet start: dur=' .. string.format('%.1f', cfg.duration) ..
