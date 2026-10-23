@@ -1999,6 +1999,9 @@ function M.onUpdate(dtReal)
         -- оставит vehicle в неверном дне/ночи.
         local sent = sendToVehicle('autopilotLivePopupCmd.setNight(' ..
           (n and 'true' or 'false') .. ')')
+        if not sent then
+          print('apl_popup: WARN setNight НЕ отправлен (машина не найдена)')
+        end
         popupNightDbgAcc = popupNightDbgAcc + 5
         if n ~= popupNightLast then
           popupNightLast = n

@@ -35,6 +35,7 @@ local warmupHold = false    -- sleep() от прогрева (работает �
 local savedState = nil      -- состояние света до сна (для wake без auto)
 local graceT = 0            -- сек: после нашей команды не считаем смену «ручной»
 local dbgT = 0              -- аккумулятор диагностического print (10 с)
+local lastNightCmd = '—'    -- последнее значение setNight от GE (диагностика)
 
 local function toGE(level, msg)
   pcall(function()
@@ -299,6 +300,22 @@ function autopilotLivePopupCmd.wake_up()
   return true
 end
 
+-- Ночь/день от GE (keepalive каждые 5 с).
+-- ВАЖНО: метод был ПОТЕРЯН при переписывании файла — GE слал setNight в nil,
+-- vehicle оставался с night=false (баг 24.10, GE показывал НОЧЬ, vehicle — нет).
+function autopilotLivePopupCmd.setNight(v)
+  local nb = v == true
+  if nb ~= night then
+    night = nb
+    lastNightCmd = tostring(nb)
+    print('aplPopup: setNight ' .. tostring(not nb) .. ' → ' .. tostring(nb) ..
+      (nb and ' (НОЧЬ: моргание подавлено)' or ' (ДЕНЬ)'))
+  else
+    lastNightCmd = tostring(nb)
+  end
+  return true
+end
+
 function autopilotLivePopupCmd.stop()
   if not active and not warmupHold then return false end
   if phase == 'blink' and curState() == EYES_CLOSED then
@@ -322,7 +339,8 @@ function autopilotLivePopupCmd.status()
       ' timer=' .. string.format('%.1f', timer) .. ' с') or '') ..
       ' warmupHold=' .. tostring(warmupHold),
     'lights_state=' .. tostring(curState()) .. ' lastSeen=' .. tostring(lastSeen) ..
-      ' night=' .. tostring(night) .. ' (моргание ночью подавлено)',
+      ' night=' .. tostring(night) .. ' (setNight=' .. tostring(lastNightCmd) ..
+      '; моргание ночью подавлено)',
     'Ф6: auto=' .. tostring(f6auto) .. ' target=' .. tostring(lightsTarget()) ..
       ' suppress=' .. tostring(suppressHeld),
     cfg and ('интервалы: день ' .. string.format('%.0f', cfg.dayMin) .. '-' ..

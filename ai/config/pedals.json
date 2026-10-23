@@ -2,8 +2,8 @@
   "_comment": "AutopilotLive Фаза 3: параметры сглаживания педалей. Единицы: rate_* — единиц значения/секунду (полный ход 0..1 за 1/rate сек); *_tau — секунды (time-constant, конвейер frame-rate независим); пороги — значения педали 0..1; *_mps — метры/секунду. Порядок конвейера: rate_limit -> ema -> lerp для throttle/brake (утверждён, см. api_research_phase3.md); clutch — ТОЛЬКО passthrough без конвейера (§15). Правки от 2026-10-12 по данным прогонов #1/#2 (phase3_report.md): predictive 0.55/0.25/0.35 (порог 0.8 не срабатывал — 1 кадр из 6057), brake_rise 1.7 (пики d_sm/dt до 1.88 ед/с), throttle_fall 3.0 (джерк -3.70 ед/с), throttle_rise 1.2 (24.10: плавный подъём на грузовике; было 2.0 — «бьёт»).",
 
   "rate_limit": {
-    "throttle_rise": 1.2,
-    "throttle_fall": 3.0,
+    "throttle_rise": 0.8,
+    "throttle_fall": 1.5,
     "brake_rise": 1.7,
     "brake_fall": 2.5
   },
@@ -44,5 +44,10 @@
     "lead": 0.25,
     "release_hyst": 0.35,
     "min_speed_mps": 1.5
+  },
+
+  "shift": {
+    "_comment": "shift.hold_s — после смены передачи столько секунд цель газа не выше out на момент смены (ванильная КПП обнуляет M.throttle на время смены; без hold возврат тяги — рывок). 0 = выключено. 24.10.",
+    "hold_s": 0.4
   }
 }

@@ -34,8 +34,12 @@ local FALLBACK_CONF = 'mods/unpacked/AutopilotLive/ai/config/pedals.json'
 -- Наш модуль — пассивный passthrough: raw > 0 → проброс raw (лаг 1 кадр),
 -- raw = 0 → nil (штатная КПП). Ноль вреда; нажатие действует мгновенно.
 local DEFAULTS = {
-  rate_limit   = { throttle_rise = 1.2, throttle_fall = 3.0,
+  rate_limit   = { throttle_rise = 0.8, throttle_fall = 1.5,
                    brake_rise = 1.7, brake_fall = 2.5 },
+  -- shift.hold_s: после смены передачи столько секунд НЕ повышаем цель газа
+  -- выше out на момент смены (ванильная КПП обнуляет M.throttle на время
+  -- смены — без hold возврат тяги ощущается рывком). 0 = выключено.
+  shift        = { hold_s = 0.4 },
   ema_tau      = { throttle = 0.10, brake = 0.08 },
   lerp_tau     = { throttle = 0.15, brake = 0.12 },
   arbitration  = { brake_start = 0.1, brake_full = 0.5 },
@@ -86,6 +90,9 @@ local resumeT = 99          -- сек с последнего resume (watchdog �
 local thrHighT = 0          -- сек подряд thrOut > 0.9 (независимо от raw!)
 local thrHighWarnAcc = 0    -- печать WARN раз в 5 с при затяжном газе
 local rampT = 0             -- print рамп-апа каждые 0.2 с
+local lastGear = ''         -- предыдущая передача (детектор смены)
+local shiftHoldT = 0        -- сек остатка «паузы» после смены передачи
+local shiftHoldVal = 0      -- out на момент смены (потолок цели)
 local lastRaw  = { throttle = 0, brake = 0, clutch = 0 }
 
 -- === Лог событий в GE (паттерн autopilotLive.lua) ===
@@ -167,6 +174,9 @@ local function resetState()
   thrHighT = 0
   thrHighWarnAcc = 0
   rampT = 0
+  lastGear = ''
+  shiftHoldT = 0
+  shiftHoldVal = 0
   stepGarbageWarned = {}
   outGarbageWarned = {}
 end
@@ -221,6 +231,7 @@ local function validateConfig(c)
   nonneg('smooth_start', 'time_s', D.smooth_start.time_s)
   nonneg('smooth_start', 'speed_mps', D.smooth_start.speed_mps)
   unit01('smooth_start', 'throttle_cap', D.smooth_start.throttle_cap)
+  nonneg('shift', 'hold_s', D.shift.hold_s)
   unit01('predictive', 'brake_threshold', D.predictive.brake_threshold)
   unit01('predictive', 'lead', D.predictive.lead)
   unit01('predictive', 'release_hyst', D.predictive.release_hyst)
@@ -416,6 +427,25 @@ function M.updateGFX(dt)
   local speed = getSpeed()
   local gear = tostring(electrics.values.gear or '')
 
+  -- Детектор смены передачи (24.10): pipe НЕ сбрасываем. На 0.4 с (shift.hold_s)
+  -- цель газа не выше out на момент смены — сглаживает возврат тяги после
+  -- ванильного cut (automaticGearbox: M.throttle=0 на время смены).
+  if gear ~= lastGear then
+    local prevGear = lastGear
+    lastGear = gear
+    if prevGear ~= '' and (cfg.shift.hold_s or 0) > 0 then
+      shiftHoldT = cfg.shift.hold_s
+      shiftHoldVal = pipe.throttle.out
+      print(string.format('aplPedals: SHIFT %s→%s out=%.3f raw=%.3f ctrlThr=%s rpm=%.0f hold=%.1fs',
+        prevGear, gear, pipe.throttle.out, thrRaw,
+        tostring(electrics.values.throttle), tonumber(electrics.values.rpm) or 0, shiftHoldT))
+    elseif prevGear ~= '' then
+      print(string.format('aplPedals: SHIFT %s→%s out=%.3f raw=%.3f (hold выкл)',
+        prevGear, gear, pipe.throttle.out, thrRaw))
+    end
+  end
+  if shiftHoldT > 0 then shiftHoldT = shiftHoldT - dt end
+
   -- У2/Fix 5b (24.10): первый кадр после on/резюме.
   --   * СВЕЖЕЕ ВКЛЮЧЕНИЕ (initFromZero): газ с 0 + smooth_start_cap.
   --   * РЕЗЮМЕ AI: сид газа = lastOut.throttle (что контроллер видел до паузы),
@@ -461,6 +491,8 @@ function M.updateGFX(dt)
 
   -- Плавный старт (только throttle)
   startT = startT + dt
+  -- shift_hold: после смены передачи не поднимаем цель выше out на момент смены
+  if shiftHoldT > 0 and thrT > shiftHoldVal then thrT = shiftHoldVal end
   thrT = thrT * smoothStartFactor(speed)
 
   -- === Конвейер (только throttle/brake — clutch passthrough ниже) ===
@@ -707,7 +739,8 @@ function autopilotLivePedalsCmd.status()
       return 'shift: gear=' .. g .. ' rpm=' .. string.format('%.0f', r) ..
         ' | controller: throttle=' .. tostring(ect) ..
         ' brakeOvr=' .. tostring(eb) ..
-        ' | gasHigh=' .. string.format('%.1f', thrHighT) .. 'с'
+        ' | gasHigh=' .. string.format('%.1f', thrHighT) .. 'с' ..
+        ' | lastGear=' .. lastGear .. ' shiftHold=' .. string.format('%.1f', shiftHoldT) .. 'с'
     end)(),
     -- ЛОВУШКА (диагностика 2026-10-15, доказательство 2026-10-16): независимый
     -- ДУБЛЬ тех же значений. lastOut пишется только из sanitizeOut ∈ [0,1]
