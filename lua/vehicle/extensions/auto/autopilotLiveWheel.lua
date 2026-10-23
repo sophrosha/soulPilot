@@ -133,6 +133,23 @@ local function loadConfig(path)
       end
     end
   end
+  -- Режим руля (24.10): comfort — мягко (3.5/4.0), sport — жёстче (6.0/7.0).
+  -- Строка верхнего уровня wheel.json; числа rate_limit/ema/lerp при этом
+  -- заменяются пресетом (mode имеет приоритет).
+  local PRESETS = {
+    comfort = { rise = 3.5, fall = 4.0, ema = 0.05, lerp = 0.06 },
+    sport   = { rise = 6.0, fall = 7.0, ema = 0.04, lerp = 0.05 },
+  }
+  local mode = type(decoded.mode) == 'string' and decoded.mode:lower() or 'comfort'
+  local pr = PRESETS[mode]
+  if pr then
+    c.rate_limit.steer_rise, c.rate_limit.steer_fall = pr.rise, pr.fall
+    c.ema_tau.steer, c.lerp_tau.steer = pr.ema, pr.lerp
+    c.mode = mode
+  else
+    c.mode = 'custom'
+    toGE('WARN', 'wheel: неизвестный mode="' .. tostring(mode) .. '" — числа из wheel.json')
+  end
   validateConfig(c)
   return c, true
 end
@@ -219,7 +236,11 @@ function autopilotLiveWheelCmd.on(confPath)
   needInit = true
   rateScale = 1.0 -- защита от «залипшего» pet-масштаба после перезапуска wheel
   local r = cfg.rate_limit
+  print('aplWheel: ON — mode=' .. tostring(cfg.mode or 'custom') ..
+    ', rate ' .. tostring(r.steer_rise) .. '/' .. tostring(r.steer_fall) ..
+    ', ema ' .. tostring(cfg.ema_tau.steer) .. ', lerp ' .. tostring(cfg.lerp_tau.steer))
   toGE('INFO', 'wheel ON (' .. (cfgFromFile and 'конфиг из файла' or 'ДЕФОЛТЫ') ..
+    ', mode=' .. tostring(cfg.mode or 'custom') ..
     '): rate rise/fall ' .. tostring(r.steer_rise) .. '/' .. tostring(r.steer_fall) ..
     ' ед/сек, ema ' .. tostring(cfg.ema_tau.steer) .. 'с, lerp ' .. tostring(cfg.lerp_tau.steer) .. 'с')
   return true

@@ -176,6 +176,11 @@ function M.updateGFX(dt)
   end
   pcall(function() electrics.values.throttleOverride = env * thrRandCur end)
 
+  -- Ручник держим КАЖДЫЙ кадр: ванильный контроллер сам снимает smart-ручник,
+  -- когда throttle > 0 (vehicleController.lua:526) — без этого машина уезжает
+  -- в кювет при apl_pet("on") без ИИ (баг 24.10).
+  setHandbrake(1)
+
   if elapsed >= p.duration then finish() end
 end
 

@@ -248,6 +248,8 @@ function autopilotLivePopupCmd.start(params)
   print('aplPopup: ВКЛ. Глаза ОТКРЫТЫ (state=' .. tostring(lastSeen) ..
     '). Следующее моргание через ' .. string.format('%.0f', timer) .. ' с' ..
     (night and ' (сейчас ночь — моргание подавлено)' or ''))
+  print('aplPopup: START получен — night=' .. tostring(t.night) ..
+    ', debug=' .. tostring(cfg.debugDelay) .. ' с')
   toGE('INFO', 'popup auto ON, eyes open, first blink in ' ..
     string.format('%.0f', timer) .. 's, night=' .. tostring(night))
   return true

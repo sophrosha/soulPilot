@@ -1601,6 +1601,11 @@ function apl_popup(mode)
       'autopilotLivePopupCmd.start({dayMin=%.1f,dayMax=%.1f,nightMin=%.1f,nightMax=%.1f,blinkMin=%.2f,blinkMax=%.2f,debugDelay=%.1f,night=%s})',
       cfg.dayMin, cfg.dayMax, cfg.nightMin, cfg.nightMax,
       cfg.blinkMin, cfg.blinkMax, cfg.debugDelay, tostring(night)))
+    -- Диагностика (24.10): ПРЯМОЙ setNight сразу после старта (без keepalive) —
+    -- проверка, доходит ли команда до vehicle вообще.
+    local okNight = sendToVehicle('autopilotLivePopupCmd.setNight(' .. tostring(night) .. ')')
+    print('apl_popup: прямой setNight=' .. tostring(night) ..
+      ' → ' .. (okNight and 'отправлен' or 'НЕ отправлен (машина не найдена)'))
     print('apl_popup: авто-моргание ВКЛ (' .. jb .. ', ' ..
       (cfg.debugDelay > 0 and ('ТЕСТ-РЕЖИМ: каждые ' .. string.format('%.0f', cfg.debugDelay) .. ' с')
         or ('день ' .. string.format('%.0f', cfg.dayMin) .. '-' .. string.format('%.0f', cfg.dayMax) ..
@@ -2013,7 +2018,7 @@ function M.onUpdate(dtReal)
         elseif popupNightDbgAcc >= 30 then
           popupNightDbgAcc = 0
           print('apl_popup: keepalive — ' .. (n and 'НОЧЬ' or 'ДЕНЬ') .. ' (' .. hs ..
-            '), setNight=' .. tostring(sent))
+            '), setNight=' .. tostring(sent ~= nil))
         end
       end
     end
