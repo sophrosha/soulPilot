@@ -7,7 +7,7 @@ local M = {}
 
 local DEFAULTS = {
   check_hz = 1.0,
-  damage_threshold = 0.5,
+  damage_threshold = 2500.0,
   stuck_speed_kph = 5.0,
   stuck_time_s = 5.0,
   stuck_throttle_min = 0.5,
@@ -148,8 +148,9 @@ function M.updateGFX(dt)
     return
   end
 
-  -- STUCK: AI ведёт, газ есть, скорости нет
-  if drv and thr >= cfg.stuck_throttle_min and spd <= cfg.stuck_speed_kph then
+  -- STUCK: газ есть (игрок ИЛИ AI), а скорости нет. aiDriving НЕ обязателен
+  -- (24.10: игрок сам жмёт газ в пол, машина не едет — тоже STUCK).
+  if thr >= cfg.stuck_throttle_min and spd <= cfg.stuck_speed_kph then
     stuckT = stuckT + step
   else
     stuckT = 0
@@ -211,8 +212,9 @@ function autopilotLivePainCmd.status()
     '--- apl_pain status (vehicle) ---',
     'active=' .. tostring(active) .. ' last=' .. tostring(lastKind) ..
       ' cooldown=' .. string.format('%.1f', cooldownT) .. 'с',
-    string.format('speed=%.1f км/ч thr=%.2f up=%.2f aiDriving=%s damageSum=%s',
-      speedKph(), throttleRaw(), upDot(), tostring(aiDriving()), tostring(damage)),
+    string.format('speed=%.1f км/ч thr=%.2f up=%.2f aiDriving=%s damageSum=%s (порог %.3f)',
+      speedKph(), throttleRaw(), upDot(), tostring(aiDriving()), tostring(damage),
+      active and cfg and cfg.damage_threshold or 0),
     cfg and string.format('пороги: damage>=%.2f stuck<=%.0fкм/ч/%.0fс flip up<%.2f/%.1fс',
       cfg.damage_threshold, cfg.stuck_speed_kph, cfg.stuck_time_s,
       cfg.flipped_up_dot, cfg.flipped_time_s) or nil,

@@ -2,7 +2,7 @@
   "_comment": "Фаза 9.1 (24.10): «Система Боли». Авто-восстановление: DAMAGE -> be:resetVehicle(0) (ремонт на месте), STUCK/FLIPPED -> spawn.teleportToLastRoad(veh,{resetVehicle=true}) (ванильный recovery: ближайшая дорога + ремонт). После действия — быстрый прогрев без sway. Включается ТОЛЬКО командой apl_pain(\"auto\").",
   "_comment_detect": "stuck: AI ведёт + газ >= stuck_throttle_min + скорость <= stuck_speed_kph дольше stuck_time_s. flipped: up:dot(0,0,1) < flipped_up_dot дольше flipped_time_s. damage: GE шлёт getSectionDamageSum() каждые 2 с; порог damage_threshold (шкала уточняется по status). cooldown_s — пауза между действиями.",
   "check_hz": 1.0,
-  "damage_threshold": 0.5,
+  "damage_threshold": 2500.0,
   "stuck_speed_kph": 5.0,
   "stuck_time_s": 5.0,
   "stuck_throttle_min": 0.5,

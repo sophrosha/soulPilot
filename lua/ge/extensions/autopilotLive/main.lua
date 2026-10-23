@@ -1499,8 +1499,10 @@ local popupNightDbgAcc = 0     -- аккумулятор печати keepalive 
 -- === Фаза 9.1: «Система Боли» — авто-восстановление ===
 local painAuto = false         -- включается ТОЛЬКО apl_pain("auto")
 local painDamageAcc = 0        -- аккумулятор отправки damageSum vehicle (2 с)
+local painDbgAcc = 0           -- печать raw damageSum в консоль (10 с)
+local painVerifyT = 0          -- через сколько проверить, помог ли resetVehicle
 local PAIN_DEFAULTS = {
-  check_hz = 1, damage_threshold = 0.5,
+  check_hz = 1, damage_threshold = 2500,
   stuck_speed_kph = 5, stuck_time_s = 5, stuck_throttle_min = 0.5,
   flipped_up_dot = 0.3, flipped_time_s = 2, cooldown_s = 15,
   restore_ai = 1, warmup_after = 1, warmup_sway = 0,
@@ -1753,7 +1755,8 @@ function apl_pain(mode)
       if ok and v ~= nil then dmg = string.format('%.3f', tonumber(v) or 0) end
     end
     print('--- apl_pain status ---')
-    print('auto=' .. tostring(painAuto) .. ', damageSum=' .. tostring(dmg))
+    print('auto=' .. tostring(painAuto) .. ', damageSum(raw)=' .. tostring(dmg) ..
+      ', порог damage_threshold=' .. string.format('%.3f', cfg.damage_threshold) ..
     print(string.format('пороги: damage>=%.2f, stuck<=%.0f км/ч %.0f с (газ>=%.2f), flip up<%.2f %.1f с, cooldown %.0f с',
       cfg.damage_threshold, cfg.stuck_speed_kph, cfg.stuck_time_s, cfg.stuck_throttle_min,
       cfg.flipped_up_dot, cfg.flipped_time_s, cfg.cooldown_s))
@@ -1779,6 +1782,8 @@ function M.onVehiclePain(kind, info)
     -- Ремонт на месте (MCP: be:resetVehicle — "reset/repair in place")
     local ok, err = pcall(function() be:resetVehicle(0) end)
     print('aplPain: ремонт be:resetVehicle(0) ok=' .. tostring(ok) .. (ok and '' or (' err=' .. tostring(err))))
+    -- Через 2 с проверим, вылечил ли: если нет — телепорт с reset
+    painVerifyT = 2.0
   else
     -- STUCK/FLIPPED: ванильный recovery на дорогу (+ ремонт)
     local ok = false
@@ -2096,8 +2101,7 @@ function M.onUpdate(dtReal)
   -- Звук петмода: ОДИН Engine.Audio.playOnce в apl_pet("on") (24.10) —
   -- повторов/тика здесь больше нет.
   -- Фаза 9.1: damageSum доступен только в GE — шлём vehicle каждые 2 с
-  if painAuto then
-    painDamageAcc = painDamageAcc + dtReal
+  if painAuto then    painDamageAcc = painDamageAcc + dtReal
     if painDamageAcc >= 2 then
       painDamageAcc = 0
       local veh = getVehicle()
@@ -2108,6 +2112,37 @@ function M.onUpdate(dtReal)
       end
       if d then
         sendToVehicle(string.format('autopilotLivePainCmd.setDamage(%.6f)', d))
+        painDbgAcc = painDbgAcc + 2
+        if painDbgAcc >= 10 then
+          painDbgAcc = 0
+          print(string.format('apl_pain: damageSum(raw)=%.4f (порог %.3f)',
+            d, loadPainConfig().damage_threshold))
+        end
+      end
+    end
+  end
+  -- Фаза 9.1: проверка, вылечил ли be:resetVehicle(0) тяжёлый урон.
+  -- Если через 2 с damageSum всё ещё >= порога — escalation: teleportToLastRoad
+  -- (с resetVehicle=true — гарантированный ремонт + постановка на дорогу).
+  if painVerifyT > 0 then
+    painVerifyT = painVerifyT - dtReal
+    if painVerifyT <= 0 then
+      local veh = getVehicle()
+      local dmg = 0
+      if veh and veh.getSectionDamageSum then
+        local ok, v = pcall(function() return veh:getSectionDamageSum() end)
+        if ok and v then dmg = tonumber(v) or 0 end
+      end
+      local thrDmg = loadPainConfig().damage_threshold
+      if dmg >= thrDmg then
+        print(string.format('aplPain: resetVehicle НЕ вылечил (damageSum=%.1f >= %.0f) → teleportToLastRoad',
+          dmg, thrDmg))
+        if spawn and spawn.teleportToLastRoad and veh then
+          local ok2 = pcall(function() spawn.teleportToLastRoad(veh, { resetVehicle = true }) end)
+          print('aplPain: escalation teleport ok=' .. tostring(ok2))
+        end
+      else
+        print(string.format('aplPain: ремонт подтверждён (damageSum=%.1f < %.0f)', dmg, thrDmg))
       end
     end
   end
@@ -2215,6 +2250,7 @@ function M.onClientPostStartMission()
   popupNightAcc = 0
   painAuto = false -- Фаза 9.1: авто-восстановление не переживает смену миссии
   painDamageAcc = 0
+  painVerifyT = 0
   petSoundStop() -- Фаза 7б: луп не переживает смену миссии
   petSoundEvent = '' -- звук мурчания — только по явному on
   if not csvActive then return end
