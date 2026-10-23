@@ -988,6 +988,8 @@ local PET_CONF = 'mods/unpacked/AutopilotLive/ai/config/pet.json'
 local POPUP_CONF = 'mods/unpacked/AutopilotLive/ai/config/popup.json'
 -- Фаза 9.1: «Система Боли» — авто-восстановление
 local PAIN_CONF = 'mods/unpacked/AutopilotLive/ai/config/pain.json'
+-- Фаза 10.1: мастер-переключатель
+local MASTER_CONF = 'mods/unpacked/AutopilotLive/ai/config/master.json'
 
 local lightsAuto = false     -- auto включён (только командой игрока)
 local lightsTarget = nil     -- последний отправленный vehicle target (0/1/2)
@@ -1506,6 +1508,42 @@ local painTpT = 0              -- таймер проверки телепорт
 local painTpDelayT = 0         -- задержка setPosRot после resetVehicle (0.2 с)
 local painTpPending = false    -- отложенный телепорт ждёт тика
 local painLastTp = -1          -- последняя измеренная дельта позиции, м
+
+-- Фаза 10.1: мастер-переключатель (apl_autopilot)
+local masterState = 'off'      -- 'off' | 'waiting_warmup' | 'on'
+local masterPending = false
+local masterWaitT = 0
+local masterCfg = nil
+local MASTER_DEFAULTS = {
+  enable_wheel = 1, enable_pedals = 1, enable_lights = 1,
+  enable_popup = 1, enable_pain = 1,
+  ai_mode = 'traffic', skip_warmup_if_warm = 1,
+}
+
+local function loadMasterConfig()
+  local D = MASTER_DEFAULTS
+  local c = {}
+  for k, v in pairs(D) do c[k] = v end
+  local decoded = readJsonFile(MASTER_CONF)
+  if decoded then
+    local function num(key, dflt)
+      local v = tonumber(decoded[key])
+      if v == nil or v ~= v then return dflt end
+      return (v ~= 0) and 1 or 0
+    end
+    c.enable_wheel = num('enable_wheel', D.enable_wheel)
+    c.enable_pedals = num('enable_pedals', D.enable_pedals)
+    c.enable_lights = num('enable_lights', D.enable_lights)
+    c.enable_popup = num('enable_popup', D.enable_popup)
+    c.enable_pain = num('enable_pain', D.enable_pain)
+    c.skip_warmup_if_warm = num('skip_warmup_if_warm', D.skip_warmup_if_warm)
+    if type(decoded.ai_mode) == 'string' then
+      local m = decoded.ai_mode:lower()
+      if m == '' or m == 'traffic' or m == 'span' then c.ai_mode = m end
+    end
+  end
+  return c
+end
 local PAIN_DEFAULTS = {
   check_hz = 1, damage_threshold = 2500,
   stuck_speed_kph = 5, stuck_time_s = 5, stuck_throttle_min = 0.5,
@@ -1848,6 +1886,112 @@ function M.onVehiclePain(kind, info)
   end
 end
 
+-- Фаза 10.1: финализация мастера (вызывается после прогрева)
+local function masterFinish()
+  if not masterPending then return end
+  masterPending = false
+  masterState = 'on'
+  local cfg = masterCfg or loadMasterConfig()
+  if cfg.enable_wheel == 1 and not wheelRequested then
+    if apl_wheel then apl_wheel('on') end
+  end
+  if cfg.enable_pedals == 1 and not pedalsRequested then
+    if apl_pedals then apl_pedals('on') end
+  end
+  if cfg.enable_lights == 1 and not lightsAuto then
+    if apl_lights then apl_lights('auto') end
+  end
+  if cfg.enable_popup == 1 and not popupAuto then
+    if apl_popup then apl_popup('auto') end
+  end
+  if cfg.enable_pain == 1 and not painAuto then
+    if apl_pain then apl_pain('auto') end
+  end
+  local mode = (cfg.ai_mode ~= '' and cfg.ai_mode) or 'traffic'
+  sendToVehicle(string.format('if ai and ai.setMode then ai.setMode("%s") end', mode))
+  print('apl_autopilot: ВСЁ ГОТОВО — wheel/pedals/lights/popup/pain + AI "' .. mode .. '"')
+  logLine('INFO', 'master ON: warmup done, modules enabled, ai=' .. mode)
+end
+
+-- === Фаза 10.1: мастер-переключатель apl_autopilot("on"|"off"|"toggle"|"status") ===
+function apl_autopilot(mode)
+  mode = tostring(mode or ''):lower()
+  if mode == 'toggle' then
+    mode = (masterState == 'on') and 'off' or 'on'
+  end
+
+  if mode == 'on' then
+    if masterState == 'on' then
+      print('apl_autopilot: уже включено (apl_autopilot("off"))')
+      return false
+    end
+    if masterState == 'waiting_warmup' then
+      print('apl_autopilot: уже ждём завершения прогрева')
+      return false
+    end
+    local veh = getVehicle()
+    if veh == nil then
+      print('apl_autopilot: нет игрока за рулём')
+      return false
+    end
+    local cfg = loadMasterConfig()
+    masterCfg = cfg
+    masterPending = true
+    masterState = 'waiting_warmup'
+    masterWaitT = 0
+    local cmd = string.format(
+      "autopilotLiveWarmupCmd.on('%s', {noSway=false, skipIfWarm=%s})",
+      WARMUP_CONF, tostring(cfg.skip_warmup_if_warm == 1))
+    if not sendToVehicle(cmd) then
+      masterPending = false
+      masterState = 'off'
+      print('apl_autopilot: WARN не удалось запустить прогрев (машина не найдена)')
+      return false
+    end
+    print('apl_autopilot: ON — прогрев запущен; после завершения включу ' ..
+      (cfg.enable_wheel == 1 and 'wheel ' or '') ..
+      (cfg.enable_pedals == 1 and 'pedals ' or '') ..
+      (cfg.enable_lights == 1 and 'lights ' or '') ..
+      (cfg.enable_popup == 1 and 'popup ' or '') ..
+      (cfg.enable_pain == 1 and 'pain ' or '') .. '+ AI "' .. cfg.ai_mode .. '"')
+    logLine('INFO', 'master ON: warmup started, skipIfWarm=' .. tostring(cfg.skip_warmup_if_warm))
+    return true
+  end
+
+  if mode == 'off' then
+    local was = masterState
+    masterPending = false
+    masterState = 'off'
+    masterWaitT = 0
+    if wheelRequested and apl_wheel then apl_wheel('off') end
+    if pedalsRequested and apl_pedals then apl_pedals('off') end
+    if lightsAuto and apl_lights then apl_lights('off') end
+    if popupAuto and apl_popup then apl_popup('off') end
+    if painAuto and apl_pain then apl_pain('off') end
+    sendToVehicle('if ai and ai.setMode then ai.setMode("disabled") end')
+    print('apl_autopilot: OFF (было: ' .. tostring(was) .. ') — модули и AI выключены')
+    logLine('INFO', 'master OFF (was ' .. tostring(was) .. ')')
+    return true
+  end
+
+  if mode == 'status' then
+    local cfg = loadMasterConfig()
+    print('--- apl_autopilot status ---')
+    print('state=' .. tostring(masterState) .. ', pending=' .. tostring(masterPending) ..
+      ' (ждали ' .. string.format('%.1f', masterWaitT) .. ' с)')
+    print('модули: wheel=' .. tostring(wheelRequested) .. ' pedals=' .. tostring(pedalsRequested) ..
+      ' lights=' .. tostring(lightsAuto) .. ' popup=' .. tostring(popupAuto) ..
+      ' pain=' .. tostring(painAuto))
+    print(string.format('конфиг: wheel=%d pedals=%d lights=%d popup=%d pain=%d, ai=%s, skip_warmup_if_warm=%d',
+      cfg.enable_wheel, cfg.enable_pedals, cfg.enable_lights, cfg.enable_popup,
+      cfg.enable_pain, cfg.ai_mode, cfg.skip_warmup_if_warm))
+    return true
+  end
+
+  print('Использование: apl_autopilot("on"|"off"|"toggle"|"status")')
+  return false
+end
+
 function apl_debug()
   debugEnabled = not debugEnabled
   if debugEnabled then
@@ -2066,6 +2210,8 @@ end
 -- сообщение игроку и при auto_engage_after_warmup=true включает wheel/pedals
 -- (только если они ещё не включены — warmup не мешает уже работающим модулям).
 function M.onVehicleWarmupDone(vehId, elapsed, tempC, autoEngage, timedOut)
+  print('MASTER: onVehicleWarmupDone получен (pending=' .. tostring(masterPending) ..
+    ', state=' .. tostring(masterState) .. ')')
   warmupRequested = false
   local tempStr = (tonumber(tempC) and tonumber(tempC) >= 0) and (tostring(tempC) .. '°C') or 'n/a'
   if timedOut == true or tostring(timedOut) == 'true' then
@@ -2105,6 +2251,19 @@ function M.onVehicleWarmupDone(vehId, elapsed, tempC, autoEngage, timedOut)
     end
   else
     print('apl_warmup: автопилот вручную: apl_wheel("on") + apl_pedals("on")')
+  end
+  -- Фаза 10.1: если мастер ждал прогрева — финализируем
+  if masterPending then masterFinish() end
+end
+
+-- Фаза 10.1-fix: fallback — vehicle раз в секунду шлёт состояние прогрева.
+-- Если onVehicleWarmupDone потерялся, мастер всё равно финализируется.
+function M.onVehicleWarmupState(st)
+  st = tostring(st or '')
+  if masterPending and st == 'done' then
+    print('MASTER: fallback warmup state=' .. st .. ' → masterFinish')
+    logLine('INFO', 'master fallback: warmup state=' .. st)
+    masterFinish()
   end
 end
 
@@ -2235,6 +2394,16 @@ function M.onUpdate(dtReal)
       end)
     end
   end
+  -- Фаза 10.1: таймаут ожидания прогрева (мастер)
+  if masterPending then
+    masterWaitT = masterWaitT + dtReal
+    if masterWaitT > 60 then
+      masterPending = false
+      masterState = 'off'
+      print('apl_autopilot: WARN таймаут ожидания прогрева 60 с — мастер отменён')
+      logLine('WARN', 'master timeout waiting warmup')
+    end
+  end
   -- === Фаза 8: ночь popup (влияет на интервал следующего моргания) ===
   -- Опрос раз в ~2 с: считываем ночь по окну (как Ф6) и шлём vehicle ТОЛЬКО
   -- при смене — хронометр моргания не сбрасывается (интервал применится к
@@ -2345,6 +2514,9 @@ function M.onClientPostStartMission()
   painTpPending = false
   painTpFrom = nil
   painLastTp = -1
+  masterState = 'off' -- Фаза 10.1: мастер не переживает смену миссии
+  masterPending = false
+  masterWaitT = 0
   petSoundStop() -- Фаза 7б: луп не переживает смену миссии
   petSoundEvent = '' -- звук мурчания — только по явному on
   if not csvActive then return end

@@ -70,6 +70,7 @@ local swayTime = 0              -- фаза синуса (непрерывный
 local swayAmp = 0               -- текущая огибающая [0..amplitude]
 local swayTarget = 0            -- целевая огибающая (amplitude при прогреве, 0 при off/done)
 local swayWritten = false       -- писали ли steering_input в прошлом кадре
+local statePushT = 0     -- сек: раз в секунду шлём состояние прогрева в GE
 local wheelEngagedWarned = false -- INFO «sway отключён: wheel engaged» уже выдан
 local swayStart = nil           -- начало случайного окна свея (сек от start)
 local swayEnd = nil             -- конец окна свея (swayStart + duration_s)
@@ -417,7 +418,18 @@ end
 
 -- === Кадровый цикл ===
 function M.updateGFX(dt)
-  if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then return end -- NaN/перерывы
+  if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then return end
+
+  -- Фаза 10.1-fix: раз в секунду сообщаем GE состояние (fallback для мастера)
+  statePushT = statePushT + dt
+  if statePushT >= 1.0 then
+    statePushT = 0
+    pcall(function()
+      obj:queueGameEngineLua(string.format(
+        'if autopilotLive_main and autopilotLive_main.onVehicleWarmupState then autopilotLive_main.onVehicleWarmupState("%s") end',
+        tostring(state)))
+    end)
+  end -- NaN/перерывы
 
   -- Проверка запуска AI через 0.5 с после finish (API vehicle-VM)
   if aiCheckT > 0 then
@@ -503,6 +515,19 @@ function autopilotLiveWarmupCmd.on(confPath, opts)
   if type(opts) == 'table' and opts.noSway then
     cfg.sway.enabled = 0
     print('aplWarmup: noSway — покачивание рулём отключено (быстрый прогрев)')
+  end
+  -- Фаза 10.1: если двигатель уже заведён — прогрев не ждём (skip_if_warm)
+  if type(opts) == 'table' and opts.skipIfWarm and engineRunning() then
+    print('aplWarmup: двигатель уже заведён — прогрев пропущен (skip_if_warm)')
+    pcall(function()
+      if autopilotLivePopupCmd and autopilotLivePopupCmd.wake_up then
+        autopilotLivePopupCmd.wake_up()
+      end
+    end)
+    elapsed, lastCoolant, lastOil = 0, nil, nil
+    state = 'done'
+    finish(false)
+    return true
   end
   resetState() -- state='off' → старт ниже
   -- Рандомное окно свея (правка игрока 18.10): покачивание-СОБЫТИЕ в случайный

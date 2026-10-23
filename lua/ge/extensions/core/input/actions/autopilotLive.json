@@ -1,0 +1,30 @@
+{
+  "apl_toggle_autopilot": {
+    "title": "AutopilotLive: Автопилот ВКЛ/ВЫКЛ",
+    "desc": "Прогрев -> wheel/pedals/lights/popup/pain -> AI traffic (мастер-переключатель)",
+    "onDown": "if apl_autopilot then apl_autopilot('toggle') end",
+    "category": "autopilotLive",
+    "ctx": "tlua"
+  },
+  "apl_pet_toggle": {
+    "title": "AutopilotLive: Погладить",
+    "desc": "Поглаживание: звук + мягкий руль + ручник (на стоянке)",
+    "onDown": "if apl_pet then apl_pet('on') end",
+    "category": "autopilotLive",
+    "ctx": "tlua"
+  },
+  "apl_warmup_toggle": {
+    "title": "AutopilotLive: Прогрев",
+    "desc": "Запустить прогрев (повторное нажатие — off)",
+    "onDown": "if apl_warmup then apl_warmup('start') end",
+    "category": "autopilotLive",
+    "ctx": "tlua"
+  },
+  "apl_ui_toggle": {
+    "title": "AutopilotLive: Меню",
+    "desc": "Показать/скрыть панель AutopilotLive",
+    "onDown": "if apl_ui then apl_ui('toggle') end",
+    "category": "autopilotLive",
+    "ctx": "tlua"
+  }
+}
