@@ -74,7 +74,11 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 
 Ожидается тест игроком: авария/переворот/status. В Фазу 9 (LiDAR и пр.) не заходить без команды.
 
-**ФАЗА 9.2 (2026-10-24): Система Боли — калибровка и escalation.** Игрок замерил шкалу: целая машина `damageSum≈0`, разбитая в хлам — **4181.7** ⇒ это ОЧКИ, не проценты. `damage_threshold 0.5 → 2500` (pain.json + DEFAULTS GE/vehicle). STUCK больше не требует `ai.isDriving()`: газ (игрок или AI) + скорость ≤ порога дольше `stuck_time_s`. Status печатает raw `damageSum` и порог (GE и vehicle), плюс raw в консоль каждые 10 с при `auto`. DAMAGE: `be:resetVehicle(0)`, через 2 с проверка `getSectionDamageSum()`; если всё ещё ≥ порога — **escalation** `spawn.teleportToLastRoad(veh,{resetVehicle=true})` (гарантированный ремонт + дорога), с логом результата. Коммит `cdc8267`. **Тест игроком пройден: «Всё работает идеально».**
+**ФАЗА 9.2 (2026-10-24): Система Боли — калибровка и escalation.** Игрок замерил шкалу: целая машина `damageSum≈0`, разбитая в хлам — **4181.7** ⇒ это ОЧКИ, не проценты. `damage_threshold 0.5 → 2500` (pain.json + DEFAULTS GE/vehicle). STUCK больше не требует `ai.isDriving()`: газ (игрок или AI) + скорость ≤ порога дольше `stuck_time_s`. Status печатает raw `damageSum` и порог (GE и vehicle), плюс raw в консоль каждые 10 с при `auto`. DAMAGE: `be:resetVehicle(0)`, через 2 с проверка `getSectionDamageSum()`; escalation `spawn.teleportToLastRoad`. Коммит `cdc8267`; фикс синтаксиса `apl_pain` — `7fa4336`.
+
+**ФАЗА 9.3 (2026-10-24): Система Боли — надёжное восстановление (ЗАКРЫТА).** `spawn.teleportToLastRoad` не поднимает полностью убитую машину (ok, но позиция не меняется). Новый порядок для ВСЕХ видов (DAMAGE/STUCK/FLIPPED): `be:resetVehicle(0)` → **отложенный на 0.2 с** `veh:setPosRot` на ближайшую точку дороги (`map.findClosestRoad` + `map.getMap().nodes`, кватернион по направлению ребра). Проверка факта: через 1 с сравнение позиции до/после (`moved`); **повторных телепортов нет** (визуальный баг «прыжок 3 раза») — при неудаче только WARN. Мост GE↔vehicle: `setDamage` с клампом `0..1e9`, порог `0..1e9`, debug-print SEND/RECV, fallback `veh:queueLuaCommand`. **Тест игроком: «дуже гарно!», Фаза 9 закрыта.**
+
+В Фазу 10 (UI/радиальное меню) — только план, код после утверждения.
 
 ### Статус шагов Фазы 6 (фары день/ночь; порядок 6.1→6.5, каждый шаг — отдельный коммит)
 

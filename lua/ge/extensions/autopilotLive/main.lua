@@ -1501,6 +1501,11 @@ local painAuto = false         -- включается ТОЛЬКО apl_pain("au
 local painDamageAcc = 0        -- аккумулятор отправки damageSum vehicle (2 с)
 local painDbgAcc = 0           -- печать raw damageSum в консоль (10 с)
 local painVerifyT = 0          -- через сколько проверить, помог ли resetVehicle
+local painTpFrom = nil         -- позиция до телепорта (для проверки «переместилась ли»)
+local painTpT = 0              -- таймер проверки телепорта
+local painTpDelayT = 0         -- задержка setPosRot после resetVehicle (0.2 с)
+local painTpPending = false    -- отложенный телепорт ждёт тика
+local painLastTp = -1          -- последняя измеренная дельта позиции, м
 local PAIN_DEFAULTS = {
   check_hz = 1, damage_threshold = 2500,
   stuck_speed_kph = 5, stuck_time_s = 5, stuck_throttle_min = 0.5,
@@ -1522,7 +1527,7 @@ local function loadPainConfig()
       return v
     end
     c.check_hz = num('check_hz', 0.1, 10, D.check_hz)
-    c.damage_threshold = num('damage_threshold', 0, 1e6, D.damage_threshold)
+    c.damage_threshold = num('damage_threshold', 0, 1e9, D.damage_threshold)
     c.stuck_speed_kph = num('stuck_speed_kph', 0, 200, D.stuck_speed_kph)
     c.stuck_time_s = num('stuck_time_s', 1, 120, D.stuck_time_s)
     c.stuck_throttle_min = num('stuck_throttle_min', 0.1, 1, D.stuck_throttle_min)
@@ -1534,6 +1539,38 @@ local function loadPainConfig()
     c.warmup_sway = num('warmup_sway', 0, 1, D.warmup_sway)
   end
   return c
+end
+
+-- Ближайшая точка дороги: позиция + кватернион по направлению ребра.
+local function painRoadPose(veh)
+  local m = (map and map.getMap) and map.getMap() or nil
+  if not m or not m.nodes then return nil end
+  local p = veh:getPosition()
+  local n1Id, n2Id = map.findClosestRoad(p)
+  local n1 = n1Id and m.nodes[n1Id] or nil
+  local n2 = n2Id and m.nodes[n2Id] or nil
+  if not n1 or not n1.pos then return nil end
+  local qx, qy, qz, qw = 0, 0, 0, 1
+  if n2 and n2.pos and n1.normal then
+    local dir = n2.pos - n1.pos
+    if dir:length() > 0.5 then
+      local q = quatFromDir(dir, n1.normal)
+      qx, qy, qz, qw = q.x, q.y, q.z, q.w
+    end
+  end
+  return n1.pos.x, n1.pos.y, n1.pos.z + 1.5, qx, qy, qz, qw
+end
+
+-- Надёжное восстановление: resetVehicle(0) (ремонт + на колёса), затем
+-- ОТЛОЖЕННЫЙ на 0.2 с setPosRot (физике нужно обновиться; без повторов).
+local function painRecover(veh, kind)
+  local p0 = veh:getPosition()
+  painTpFrom = vec3(p0.x, p0.y, p0.z) -- позиция ДО восстановления (для проверки)
+  local okR = pcall(function() be:resetVehicle(0) end)
+  painTpPending = true
+  painTpDelayT = 0.2
+  print(string.format('aplPain: recover %s — resetVehicle=%s, setPosRot через 0.2 с (reset + ближайшая дорога)',
+    tostring(kind), tostring(okR)))
 end
 
 -- Дефолты конфига (ДУБЛЬ popup.json — ТОЛЬКО fallback; истина — файл)
@@ -1762,6 +1799,8 @@ function apl_pain(mode)
       cfg.flipped_up_dot, cfg.flipped_time_s, cfg.cooldown_s))
     print('после: warmup_after=' .. tostring(cfg.warmup_after) ..
       ' (sway=' .. tostring(cfg.warmup_sway) .. '), restore_ai=' .. tostring(cfg.restore_ai))
+    print(string.format('последний телепорт: moved=%.1f м (%s)', painLastTp,
+      painLastTp >= 2 and 'ok' or (painLastTp < 0 and 'не было' or 'НЕ сработал')))
     sendToVehicle('autopilotLivePainCmd.status()')
     return true
   end
@@ -1778,31 +1817,14 @@ function M.onVehiclePain(kind, info)
   print('[aplPain] ' .. tostring(kind) .. ': ' .. tostring(info))
   logLine('WARN', 'pain ' .. tostring(kind) .. ': ' .. tostring(info))
 
-  if kind == 'DAMAGE' then
-    -- Ремонт на месте (MCP: be:resetVehicle — "reset/repair in place")
-    local ok, err = pcall(function() be:resetVehicle(0) end)
-    print('aplPain: ремонт be:resetVehicle(0) ok=' .. tostring(ok) .. (ok and '' or (' err=' .. tostring(err))))
-    -- Через 2 с проверим, вылечил ли: если нет — телепорт с reset
-    painVerifyT = 2.0
-  else
-    -- STUCK/FLIPPED: ванильный recovery на дорогу (+ ремонт)
-    local ok = false
-    if spawn and spawn.teleportToLastRoad then
-      ok = pcall(function() spawn.teleportToLastRoad(veh, { resetVehicle = true }) end)
-    end
-    if not ok then
-      -- Fallback: ближайшая дорога через навиграф
-      pcall(function()
-        local m = map.getMap()
-        local n1Id, n2Id = map.findClosestRoad(veh:getPosition())
-        local n1 = n1Id and m.nodes[n1Id] or nil
-        if n1 then
-          veh:setPosRot(n1.pos.x, n1.pos.y, n1.pos.z + 1.0, 0, 0, 0, 1)
-        end
-      end)
-    end
-    print('aplPain: телепорт на дорогу ok=' .. tostring(ok))
+  if veh == nil then
+    print('aplPain: recover НЕВОЗМОЖЕН — машина не найдена')
+    return
   end
+  -- ВСЕ виды (DAMAGE/STUCK/FLIPPED): resetVehicle(0) (ремонт + на колёса),
+  -- затем принудительный setPosRot на ближайшую точку дороги.
+  painRecover(veh, kind)
+  painVerifyT = 2.0 -- через 2 с проверим, вылечился ли
 
   -- Быстрый прогрев (sway отключается флагом noSway)
   if cfg.warmup_after > 0 then
@@ -2111,7 +2133,15 @@ function M.onUpdate(dtReal)
         if ok and v ~= nil then d = tonumber(v) end
       end
       if d then
-        sendToVehicle(string.format('autopilotLivePainCmd.setDamage(%.6f)', d))
+        local cmd = string.format('autopilotLivePainCmd.setDamage(%.6f)', d)
+        local sent = sendToVehicle(cmd)
+        if not sent and veh and veh.queueLuaCommand then
+          local okq = pcall(function() veh:queueLuaCommand(cmd) end)
+          sent = okq and veh or nil
+          print('apl_pain: sendToVehicle не сработал → queueLuaCommand ok=' .. tostring(okq))
+        end
+        print(string.format('apl_pain: SEND damageSum=%.1f → vehicle (%s)',
+          d, sent and 'ok' or 'FAIL'))
         painDbgAcc = painDbgAcc + 2
         if painDbgAcc >= 10 then
           painDbgAcc = 0
@@ -2143,6 +2173,43 @@ function M.onUpdate(dtReal)
         end
       else
         print(string.format('aplPain: ремонт подтверждён (damageSum=%.1f < %.0f)', dmg, thrDmg))
+      end
+    end
+  end
+  -- Фаза 9.3: отложенный телепорт (0.2 с после resetVehicle — физике нужно обновиться)
+  if painTpPending then
+    painTpDelayT = painTpDelayT - dtReal
+    if painTpDelayT <= 0 then
+      painTpPending = false
+      local veh = getVehicle()
+      if veh then
+        local x, y, z, qx, qy, qz, qw = painRoadPose(veh)
+        local okT = false
+        if x then
+          okT = pcall(function() veh:setPosRot(x, y, z, qx, qy, qz, qw) end)
+        end
+        painTpT = 1.0
+        print('aplPain: отложенный setPosRot ok=' .. tostring(okT))
+      end
+    end
+  end
+
+  -- Фаза 9.3: проверка телепорта — БЕЗ повторов (визуальный баг «прыжок 3 раза»)
+  if painTpT > 0 then
+    painTpT = painTpT - dtReal
+    if painTpT <= 0 then
+      local veh = getVehicle()
+      local moved = -1
+      if veh and painTpFrom then
+        local ok, p = pcall(function() return veh:getPosition() end)
+        if ok and p then moved = (p - painTpFrom):length() end
+      end
+      painLastTp = moved
+      if moved >= 2 then
+        print(string.format('aplPain: ТЕЛЕПОРТ проверка — moved=%.1f м (ok)', moved))
+      else
+        print(string.format('aplPain: WARN телепорт мог не сработать (moved=%.1f м) — повторов нет', moved))
+        logLine('WARN', 'pain teleport moved=' .. string.format('%.1f', moved))
       end
     end
   end
@@ -2251,6 +2318,11 @@ function M.onClientPostStartMission()
   painAuto = false -- Фаза 9.1: авто-восстановление не переживает смену миссии
   painDamageAcc = 0
   painVerifyT = 0
+  painTpT = 0
+  painTpDelayT = 0
+  painTpPending = false
+  painTpFrom = nil
+  painLastTp = -1
   petSoundStop() -- Фаза 7б: луп не переживает смену миссии
   petSoundEvent = '' -- звук мурчания — только по явному on
   if not csvActive then return end
