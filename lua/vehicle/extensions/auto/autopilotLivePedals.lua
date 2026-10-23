@@ -81,6 +81,8 @@ local rawHoldT = 0
 local lastRawSample = 0
 local stuckT = 0
 local stuckWarned = false
+local aiWasDriving = false  -- детект пауза/резюме AI (диагностика Gavril)
+local resumeT = 99          -- сек с последнего resume (watchdog молчит 0.5 с)
 local lastRaw  = { throttle = 0, brake = 0, clutch = 0 }
 
 -- === Лог событий в GE (паттерн autopilotLive.lua) ===
@@ -157,6 +159,8 @@ local function resetState()
   lastRawSample = 0
   stuckT = 0
   stuckWarned = false
+  aiWasDriving = false
+  resumeT = 99
   stepGarbageWarned = {}
   outGarbageWarned = {}
 end
@@ -368,9 +372,14 @@ function M.updateGFX(dt)
     aiDriving = (ai ~= nil and ai.isDriving ~= nil) and (ai.isDriving() or false)
   end)
   if not aiDriving then
+    if aiWasDriving then
+      aiWasDriving = false
+      print('aplPedals: AI ПАУЗА — override снят, lastOut ' ..
+        diagFmt(lastOut.throttle) .. ' (raw-вход игрока/ничья)')
+    end
     clearOverrides()  -- У1: игрок/ничья — возврат на штатный ввод
     needInit = true   -- при резюме AI — синхронизация без прыжка (У2)
-    initFromZero = false -- распауза: уже едем, синхронизируемся с raw (Fix 5)
+    initFromZero = false -- распауза: уже едем, синхронизируемся с lastOut (Fix 5b)
     return
   end
 
@@ -379,6 +388,16 @@ function M.updateGFX(dt)
   local brkRaw = readRaw('brake')
   local cltRaw = readRaw('clutch')
   lastRaw.throttle, lastRaw.brake, lastRaw.clutch = thrRaw, brkRaw, cltRaw
+
+  -- Резюме AI (диагностика Gavril 24.10): печатаем вход и точку сида
+  if not aiWasDriving then
+    aiWasDriving = true
+    resumeT = 0
+    print(string.format('aplPedals: AI RESUME — raw %s, lastOut %s, cap %s, gear %s',
+      diagFmt(thrRaw), diagFmt(lastOut.throttle), diagFmt(smoothStartFactor(getSpeed())),
+      tostring(electrics.values.gear)))
+  end
+  resumeT = resumeT + dt
 
   -- Watchdog (24.10): время неизменности raw (диагностика «застоя»/залипания)
   if math.abs(thrRaw - lastRawSample) > 1e-6 then
@@ -391,23 +410,23 @@ function M.updateGFX(dt)
   local speed = getSpeed()
   local gear = tostring(electrics.values.gear or '')
 
-  -- У2/Fix 5: первый кадр после on/резюме — инициализация конвейера.
-  -- Fix 5 (разделение двух сценариев):
-  --   * СВЕЖЕЕ ВКЛЮЧЕНИЕ (on/onReset, initFromZero=true): throttle начинается с 0
-  --     и плавно идёт к цели через rate_limit + ema + smooth_start_cap. Раньше
-  --     pipe:=raw прыгал в 1.0 в обход капа 0.45 => «резкий старт».
-  --   * РАСПАУЗА AI (initFromZero=false): уже едем, pipe:=raw чтобы не сбрасывать
-  --     педали (иначе газ мгновенно 0 => подёргивание на ходу).
-  -- brake: ВСЕГДА pipe:=raw — тормоз не задерживаем ни при каком включении
-  -- (безопасность: при on с активным тормозом AI не отпускаем его на кадр).
+  -- У2/Fix 5b (24.10): первый кадр после on/резюме.
+  --   * СВЕЖЕЕ ВКЛЮЧЕНИЕ (initFromZero): газ с 0 + smooth_start_cap.
+  --   * РЕЗЮМЕ AI: сид газа = lastOut.throttle (что контроллер видел до паузы),
+  --     НЕ raw! Иначе AI, вернувшись с raw=1.0, мгновенно давал 100% (Gavril).
+  --   * brake: ВСЕГДА pipe:=raw — тормоз не задерживаем (безопасность).
   if needInit then
-    if initFromZero then
-      pipe.throttle.rl, pipe.throttle.ema, pipe.throttle.out = 0, 0, 0
-    else
-      pipe.throttle.rl, pipe.throttle.ema, pipe.throttle.out = thrRaw, thrRaw, thrRaw
+    local seed = 0
+    if not initFromZero then
+      seed = tonumber(lastOut.throttle) or 0
+      if seed ~= seed or seed < 0 then seed = 0 end
+      if seed > thrRaw then seed = thrRaw end           -- не выше цели
+      seed = seed * smoothStartFactor(speed)            -- кап и на сид
     end
+    pipe.throttle.rl, pipe.throttle.ema, pipe.throttle.out = seed, seed, seed
     pipe.brake.rl, pipe.brake.ema, pipe.brake.out = brkRaw, brkRaw, brkRaw
     needInit = false
+    resumeT = 0
   end
 
   -- === Модификаторы ЦЕЛИ (до конвейера) ===
@@ -459,10 +478,24 @@ function M.updateGFX(dt)
   thrOut = sanitizeOut(thrOut, thrRaw, 'throttle_out')
   local brkOut = sanitizeOut(pipe.brake.out, brkRaw, 'brake_out')
 
+  -- === ЖЁСТКИЙ КЛАМП СКОРОСТИ ГАЗА (24.10) ===
+  -- 100%-я гарантия: за один кадр газ не может измениться быстрее rate_limit,
+  -- что бы ни случилось выше (резюме AI, cap, арбитраж, фолбэк). Тормоз не
+  -- клампим (безопасность: экстренное торможение не задерживаем).
+  do
+    local prev = tonumber(lastOut.throttle) or 0
+    if prev ~= prev or prev < 0 then prev = 0 elseif prev > 1 then prev = 1 end
+    local up = (cfg.rate_limit.throttle_rise or 2.0) * dt
+    local down = (cfg.rate_limit.throttle_fall or 3.0) * dt
+    if thrOut > prev + up then thrOut = prev + up end
+    if thrOut < prev - down then thrOut = prev - down end
+    if thrOut < 0 then thrOut = 0 elseif thrOut > 1 then thrOut = 1 end
+  end
+
   -- === WATCHDOG ЗАЛИПАНИЯ ГАЗА (24.10) ===
   -- Симптом игрока: газ застревает ~0.99 (чаще Gavril). Если цель raw уже ≈0,
   -- а out высокий > 2 с — конвейер/override залип → WARN + дамп + ресинк на raw.
-  if thrOut > 0.9 and thrRaw < 0.05 then
+  if resumeT > 0.5 and thrOut > 0.9 and thrRaw < 0.05 then
     stuckT = stuckT + dt
   else
     stuckT = 0
@@ -546,6 +579,10 @@ function autopilotLivePedalsCmd.on(confPath)
     ' brk ' .. tostring(r.brake_rise) .. '/' .. tostring(r.brake_fall) ..
     ', ema ' .. tostring(cfg.ema_tau.throttle) .. '/' .. tostring(cfg.ema_tau.brake) ..
     ' с, старт-кап ' .. tostring(cfg.smooth_start.throttle_cap))
+  print(string.format('aplPedals: ON — rate thr %s/%s (ед/с), brk %s/%s, cap %s, dt-independent',
+    tostring(r.throttle_rise), tostring(r.throttle_fall),
+    tostring(r.brake_rise), tostring(r.brake_fall),
+    tostring(cfg.smooth_start.throttle_cap)))
   return true
 end
 

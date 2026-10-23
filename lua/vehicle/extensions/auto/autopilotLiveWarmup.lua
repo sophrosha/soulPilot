@@ -50,7 +50,7 @@ local DEFAULTS = {
   -- (правки игрока 18.10: покачивание-событие в случайный момент прогрева;
   -- 0.035 ≈ 3.5° и 0.2 Гц — «ещё плавнее» по фидбеку игрока).
   sway   = { enabled = 1, amplitude = 0.035, freq_hz = 0.2, fade_time_s = 2,
-             duration_s = 4, random_delay_min_s = 1, random_delay_max_s = 8 },
+             duration_s = 4, random_delay_min_s = 3, random_delay_max_s = 10 },
   finish = { parking_brake_release_at_end = 1, auto_engage_after_warmup = 0,
              ai_mode_after_warmup = 'traffic' }, -- режим AI после прогрева ('' = не включать)
 }
@@ -73,6 +73,9 @@ local swayWritten = false       -- писали ли steering_input в прош�
 local wheelEngagedWarned = false -- INFO «sway отключён: wheel engaged» уже выдан
 local swayStart = nil           -- начало случайного окна свея (сек от start)
 local swayEnd = nil             -- конец окна свея (swayStart + duration_s)
+local swayAnnounced = false     -- print «SWAY START» выдан для текущего окна
+local aiCheckT = 0              -- сек до проверки запуска AI после finish
+local aiCheckMode = ''          -- режим, который запросили
 
 -- === Лог событий в GE (паттерн autopilotLivePedals.lua) ===
 local function toGE(level, msg)
@@ -316,16 +319,19 @@ local function finish(timedOut)
   end
 
   -- 3. РЕЖИМ AI ПОСЛЕ ПРОГРЕВА (24.10): "машина завелась и сама поехала".
-  -- Работает и при auto_engage=0 (это отдельная опция). Пустая строка = не трогаем.
-  -- Вызов только через GE-слой, с guard'ами (безопасно при отсутствии ai).
+  -- ВАЖНО: ai.setMode / ai.driveInLane — API VEHICLE-VM (lua/vehicle/ai.lua:6233/6236).
+  -- В GE-слое ai.setMode НЕТ (прошлый вызов через queueGameEngineLua был no-op).
   local aiMode = tostring(cfg.finish.ai_mode_after_warmup or '')
   if aiMode ~= '' then
-    pcall(function()
-      obj:queueGameEngineLua(string.format(
-        'if ai and ai.setMode then ai.setMode("%s") end ' ..
-        'if ai and ai.setDriving then ai.setDriving(true) end', aiMode))
+    local okAi, errAi = pcall(function()
+      ai.setMode(aiMode)
+      if aiMode == 'traffic' and ai.driveInLane then ai.driveInLane('on') end
     end)
-    toGE('INFO', 'warmup: запрос AI-режима "' .. aiMode .. '" отправлен в GE')
+    aiCheckT = 0.5
+    aiCheckMode = aiMode
+    print('aplWarmup: AI START запрошен (vehicle-VM): mode=' .. aiMode ..
+      (aiMode == 'traffic' and ' + driveInLane(on)' or '') .. (okAi and '' or (' ERR: ' .. tostring(errAi))))
+    toGE('INFO', 'warmup: ai.setMode("' .. aiMode .. '") из vehicle-VM, ok=' .. tostring(okAi))
   else
     toGE('INFO', 'warmup: ai_mode_after_warmup="" — AI не включаем')
   end
@@ -362,6 +368,14 @@ local function swayStep(dt)
     and elapsed >= swayStart
     and elapsed <= swayEnd
   swayTarget = activePhase and cfg.sway.amplitude or 0
+
+  -- Громкий маркер начала окна (игрок его пропускал — 24.10)
+  if activePhase and not swayAnnounced then
+    swayAnnounced = true
+    print(string.format('aplWarmup: SWAY START — окно %.2f-%.2f с (elapsed %.2f), amp %.3f, %.2f Гц',
+      swayStart, swayEnd, elapsed, cfg.sway.amplitude, cfg.sway.freq_hz))
+    toGE('INFO', 'warmup: SWAY START (' .. fmt(swayStart) .. '-' .. fmt(swayEnd) .. 'с)')
+  end
   local step = cfg.sway.amplitude * dt / math.max(cfg.sway.fade_time_s, 0.1)
   if swayAmp < swayTarget then
     swayAmp = math.min(swayAmp + step, swayTarget)
@@ -399,6 +413,20 @@ end
 -- === Кадровый цикл ===
 function M.updateGFX(dt)
   if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then return end -- NaN/перерывы
+
+  -- Проверка запуска AI через 0.5 с после finish (API vehicle-VM)
+  if aiCheckT > 0 then
+    aiCheckT = aiCheckT - dt
+    if aiCheckT <= 0 then
+      local mode, driving, gear = '?', '?', '?'
+      pcall(function() mode = tostring(ai.mode) end)
+      pcall(function() driving = tostring(ai.isDriving()) end)
+      pcall(function() gear = tostring(electrics.values.gear) end)
+      print('aplWarmup: AI CHECK (0.5с после finish): mode=' .. mode ..
+        ' isDriving=' .. driving .. ' gear=' .. gear .. ' (запрошен ' .. aiCheckMode .. ')')
+      toGE('INFO', 'warmup: AI check mode=' .. mode .. ' driving=' .. driving .. ' gear=' .. gear)
+    end
+  end
 
   if state == 'off' or state == 'done' then
     -- Прогрев не идёт: добиваем затухание свея (если был) — без щелчка руля.
@@ -453,6 +481,7 @@ local function resetState()
   wheelEngagedWarned = false
   swayStart = nil
   swayEnd = nil
+  swayAnnounced = false
 end
 
 -- === Публичные команды (GE шлёт через queueLuaCommand) ===
@@ -483,6 +512,7 @@ function autopilotLiveWarmupCmd.on(confPath)
     if rmax < rmin then rmax = rmin end
     swayStart = math.random(rmin, rmax) / 100
     swayEnd = swayStart + cfg.sway.duration_s
+    swayAnnounced = false
     if cfg.sway.enabled > 0 then
       toGE('INFO', 'warmup: окно sway сгенерировано: ' .. fmt(swayStart) .. '-' ..
         fmt(swayEnd) .. ' с от старта (длительность ' .. fmt(cfg.sway.duration_s) .. ' с)')

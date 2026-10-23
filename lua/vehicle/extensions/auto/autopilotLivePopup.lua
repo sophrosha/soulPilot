@@ -139,17 +139,17 @@ local function blinkAllowed()
 end
 
 function M.updateGFX(dt)
-  if not active or cfg == nil then return end
+  if not active and not warmupHold then return end
   if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then return end
 
-  local cur = curState()
-
   if phase == 'sleep' then
-    -- Сон (прогрев/старт): держим закрытыми
+    -- Сон (прогрев/старт): держим глаза закрытыми КАЖДЫЙ кадр, даже если
+    -- auto не активен (warmupHold) — иначе электрика/Ф6 вернут свет.
     applyEyes(EYES_CLOSED)
     lastSeen = EYES_CLOSED
     return
   end
+  if not active or cfg == nil then return end
 
   -- awake/blink: детект вмешательства извне (не наш мигок, не Ф6-auto)
   if graceT > 0 then
@@ -223,9 +223,12 @@ function autopilotLivePopupCmd.start(params)
   active = true
   warmupHold = false
   savedState = nil
-  local cur = curState()
-  if cur == EYES_CLOSED then applyEyes(EYES_OPEN) end -- открыть; 1/2 не понижаем
-  lastSeen = curState()
+  local curBefore = curState()
+  if curBefore == EYES_CLOSED then
+    applyEyes(EYES_OPEN) -- открыть; 1/2 не понижаем (lastSeen ставит applyEyes)
+  else
+    lastSeen = curBefore
+  end
   phase = 'awake'
   timer = nextDelay()
   print('aplPopup: ВКЛ. Глаза ОТКРЫТЫ (state=' .. tostring(lastSeen) ..
@@ -239,12 +242,14 @@ end
 -- Сон: прогрев/пауза. Работает и без active (warmup-сценарий).
 function autopilotLivePopupCmd.sleep()
   if savedState == nil then savedState = curState() end
+  local before = curState()
   warmupHold = true
   setSuppress(true) -- Ф6 не откроет фары во время сна
   phase = 'sleep'
   applyEyes(EYES_CLOSED)
   lastSeen = EYES_CLOSED
-  print('aplPopup: СОН (глаза закрыты' .. (active and '' or ', auto не активен') .. ')')
+  print(string.format('aplPopup: СОН — state %d → %d (команда 0), auto=%s, warmupHold=true, suppress=true',
+    before, curState(), tostring(active)))
   return true
 end
 
@@ -252,21 +257,22 @@ end
 -- (не ломаем дальний свет), иначе 1.
 function autopilotLivePopupCmd.wake_up()
   if not active and not warmupHold then return false end
+  local before = curState()
   setSuppress(false)
   warmupHold = false
   if active then
-    applyEyes(EYES_OPEN)
-    lastSeen = curState()
+    applyEyes(EYES_OPEN) -- lastSeen ставит applyEyes (не перечитываем state!)
     phase = 'awake'
     timer = nextDelay()
-    print('aplPopup: ПРОБУЖДЕНИЕ (глаза открыты, следующее моргание через ' ..
-      string.format('%.0f', timer) .. ' с)')
+    print(string.format('aplPopup: ПРОБУЖДЕНИЕ — state %d → %d, глаза открыты, следующее моргание через %.0f с',
+      before, curState(), timer))
   else
     local restore = EYES_OPEN
     if savedState == 1 or savedState == 2 then restore = savedState end
     applyEyes(restore)
     savedState = nil
-    print('aplPopup: ПРОБУЖДЕНИЕ (warmup, восстановлен state=' .. tostring(restore) .. ')')
+    print(string.format('aplPopup: ПРОБУЖДЕНИЕ (warmup) — state %d → %d (восстановлен %d)',
+      before, curState(), restore))
   end
   return true
 end

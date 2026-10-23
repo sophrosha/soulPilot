@@ -41,6 +41,14 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - **`ai/notes/report_generator.py`:** глубокий отчёт (каналы min/max/p95/p99, лаг и corr raw↔sm, % кадров на капе, скачки >1.2·кап, залипание газа ≥2 с, недоход руля на пиках, аномалии) с `--md/--json`; смоук на реальном CSV 2026-10-12_07-23-49 пройден.
 - **Гигиена:** `autopilotLivePopupOld.lua`/`autopilotLiveWarmupOld.lua` убраны из `extensions/auto` (игра грузила их как дубли) → `ai/notes/legacy/` (в .gitignore). Чек: баланс 6 Lua-файлов OK, JSON ×3 валидны, report_generator компилируется.
 
+**ФАЗА 8.2 (2026-10-24, фиксы по логам beamng.log):** логи показали: Bolide 110–768 с, **768.8 спавн us_semi (Gavril T-Series)**, метки «pod 90…» (866.5) и «GRM PIZDA NAHUI» (1002.4) — обе на грузовике; `apl_pedals ON` 814.4.
+- **Pedals:** причина «газа 100%» — `needInit` при resume AI сидил `pipe := raw` (Gavril часто паузит/возобновляется). Фикс: сид из **`lastOut.throttle`** (+smooth_start_cap), **жёсткий кламп** `thrOut ∈ [prev−fall·dt, prev+rise·dt]` после всех модификаторов (тормоз не клампится), watchdog молчит 0.5 с после resume, prints `AI ПАУЗА/RESUME` и параметров on().
+- **Warmup-AI:** `ai.setMode`/`ai.driveInLane` — API **vehicle-VM** (ai.lua:6233/6236), GE-вызов был no-op. Теперь вызов из vehicle (для traffic + `driveInLane("on")`), через 0.5 с print `ai.mode/isDriving/gear`.
+- **Popup:** ложное «вмешательство» (288.99: `lastSeen=0` при `lights_state=1`) — убрано перечитывание state после `applyEyes`; `updateGFX` держит 0 при `warmupHold` даже без auto; print state до→после в sleep/wake.
+- **Ночь:** GE keepalive `setNight` каждые 5 с (не только при смене) + print с часом (на смене и каждые 30 с keepalive).
+- **Sway:** окно 3–10 с, громкий print `SWAY START` при входе в окно.
+- **auto_csv=1:** `apl_pedals("on")`/`apl_wheel("on")`/`apl_warmup("start")` сами стартуют CSV (apl_debug больше не обязателен).
+
 В Фазу 9 НЕ заходить.
 
 ### Статус шагов Фазы 6 (фары день/ночь; порядок 6.1→6.5, каждый шаг — отдельный коммит)

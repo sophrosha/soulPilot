@@ -1484,7 +1484,8 @@ end
 -- (refuse_auto_on_popup) СНЯТ — авто-свет Ф6 на Bolide/Wigeon работает.
 local popupAuto = false        -- авто-режим включён игроком (только apl_popup("auto"))
 local popupNightLast = false   -- последняя переданная vehicle ночь
-local popupNightAcc = 0        -- аккумулятор опроса ночи (тик ~2 с)
+local popupNightAcc = 0        -- аккумулятор опроса ночи (тик 5 с)
+local popupNightDbgAcc = 0     -- аккумулятор печати keepalive (30 с)
 
 -- Дефолты конфига (ДУБЛЬ popup.json — ТОЛЬКО fallback; истина — файл)
 local POPUP_DEFAULTS = {
@@ -1687,6 +1688,24 @@ end
 -- перехват через electrics.values.*Override (api_research_phase3.md).
 local PEDALS_CONF = 'mods/unpacked/AutopilotLive/ai/config/pedals.json'
 
+-- Ф8.1 (24.10): авто-старт CSV при включении модулей (надоело забывать apl_debug).
+-- 1 = при apl_pedals("on")/apl_wheel("on")/apl_warmup("start") начать запись,
+--     если она ещё не идёт. 0 = только вручную через apl_debug().
+local AUTO_CSV = 1
+
+local function autoCsv(reason)
+  if AUTO_CSV ~= 1 then return end
+  if csvActive then
+    print('apl: CSV уже пишется — auto_csv пропущен (' .. reason .. ')')
+    return
+  end
+  startCsvRecording()
+  if csvActive then
+    print('apl: CSV включён АВТОМАТИЧЕСКИ (' .. reason .. ') — apl_debug() не нужен')
+    logLine('INFO', 'auto_csv: старт при ' .. reason)
+  end
+end
+
 function apl_pedals(mode)
   mode = tostring(mode or ''):lower()
   if mode == 'on' then
@@ -1702,6 +1721,7 @@ function apl_pedals(mode)
       print('apl_pedals: ON (конфиг: ' .. PEDALS_CONF .. ')')
       print('apl_pedals: статус — apl_pedals("status"); остановка — apl_pedals("off")')
       logLine('INFO', 'apl_pedals ON, conf=' .. PEDALS_CONF .. ', confExists=' .. tostring(confOk))
+      autoCsv('apl_pedals')
     end
   elseif mode == 'off' then
     -- Round-trip подтверждение (находка Н1, 2026-10-12): off и status — ОДНОЙ
@@ -1755,6 +1775,7 @@ function apl_wheel(mode)
       print('apl_wheel: ON (конфиг: ' .. WHEEL_CONF .. ')')
       print('apl_wheel: статус — apl_wheel("status"); остановка — apl_wheel("off")')
       logLine('INFO', 'apl_wheel ON, conf=' .. WHEEL_CONF .. ', confExists=' .. tostring(confOk))
+      autoCsv('apl_wheel')
     end
   elseif mode == 'off' then
     -- Round-trip подтверждение (паттерн Н1 Фазы 3): off и status — ОДНОЙ строкой
@@ -1807,6 +1828,7 @@ function apl_warmup(mode)
       print('apl_warmup: START (конфиг: ' .. WARMUP_CONF .. ')')
       print('apl_warmup: статус — apl_warmup("status"); отмена — apl_warmup("off")')
       logLine('INFO', 'apl_warmup START, conf=' .. WARMUP_CONF .. ', confExists=' .. tostring(confOk))
+      autoCsv('apl_warmup')
     end
   elseif mode == 'off' then
     local veh = sendToVehicle('autopilotLiveWarmupCmd.off()')
@@ -1964,14 +1986,31 @@ function M.onUpdate(dtReal)
   -- следующему мигку). Работает независимо от lightsAuto (Ф8 не требует Ф6).
   if popupAuto then
     popupNightAcc = popupNightAcc + dtReal
-    if popupNightAcc >= 2 then
+    if popupNightAcc >= 5 then
       popupNightAcc = 0
-      local n = popupIsNightNow()
-      if n ~= popupNightLast then
-        popupNightLast = n
-        if sendToVehicle('autopilotLivePopupCmd.setNight(' .. (n and 'true' or 'false') .. ')') then
-          logLine('INFO', 'popup: ночь→' .. tostring(n) .. ' (интервалы: ' ..
-            (n and 'ночные 180-300 с' or 'дневные 120-180 с') .. ')')
+      local okN, n = pcall(popupIsNightNow)
+      if not okN then
+        logLine('WARN', 'popup night check error: ' .. tostring(n))
+      else
+        local h = gameTodHours()
+        local hs = h and string.format('%02d:%02d', math.floor(h % 24),
+          math.floor((h % 1) * 60)) or '?'
+        -- KEEPALIVE: шлём каждые 5 с (не только при смене) — потеря пакета не
+        -- оставит vehicle в неверном дне/ночи.
+        local sent = sendToVehicle('autopilotLivePopupCmd.setNight(' ..
+          (n and 'true' or 'false') .. ')')
+        popupNightDbgAcc = popupNightDbgAcc + 5
+        if n ~= popupNightLast then
+          popupNightLast = n
+          popupNightDbgAcc = 0
+          logLine('INFO', 'popup: ночь→' .. tostring(n) .. ' (' .. hs .. ')')
+          print('apl_popup: ' .. (n and 'НОЧЬ' or 'ДЕНЬ') .. ' (' .. hs ..
+            ') — ' .. (n and 'моргание подавлено' or 'моргание разрешено') ..
+            ', setNight=' .. tostring(sent))
+        elseif popupNightDbgAcc >= 30 then
+          popupNightDbgAcc = 0
+          print('apl_popup: keepalive — ' .. (n and 'НОЧЬ' or 'ДЕНЬ') .. ' (' .. hs ..
+            '), setNight=' .. tostring(sent))
         end
       end
     end
