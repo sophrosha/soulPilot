@@ -32,7 +32,7 @@ local DEFAULTS = {
   rateScale = 0.5,       -- множитель rate_limit руля на время эффекта
   randomInterval = 0.2,  -- сек: как часто новая случайная цель газа (0.05+rand*0.05)
   rampS = 1.5,           -- сек: плавное снижение жёсткости руля (1 → rateScale)
-  soundEvent = 'file:art/sound/apl_pet.ogg', -- звук (Vehicle-слой SFX)
+  soundEvent = 'file:art/sound/apl_pet.wav', -- звук (Vehicle-слой SFX)
   soundInterval = 0.5,   -- сек: период новой пачки (оверлап → «урчание»)
   speedGateKph = 5.0,    -- «нельзя гладить на ходу»
 }
@@ -49,10 +49,12 @@ local thrRandT = 0       -- таймер смены случайной цели 
 local thrRandVal = 0     -- случайная цель (0.05..0.10)
 local thrRandCur = 0     -- текущее сглаженное значение
 local thrOverrideWritten = false -- писали ли throttleOverride в этом кадре/сеансе
-local petSfx = {}        -- объекты SFX (obj:createSFXSource) — звук в Vehicle-слое
-local sfxT = 0           -- аккумулятор пачки звука
+local petSfx = nil       -- ОДИН источник SFX на сеанс (10-сек файл; не на каждые 0.5 с)
+local sfxPlayed = false  -- звук уже запущен в этом сеансе
+local sfxEventPath = nil -- путь, под который создан petSfx
 local sfxWarned = false  -- WARN «звук не создан» уже выдан
 local sfxOk = false      -- звук успешно создан (print один раз)
+local sfxProfile = nil   -- рабочий SFX-профиль ('AudioDefault3D' или 'Audio2D')
 
 -- === Лог событий в GE (паттерн autopilotLiveLights.lua) ===
 local function toGE(level, msg)
@@ -138,12 +140,12 @@ local function finish(reason)
   thrRandVal = 0
   thrRandCur = 0
   thrOverrideWritten = false
-  -- Звук: останавливаем все пачки (obj:stopSFX)
-  for _, snd in ipairs(petSfx) do
-    pcall(function() obj:stopSFX(snd) end)
+  -- Звук: останавливаем единственный источник (per-source delete в API нет;
+  -- obj:deleteSFXSources() убил бы и звук двигателя — НЕ используем).
+  if petSfx then
+    pcall(function() obj:stopSFX(petSfx) end)
   end
-  petSfx = {}
-  sfxT = 0
+  sfxPlayed = false
   active = false
   p = nil
   elapsed = 0
@@ -192,41 +194,44 @@ function M.updateGFX(dt)
     setHandbrake(0)
   end
 
-  -- Звук (Vehicle-слой, 24.10): GE playOnce не играет кастомный .ogg (нет
-  -- SFX-профиля) → createSFXSource + playSFX каждые soundInterval с
-  -- наложением. Сбой — WARN с ТОЧНЫМ путём (один раз).
-  if p.soundEvent and p.soundEvent ~= '' then
-    sfxT = sfxT + dt
-    if sfxT >= (p.soundInterval or 0.5) then
-      sfxT = 0
-      local snd = nil
-      local ok, err = pcall(function()
-        snd = obj:createSFXSource(p.soundEvent, 'AudioDefault3D', 'aplPet', -1)
-        if not snd and p.soundEvent:match('^file:') then
-          local alt = 'file:/' .. p.soundEvent:sub(6):gsub('^/+', '')
-          snd = obj:createSFXSource(alt, 'AudioDefault3D', 'aplPet', -1)
+  -- Звук (Vehicle-слой, 24.10): ОДИН источник на сеанс. Файл 10 с > длительности
+  -- петмода, поэтому играем один раз (без повторов каждые 0.5 с — иначе
+  -- переполнение памяти). Профиль: AudioDefault3D → Audio2D.
+  if p.soundEvent and p.soundEvent ~= '' and not sfxPlayed then
+    sfxPlayed = true
+    if petSfx ~= nil and sfxEventPath ~= p.soundEvent then
+      pcall(function() obj:stopSFX(petSfx) end) -- путь сменился — старый стоп
+      petSfx = nil
+    end
+    if petSfx == nil then
+      local err = nil
+      local ok = pcall(function()
+        local profiles = sfxProfile and { sfxProfile } or { 'AudioDefault3D', 'Audio2D' }
+        for _, prof in ipairs(profiles) do
+          petSfx = obj:createSFXSource(p.soundEvent, prof, 'aplPet', -1)
+          if petSfx then
+            sfxProfile = prof
+            sfxEventPath = p.soundEvent
+            break
+          end
         end
-        if snd then obj:playSFX(snd) end
       end)
-      if not ok or not snd then
+      if not ok or petSfx == nil then
         if not sfxWarned then
           sfxWarned = true
           print('aplPet: WARN звук НЕ создан: ' .. tostring(p.soundEvent) ..
-            ' (err=' .. tostring(err) .. ')')
-          toGE('WARN', 'pet sfx fail: ' .. tostring(p.soundEvent) ..
-            ' err=' .. tostring(err))
+            ' (профили AudioDefault3D/Audio2D, err=' .. tostring(err) .. ')')
+          toGE('WARN', 'pet sfx fail: ' .. tostring(p.soundEvent) .. ' err=' .. tostring(err))
         end
-      else
-        table.insert(petSfx, snd)
-        while #petSfx > 8 do
-          local old = table.remove(petSfx, 1)
-          pcall(function() obj:stopSFX(old) end)
-        end
-        if not sfxOk then
-          sfxOk = true
-          print('aplPet: звук OK → ' .. tostring(p.soundEvent))
-          toGE('INFO', 'pet sfx OK: ' .. tostring(p.soundEvent))
-        end
+      end
+    end
+    if petSfx ~= nil then
+      pcall(function() obj:playSFX(petSfx) end)
+      if not sfxOk then
+        sfxOk = true
+        print('aplPet: звук OK → ' .. tostring(p.soundEvent) .. ' (профиль ' ..
+          tostring(sfxProfile) .. ', один источник на сеанс)')
+        toGE('INFO', 'pet sfx OK: ' .. tostring(p.soundEvent) .. ' profile=' .. tostring(sfxProfile))
       end
     end
   end
@@ -334,8 +339,7 @@ function autopilotLivePetCmd.start(params)
     setHandbrake(0)
   end
   thrOverrideWritten = false
-  petSfx = {}
-  sfxT = cfg.soundInterval -- первый звук сразу
+  sfxPlayed = false   -- запустим ОДИН раз в updateGFX (файл 10 с)
   sfxWarned = false
   sfxOk = false
   -- Руль снижаем ПЛАВНО в updateGFX (rampS) — не дёргаем setRateScale здесь.
@@ -381,11 +385,8 @@ function M.onReset()
   -- Respawn: electrics сброшены (override'ов уже нет, ручник штатный) —
   -- эффект прерываем БЕЗ setHandbrake (машина только что заспавнена).
   if active then
-    for _, snd in ipairs(petSfx) do
-      pcall(function() obj:stopSFX(snd) end)
-    end
-    petSfx = {}
-    sfxT = 0
+    if petSfx then pcall(function() obj:stopSFX(petSfx) end) end
+    sfxPlayed = false
     active = false
     p = nil
     elapsed = 0
@@ -395,11 +396,9 @@ function M.onReset()
 end
 
 function M.onVehicleDestroyed()
-  for _, snd in ipairs(petSfx) do
-    pcall(function() obj:stopSFX(snd) end)
-  end
-  petSfx = {}
-  sfxT = 0
+  if petSfx then pcall(function() obj:stopSFX(petSfx) end) end
+  petSfx = nil
+  sfxPlayed = false
   active = false
   p = nil
   elapsed = 0
