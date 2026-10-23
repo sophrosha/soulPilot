@@ -26,6 +26,8 @@ local DEFAULTS = {
   duration = 6.0,        -- сек
   offset = 0.05,         -- оффсет микро-газа (0..1) — база дрожания
   amp = 0.05,            -- амплитуда дрожания (0..1) — итог 0.0..(offset+amp)=0.1
+  moveOffset = 0.02,     -- газ в ДВИЖЕНИИ (ИИ ведёт): микро, чтобы мотор урчал
+  moveAmp = 0.03,        -- случайная добавка в движении (0.02..0.05)
   hz = 2.5,              -- частота дрожания (вибрация, не покачивание)
   rateScale = 0.5,       -- множитель rate_limit руля на время эффекта
   randomInterval = 0.2,  -- сек: как часто новая случайная цель газа (0.05+rand*0.05)
@@ -44,6 +46,7 @@ local lastAppliedScale = 1
 local thrRandT = 0       -- таймер смены случайной цели газа
 local thrRandVal = 0     -- случайная цель (0.05..0.10)
 local thrRandCur = 0     -- текущее сглаженное значение
+local thrOverrideWritten = false -- писали ли throttleOverride в этом кадре/сеансе
 
 -- === Лог событий в GE (паттерн autopilotLiveLights.lua) ===
 local function toGE(level, msg)
@@ -87,7 +90,9 @@ end
 
 -- Штатный ручник (vehicleController.lua:428, экспорт M.smartParkingBrake;
 -- без фильтра = FILTER_DIRECT → прямое событие parkingbrake 0|1).
-local function setHandbrake(v)
+local hbState = -1 -- последнее выставленное состояние (анти-спам)
+local function setHandbrake(v, force)
+  if hbState == v and not force then return end
   local ok, err = pcall(function()
     if controller and controller.mainController and controller.mainController.smartParkingBrake then
       controller.mainController.smartParkingBrake(v)
@@ -95,6 +100,7 @@ local function setHandbrake(v)
       error('smartParkingBrake недоступен')
     end
   end)
+  if ok then hbState = v end
   if not ok then
     print('aplPet: WARN ручник не выставлен (' .. tostring(err) .. ')')
     toGE('WARN', 'pet handbrake failed: ' .. tostring(err))
@@ -125,6 +131,7 @@ local function finish(reason)
   thrRandT = 0
   thrRandVal = 0
   thrRandCur = 0
+  thrOverrideWritten = false
   active = false
   p = nil
   elapsed = 0
@@ -160,26 +167,36 @@ function M.updateGFX(dt)
     end
   end
 
-  -- Микро-подергивание газа (24.10): цель = offset + random*amp (0.05..0.10),
-  -- НОВАЯ каждые p.randomInterval (0.2 с); между целями плавно догоняем —
-  -- «движок еле урчит», без ступенек. ТОРМОЗ НЕ трогаем.
-  thrRandT = thrRandT + dt
-  if thrRandT >= (p.randomInterval or 0.2) or thrRandVal == 0 then
-    thrRandT = 0
-    thrRandVal = p.offset + math.random() * p.amp
-  end
-  local stepT = (p.offset + p.amp) * dt / 0.2
-  if thrRandCur < thrRandVal then
-    thrRandCur = math.min(thrRandCur + stepT, thrRandVal)
-  elseif thrRandCur > thrRandVal then
-    thrRandCur = math.max(thrRandCur - stepT, thrRandVal)
-  end
-  pcall(function() electrics.values.throttleOverride = env * thrRandCur end)
+  -- Микро-подергивание газа (24.10): режим зависит от того, ЕДЕТ ли машина.
+  --   СТОИМ (нет ИИ или speed < 2 км/ч): газ НЕ пишем вовсе (машина не уезжает),
+  --     ручник держим каждый кадр (ваниль снимает его при throttle > 0);
+  --   ЕДЕМ (ИИ ведёт): микро-газ 0.02 + random*0.03 — мотор слышен, без дёрганья.
+  local aiDrv = false
+  pcall(function() aiDrv = (ai and ai.isDriving and ai.isDriving()) or false end)
+  local standing = (not aiDrv) or (speedKph() < 2.0)
 
-  -- Ручник держим КАЖДЫЙ кадр: ванильный контроллер сам снимает smart-ручник,
-  -- когда throttle > 0 (vehicleController.lua:526) — без этого машина уезжает
-  -- в кювет при apl_pet("on") без ИИ (баг 24.10).
-  setHandbrake(1)
+  if standing then
+    setHandbrake(1, true) -- форсим КАЖДЫЙ кадр: ваниль снимает ручник при газе
+    if thrOverrideWritten then
+      pcall(function() electrics.values.throttleOverride = nil end)
+      thrOverrideWritten = false
+    end
+  else
+    if hbState ~= 0 then setHandbrake(0) end
+    thrRandT = thrRandT + dt
+    if thrRandT >= (p.randomInterval or 0.2) or thrRandVal == 0 then
+      thrRandT = 0
+      thrRandVal = p.moveOffset + math.random() * p.moveAmp
+    end
+    local stepT = (p.moveOffset + p.moveAmp) * dt / 0.2
+    if thrRandCur < thrRandVal then
+      thrRandCur = math.min(thrRandCur + stepT, thrRandVal)
+    elseif thrRandCur > thrRandVal then
+      thrRandCur = math.max(thrRandCur - stepT, thrRandVal)
+    end
+    pcall(function() electrics.values.throttleOverride = env * thrRandCur end)
+    thrOverrideWritten = true
+  end
 
   if elapsed >= p.duration then finish() end
 end
@@ -195,6 +212,8 @@ function autopilotLivePetCmd.start(params)
     duration = clampNum(t.duration, 1, 60, D.duration),
     offset = clampNum(t.offset, 0, 0.3, D.offset),
     amp = clampNum(t.amp, 0, 0.3, D.amp),
+    moveOffset = clampNum(t.moveOffset, 0, 0.1, D.moveOffset),
+    moveAmp = clampNum(t.moveAmp, 0, 0.1, D.moveAmp),
     hz = clampNum(t.hz, 0.05, 10, D.hz),
     rateScale = clampNum(t.rateScale, 0.1, 1, D.rateScale),
     randomInterval = clampNum(t.randomInterval, 0.05, 5, D.randomInterval),
@@ -248,9 +267,12 @@ function autopilotLivePetCmd.start(params)
       'engine off')
   end
 
-  -- Guard 3: «нельзя гладить на ходу»
+  -- Guard 3: «нельзя гладить на ходу» — ТОЛЬКО если не ИИ ведёт.
+  -- Под ИИ поглаживание разрешено (микро-газ 0.02–0.05, без дёрганья).
+  local aiNow = false
+  pcall(function() aiNow = (ai and ai.isDriving and ai.isDriving()) or false end)
   local v = speedKph()
-  if v >= cfg.speedGateKph then
+  if (not aiNow) and v >= cfg.speedGateKph then
     return refuse('НЕЛЬЗЯ гладить на ходу (' .. string.format('%.0f', v) ..
       ' км/ч, гейт ' .. string.format('%.0f', cfg.speedGateKph) .. ' км/ч)',
       'moving ' .. string.format('%.1f', v) .. ' kph')
@@ -266,12 +288,22 @@ function autopilotLivePetCmd.start(params)
   thrRandT = 0
   thrRandVal = 0
   thrRandCur = 0
-  setHandbrake(1)
+  -- Стоим — ручник держим (updateGFX удерживает каждый кадр); едем под ИИ —
+  -- ручник не трогаем (машина в движении).
+  local aiStart = false
+  pcall(function() aiStart = (ai and ai.isDriving and ai.isDriving()) or false end)
+  if (not aiStart) or speedKph() < 2.0 then
+    setHandbrake(1)
+  else
+    setHandbrake(0)
+  end
+  thrOverrideWritten = false
   -- Руль снижаем ПЛАВНО в updateGFX (rampS) — не дёргаем setRateScale здесь.
   print('aplPet: ПОГЛАЖИВАНИЕ НАЧАТО (' .. string.format('%.0f', cfg.duration) ..
-    ' с, газ ' .. string.format('%.2f', cfg.offset) .. '+rand*' ..
-    string.format('%.2f', cfg.amp) .. ' каждые ' .. string.format('%.2f', cfg.randomInterval) ..
-    ' с, ручник поднят, тормоз НЕ трогаем, руль ×' .. string.format('%.2f', cfg.rateScale) ..
+    ' с; ' .. ((not aiStart) and 'СТОЯНКА: газ НЕ пишем, ручник держим'
+      or ('ДВИЖЕНИЕ: микро-газ ' .. string.format('%.2f', cfg.moveOffset) ..
+          '+rand*' .. string.format('%.2f', cfg.moveAmp))) ..
+    ', руль ×' .. string.format('%.2f', cfg.rateScale) ..
     ' плавно за ' .. string.format('%.1f', cfg.rampS) .. ' с)')
   toGE('INFO', 'pet start: dur=' .. string.format('%.1f', cfg.duration) ..
     ' thr=' .. string.format('%.2f', cfg.offset) .. '+rand*' .. string.format('%.2f', cfg.amp) ..
