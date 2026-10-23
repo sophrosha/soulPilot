@@ -174,7 +174,7 @@ function autopilotLivePainCmd.start(params)
   local D = DEFAULTS
   cfg = {
     check_hz = clampNum(t.check_hz, 0.1, 10, D.check_hz),
-    damage_threshold = clampNum(t.damage_threshold, 0, 1000, D.damage_threshold),
+    damage_threshold = clampNum(t.damage_threshold, 0, 1e9, D.damage_threshold),
     stuck_speed_kph = clampNum(t.stuck_speed_kph, 0, 100, D.stuck_speed_kph),
     stuck_time_s = clampNum(t.stuck_time_s, 1, 120, D.stuck_time_s),
     stuck_throttle_min = clampNum(t.stuck_throttle_min, 0.1, 1, D.stuck_throttle_min),
@@ -201,9 +201,14 @@ function autopilotLivePainCmd.stop()
   return true
 end
 
--- GE присылает getSectionDamageSum() каждые 2 с (vehicle этого API не видит)
+-- GE присылает getSectionDamageSum() каждые 2 с (vehicle этого API не видит).
+-- ВАЖНО: шкала — ОЧКИ (тысячи/миллионы), не 0..1. Клампим до 1e9.
 function autopilotLivePainCmd.setDamage(v)
-  damage = clampNum(v, 0, 100000, 0)
+  local n = tonumber(v)
+  if n == nil or n ~= n then n = 0 end
+  damage = clampNum(n, 0, 1e9, 0)
+  print(string.format('aplPain: RECV setDamage=%s (type %s) → damage=%.1f (порог %.1f)',
+    tostring(v), type(v), damage, active and cfg and cfg.damage_threshold or -1))
   return true
 end
 
