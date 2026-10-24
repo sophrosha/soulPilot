@@ -10,6 +10,7 @@ function M.create()
     active_config_path = nil,
     rate_scale = 1.0,
     need_init = true,
+    seed_zero = false,
     pipe = { rate_limited = 0, ema = 0, output = 0 },
     last_out = { engaged = false, steer = 0 },
     last_raw = 0,

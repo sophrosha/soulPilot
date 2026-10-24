@@ -1,273 +1,110 @@
 # soulPilot
 
-Мод для **BeamNG.drive 0.39.4**, который делает AI-автопилот живее: плавный руль,
-прогрев автомобиля, автоматические фары, звуковые реакции, мурчание, parking-ассистент
-и аудио-реактивная отдача от музыки.
+**soulPilot** is a driving-assistant overlay for **BeamNG.drive 0.39.4**. It adds a warm-up sequence, smooth AI steering and pedals, automatic lights, expressive pop-up eyes, a petting interaction, pain/recovery logic, music-reactive steering and parking support.
 
-> UI — это только настройки. Машина начинает движение только после
-> `apl_autopilot("on")`, через Quick Access или бинд.
+The project is a clean, modular continuation of AutopilotLive. The GE and vehicle layers communicate through explicit `soulPilot*Cmd` tables.
 
-## Возможности
+> The settings UI is optional. The core assistant can be controlled from the console with `apl_autopilot("on")` or from Quick Access.
 
-- **Master-режим** — прогрев, подключение руля/педалей, свет, popup, pain и AI.
-- **Плавный руль** — конвейер `rate_limit -> EMA -> lerp`, режимы `comfort` / `sport`.
-- **Прогрев** — запуск двигателя, контроль температуры, отключение лишнего вмешательства.
-- **Автосвет** — день/ночь, отдельные окна для карт.
-- **Audio-Reactive** — Spotify/системный звук через Python: bass/beat/BPM,
-  плавная отдача в руль и вибрацию.
-- **Pet** — погладить машину, звук мурчания.
-- **Popup / Pain** — реакции на события и восстановление после повреждений.
-- **Parking** — поиск свободного места, маршрут, остановка, ручник и глушение.
-  Поиск идёт по всей карте; если мест нет — безопасная остановка на текущей позиции.
-- **Локализация** — RU / EN / UK / BY.
+## Features
 
-## Требования
+- **Master mode** — one command enables warm-up, driving modules and AI traffic.
+- **Warm-up** — engine start, coolant/oil thresholds, gentle steering sway and a safe handover to AI.
+- **Steering pipeline** — `rate limit -> EMA -> lerp`, music offsets and safe re-seeding after warm-up.
+- **Pedals** — smooth throttle/brake arbitration, predictive braking and shift handling.
+- **Lights** — automatic day/night headlights with per-map windows.
+- **Popup eyes** — Bolide/Wigeon eye animation with day/night intervals and a debug blink mode.
+- **Pet** — short petting interaction with purring audio and a cooldown.
+- **Pain/recovery** — damage detection, reset/teleport recovery and optional AI restore.
+- **Music** — optional Spotify/VB-Cable bass analysis feeding the steering layer.
+- **Parking** — assisted parking search and stop sequence.
+
+## Requirements
 
 - BeamNG.drive **0.39.4**.
-- Windows или Linux.
-- Для аудио-реактивности — Python **3.11+** (проверялось на 3.13).
-- Для Spotify на Windows — **VB-Audio Virtual Cable** (или аналогичный loopback-источник).
+- Windows (the Python music bridge is Windows-first).
+- Python **3.10+** for development tools and the optional music bridge.
+- The release zip does not require Python for the core Lua features.
 
-## Установка
+## Installation
 
-1. Скачайте релизный `.zip`.
-2. Установите его через Mod Manager BeamNG или положите архив в папку модов.
-3. Включите мод и полностью перезапустите игру.
-4. Заспавните автомобиль.
+### Release zip
 
-Для разработки мод можно держать распакованным в:
+1. Run `python build_release.py`.
+2. Install the generated `soulPilot-<version>.zip` through the BeamNG Mod Manager, or place it in the game's `mods` folder.
+3. Enable the mod, restart the game completely and spawn a vehicle.
 
-```text
-...\BeamNG.drive\current\mods\unpacked\soulPilot\
-```
+The zip contains `lua/`, `ui/`, `mod_info/`, `art/`, `config/`, `scripts/`, `src_music/` at the archive root.
 
-Перед запуском игры разложите runtime-файлы из `src/` в корень мода:
+### Unpacked development
 
-```text
+Close the game, remove the old `AutopilotLive` folder from `mods/unpacked`, then from the repository root run:
+
+```powershell
 python dev_mode.py
 ```
 
-После изменения GE-расширений нужен полный перезапуск игры. Vehicle-модули
-перезагружаются при спавне автомобиля.
+This mirrors `src/lua`, `src/ui`, `src/mod_info`, `src/art` and `src/config` to the mod root. `scripts/`, `locales/` and `src_music/` are already runtime folders and are checked by the same script.
 
-Для сборки релизного zip (с `lua/`, `ui/`, `mod_info/` в корне архива):
+Clear the BeamNG mod cache if the old mod is still listed:
 
-```text
-python build_release.py
+```powershell
+Remove-Item -Force "$env:LOCALAPPDATA\BeamNG\BeamNG.drive\current\mods\db.json" -ErrorAction SilentlyContinue
 ```
 
-По умолчанию архив пишется в `../soulPilot-dist` **вне** `mods/unpacked`,
-чтобы BeamNG не принимал папку с zip за отдельный мод.
+## Controls
 
-## Управление
-
-| Действие | Клавиши / команда |
+| Action | Key / command |
 |---|---|
 | Autopilot on/off | `Ctrl+Shift+A` |
-| Погладить / мурчание | `Ctrl+Shift+P` |
-| Прогрев | `Ctrl+Shift+W` |
-| Открыть каталог HUD-приложений | `Ctrl+Shift+U` |
-| Мастер | Quick Access → soulPilot → Мастер |
-| Pet | Quick Access → soulPilot → Погладить |
-| Parking | Quick Access → soulPilot → Парковка |
+| Pet / purr | `Ctrl+Shift+P` |
+| Warm-up | `Ctrl+Shift+W` |
+| HUD app catalogue | `Ctrl+Shift+U` |
+| Master | Quick Access → soulPilot → Master |
+| Parking | Quick Access → soulPilot → Parking |
 
-Консольные команды:
+Useful console commands:
 
 ```lua
 apl_autopilot("on")
-apl_autopilot("off")
 apl_autopilot("status")
-
-apl_wheel("on")
-apl_wheel("off")
 apl_wheel("status")
-
-apl_music("on")
-apl_music("off")
-apl_music("status")
-
-apl_park("auto")
-apl_park("cancel")
-apl_park("status")
-
+apl_pedals("status")
+apl_pet("on")
+apl_popup("auto")
 apl_status()
-apl_debug_set(true)
 ```
 
-## Настройки
+## Configuration
 
-Дефолтные конфиги лежат в:
-
-```text
-src/config/*.json
-```
-
-Пользовательские настройки и настройки UI всегда пишутся в userPath:
+Default configuration lives in `src/config/`. User overrides are written to:
 
 ```text
 %LOCALAPPDATA%\BeamNG\BeamNG.drive\current\settings\mod_settings\soulPilot\
 ```
 
-Основные файлы:
+The runtime config folder is `config/` in a deployed mod. The Lua loader checks the user path, then `src/config/`, then the runtime `config/` folder.
 
-| Файл | Назначение |
-|---|---|
-| `master.json` | что включать при Master on: wheel, pedals, lights, popup, pain, music |
-| `wheel.json` | профиль и сглаживание руля |
-| `pedals.json` | газ/тормоз |
-| `warmup.json` | прогрев |
-| `lights.json` | автосвет |
-| `music.json` | аудио-реактивные амплитуды |
-| `parking.json` | радиус поиска, маршрут, остановка |
-| `pet.json`, `popup.json`, `pain.json` | поведение ассистентов |
-| `debug.json` | debug-логирование |
-| `ui.json` | язык интерфейса |
+See [docs/en/Settings.md](docs/en/Settings.md) for the full reference.
 
-Файл в `settings/mod_settings/soulPilot` имеет приоритет над `src/config`.
+## Development
 
-## Python и Audio-Reactive
-
-Python-часть нужна только для музыки. Без неё остальные функции работают.
-
-### 1. Окружение
-
-Windows:
-
-```bat
-py -3 -m venv ai\venv
-ai\venv\Scripts\python.exe -m pip install --upgrade pip
-ai\venv\Scripts\python.exe -m pip install -r src_music\requirements.txt
+```powershell
+python dev_mode.py                 # deploy src runtime folders to the mod root
+python -m unittest discover -s src/tests -v
+python build_release.py --dry-run  # inspect the future zip layout
+python build_release.py            # write outside mods/unpacked
 ```
 
-Linux:
+The source layout is described in [docs/en/Dev.md](docs/en/Dev.md).
 
-```bash
-python3 -m venv ai/venv
-ai/venv/bin/python -m pip install --upgrade pip
-ai/venv/bin/python -m pip install -r src_music/requirements.txt
-```
+## Documentation
 
-`ai/venv` не входит в релизный zip — его нужно создать локально.
+- [Documentation index](docs/readme.md)
+- [English FAQ](docs/en/FAQ.md)
+- [Russian FAQ](docs/ru/FAQ.md)
+- [AI architecture](docs/en/AI.md)
 
-### 2. Захват звука
+## License
 
-Windows, Spotify через VB-Audio Virtual Cable:
-
-1. Установите VB-Audio Virtual Cable.
-2. В Spotify выберите вывод **CABLE Input (VB-Audio Virtual Cable)**.
-3. В Python-приложении выберите устройство **CABLE Output (VB-Audio Virtual Cable)**.
-4. Звук самой игры оставьте на колонках/наушниках.
-
-Linux (PipeWire/PulseAudio):
-
-- выберите monitor-устройство нужного выхода;
-- либо направьте Spotify в отдельный virtual sink и слушайте его monitor.
-
-### 3. Запуск
-
-С GUI:
-
-```bat
-ai\venv\Scripts\python.exe src_music\app.py
-```
-
-Консольный режим:
-
-```bat
-ai\venv\Scripts\python.exe src_music\app.py --console
-ai\venv\Scripts\python.exe src_music\app.py --console --list
-ai\venv\Scripts\python.exe src_music\app.py --console --device "CABLE Output"
-```
-
-В окне приложения выберите устройство и нажмите **Start**. Приложение пишет
-`src_music/current.json` примерно 50 раз в секунду. GE-модуль читает этот файл;
-если данные старше ~300 мс, музыкальная отдача сбрасывается в ноль.
-
-### 4. Включение музыки в игре
-
-1. В UI включите **Music** (это только сохранит `enable_music = 1` в `master.json`).
-2. Запустите мастер: `apl_autopilot("on")`.
-
-Либо напрямую:
-
-```lua
-apl_music("on")
-```
-
-Музыка не управляет газом, тормозом или КПП. Она добавляет только небольшие
-sway/vibration/beat-смещения к рулю.
-
-## Parking
-
-Паркинг — активное действие, а не модуль, который включается при старте.
-
-```lua
-apl_park("auto")
-```
-
-Поиск идёт в радиусе `999999` м, то есть фактически по всей карте. Если мест нет,
-мод не зависает, а останавливает машину на текущей позиции, ставит ручник и глушит
-двигатель. Reverse-stuck watchdog завершает попытку, если AI выбрал заднюю,
-но не может сдвинуться дольше 3 секунд.
-
-## Сборка релиза
-
-Из корня мода:
-
-```bash
-python build_release.py
-```
-
-Результат:
-
-```text
-dist/soulPilot-<version>.zip
-```
-
-Полезные опции:
-
-```bash
-python build_release.py --dry-run
-python build_release.py --output-dir C:\Temp\apl-release
-python build_release.py --version 0.1.0
-```
-
-В архив не попадают:
-
-- `ai/venv`, `ai/notes`, `ai/csv`, `ai/logs`, `ai/road`;
-- `__pycache__`, `.pyc`, `.tmp`;
-- `src_music/config.json`, `src_music/current.json`;
-- старые звуки, тестовые отчёты, staging-иконки и dev-скрипты.
-
-## Диагностика
-
-```lua
-apl_status()
-apl_wheel("status")
-apl_music("status")
-apl_park("status")
-apl_debug_set(true)
-```
-
-Debug по умолчанию выключен. При включённом debug пишутся подробные сообщения
-GE/vehicle; обычный режим оставляет только WARN/ERROR и ключевой статус.
-
-Логи:
-
-```text
-soulPilot_logs/logs/
-soulPilot_logs/csv/
-```
-
-## Ограничения
-
-- Мод не вызывает `input.event` напрямую.
-- КПП и сцепление не управляются модом.
-- AI не должен использоваться на публичных серверах без разрешения владельца.
-- Для корректной работы новых GE-расширений нужен полный перезапуск игры.
-
-## Ссылки
-
-- GitHub: https://github.com/sophrosha
-- Сайт: https://sophron.ru
-- Лицензия: MIT
+MIT. See the project metadata and the upstream credits for third-party assets.

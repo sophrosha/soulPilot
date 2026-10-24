@@ -131,6 +131,11 @@ end
 
 -- Можно ли моргать сейчас? (день + не мешаем Ф6, если его target не 1)
 local function blinkAllowed()
+  -- Debug mode deliberately blinks at any time, including night, so it can be
+  -- verified without waiting for the normal 2-3 minute interval.
+  if cfg and cfg.debugDelay > 0 then
+    return true
+  end
   if night then return false, 'ночь — фары должны гореть постоянно' end
   if isLightsAuto() then
     local t = lightsTarget()

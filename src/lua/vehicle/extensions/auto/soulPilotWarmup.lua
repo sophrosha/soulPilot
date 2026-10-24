@@ -117,7 +117,7 @@ local function validateConfig(c)
   pos('engine', 'temp_threshold_c', D.engine.temp_threshold_c, 50,   120)
   pos('engine', 'oil_threshold_c',  D.engine.oil_threshold_c,  20,   120)
   pos('engine', 'temp_poll_hz',     D.engine.temp_poll_hz,     0.1,  10)
-  pos('sway',   'amplitude',        D.sway.amplitude,          0.001, 0.3)
+  pos('sway',   'amplitude',        D.sway.amplitude,          0.001, 0.035)
   pos('sway',   'freq_hz',          D.sway.freq_hz,            0.01, 2.0)
   pos('sway',   'fade_time_s',      D.sway.fade_time_s,        0.1,  30)
   pos('sway',   'duration_s',       D.sway.duration_s,         0.1,  600)
@@ -285,8 +285,22 @@ local function notifyDone(timedOut)
   end)
 end
 
+local function resetSwayAtFinish()
+  -- Never leave the player's last manual/sway steering value behind when AI
+  -- takes over. The wheel module seeds itself from zero through seed_zero.
+  if swayWritten then
+    pcall(function() electrics.values.steering_input = 0 end)
+  end
+  swayTime = 0
+  swayAmp = 0
+  swayTarget = 0
+  swayWritten = false
+  swayAnnounced = false
+end
+
 local function finish(timedOut)
   state = 'done'
+  resetSwayAtFinish()
   releaseParkingBrake() -- снятие ручника — ПЕРЕД сообщением «готова» (шаг 5.4)
   local cool = lastCoolant and ('coolant ' .. fmt(lastCoolant) .. '°C, oil ' .. fmt(lastOil) .. '°C')
     or 'термалы недоступны (EV?) — только тайминг'
@@ -319,7 +333,7 @@ local function finish(timedOut)
         soulPilotPedalsCmd.on('mods/unpacked/soulPilot/config/pedals.json')
       end
       if soulPilotWheelCmd and soulPilotWheelCmd.on then
-        soulPilotWheelCmd.on('mods/unpacked/soulPilot/config/wheel.json')
+        soulPilotWheelCmd.on('mods/unpacked/soulPilot/config/wheel.json', { seed_zero = true })
       end
       -- Фары после прогрева (24.10): глазки + авто-свет — через GE, там
       -- игровое время и окно карты (vehicle-слой ночь не знает).
@@ -406,6 +420,10 @@ local function swayStep(dt)
     return soulPilotWheelGetState and soulPilotWheelGetState()
   end)
   if okGet and wstate and wstate.engaged then
+    if swayWritten then
+      pcall(function() electrics.values.steering_input = 0 end)
+      swayWritten = false
+    end
     if not wheelEngagedWarned then
       wheelEngagedWarned = true
       toGE('INFO', 'warmup: sway отключён — wheel перехватывает руль (решение B, 16.10)')

@@ -16,8 +16,10 @@ local function playerJBeam(vehicle)
   local ok, value = pcall(function()
     return vehicle.JBeam
   end)
-  if ok and type(value) == "string" then
-    return value:lower()
+  if ok and type(value) == "string" and value ~= "" then
+    local normalized = value:gsub("\\", "/"):match("([^/]+)$") or value
+    normalized = normalized:gsub("%.jbeam$", "")
+    return normalized:lower()
   end
   return nil
 end

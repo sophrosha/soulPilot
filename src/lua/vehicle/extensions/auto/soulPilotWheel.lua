@@ -55,6 +55,10 @@ function M.updateGFX(dt)
   end
 
   local target = readSteerRawNorm()
+  if state.need_init and state.seed_zero then
+    target = 0
+    state.seed_zero = false
+  end
   state.last_raw = target
 
   wheel_overrides.initialize(state, target)
@@ -74,8 +78,12 @@ soulPilotWheelCmd = {}
 -- Legacy migration alias; new code must use soulPilotWheelCmd.
 autopilotLiveWheelCmd = soulPilotWheelCmd
 
-function soulPilotWheelCmd.on(config_path)
+function soulPilotWheelCmd.on(config_path, options)
   local path = type(config_path) == "string" and config_path or wheel_config.FALLBACK_CONFIG
+  if type(options) == "table" and options.seed_zero then
+    state.seed_zero = true
+    state.need_init = true
+  end
 
   if state.active and state.active_config_path == path then
     print("soulPilotWheel: ON already active - duplicate call ignored")
@@ -128,6 +136,7 @@ function soulPilotWheelCmd.off()
   state.active = false
   state.active_config_path = nil
   state.rate_scale = 1.0
+  state.seed_zero = false
   wheel_diagnostics.resetRateStats(state)
   state.last_out.engaged = false
   notify("INFO", "wheel OFF: steering_input rewrite stopped, vanilla FILTER_AI restored")
@@ -152,6 +161,7 @@ end
 
 function M.onReset()
   state.need_init = true
+  state.seed_zero = false
   state.last_out.engaged = false
   wheel_diagnostics.resetRateStats(state)
 end
@@ -159,6 +169,7 @@ end
 function M.onVehicleDestroyed()
   state.active = false
   state.active_config_path = nil
+  state.seed_zero = false
   state.last_out.engaged = false
   wheel_diagnostics.resetRateStats(state)
 end
