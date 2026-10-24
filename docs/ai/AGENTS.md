@@ -38,10 +38,10 @@
 ## Release workflow
 
 ```powershell
-python dev_mode.py
+python ai/dev_mode.py
 python -m unittest discover -s src/tests -v
-python build_release.py --dry-run
-python build_release.py
+python ai/build_release.py --dry-run
+python ai/build_release.py
 ```
 
 Release output must stay outside `mods/unpacked`. The zip root contains `lua/`, `ui/`, `mod_info/`, `art/`, `config/`, `scripts/` and `src_music/`; it must not contain `src/` or `dist/`.
@@ -51,4 +51,4 @@ Release output must stay outside `mods/unpacked`. The zip root contains `lua/`, 
 - Tests pass.
 - Lua parser passes.
 - In-game smoke test covers warm-up, wheel, pedals, popup, pet and autopilot.
-- Documentation is updated under `docs/ai` and `docs/lang`.
+- Documentation is updated under `docs/ai` and `docs/dev`.

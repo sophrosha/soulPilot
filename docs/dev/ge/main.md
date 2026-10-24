@@ -46,3 +46,15 @@
 7. diagnostics.
 
 `commands.register()` is called at load time so console commands exist before the first mission tick.
+
+## State
+
+`main.lua` intentionally keeps no gameplay state. It stores only module references and exposes lifecycle hooks. All mutable state belongs to the logger, master, commands and vehicle-facing modules.
+
+## Algorithm
+
+The extension requires modules, wires their dependencies and registers global commands. Each BeamNG hook forwards to one or more modules; `onUpdate` is the only per-frame GE entrypoint.
+
+## Exported surface
+
+`M.onExtensionLoaded`, `M.onExtensionUnloaded`, `M.onShutdown`, `M.onUpdate`, `M.onVehicle*`, `M.onConsoleExecuteCommand`, `M.isNightNow` and `M.onSerialize`. The module table is published as `extensions.soulPilot_main`.

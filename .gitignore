@@ -39,7 +39,10 @@ ai/music/*.tmp.*
 ai/music/config.json
 
 # soulPilot dev/release artifacts
-/ai/
+# Keep the ai/ workspace ignored but track the dev/CI scripts themselves.
+/ai/*
+!/ai/
+!/ai/*.py
 venv/
 *.zip
 

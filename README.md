@@ -30,7 +30,7 @@ The project is a clean, modular continuation of AutopilotLive. The GE and vehicl
 
 ### Release zip
 
-1. Run `python build_release.py`.
+1. Run `python ai/build_release.py`.
 2. Install the generated `soulPilot-<version>.zip` through the BeamNG Mod Manager, or place it in the game's `mods` folder.
 3. Enable the mod, restart the game completely and spawn a vehicle.
 
@@ -41,7 +41,7 @@ The zip contains `lua/`, `ui/`, `mod_info/`, `art/`, `config/`, `scripts/`, `src
 Close the game, remove the old `AutopilotLive` folder from `mods/unpacked`, then from the repository root run:
 
 ```powershell
-python dev_mode.py
+python ai/dev_mode.py
 ```
 
 This mirrors `src/lua`, `src/ui`, `src/mod_info`, `src/art` and `src/config` to the mod root. `scripts/`, `locales/` and `src_music/` are already runtime folders and are checked by the same script.
@@ -90,13 +90,13 @@ See [docs/en/Settings.md](docs/en/Settings.md) for the full reference.
 ## Development
 
 ```powershell
-python dev_mode.py                 # deploy src runtime folders to the mod root
+python ai/dev_mode.py                 # deploy src runtime folders to the mod root
 python -m unittest discover -s src/tests -v
-python build_release.py --dry-run  # inspect the future zip layout
-python build_release.py            # write outside mods/unpacked
+python ai/build_release.py --dry-run  # inspect the future zip layout
+python ai/build_release.py            # write outside mods/unpacked
 ```
 
-The source layout is described in [docs/ai/ARCHITECTURE.md](docs/ai/ARCHITECTURE.md) and [docs/lang/gelua/main.md](docs/lang/gelua/main.md).
+The source layout is described in [docs/ai/ARCHITECTURE.md](docs/ai/ARCHITECTURE.md) and [docs/dev/ge/main.md](docs/dev/ge/main.md).
 
 ## Documentation
 

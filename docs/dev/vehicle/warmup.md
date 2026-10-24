@@ -8,6 +8,14 @@
 off -> starting_engine -> warming_up -> done
 ```
 
+## State
+
+The module owns `cfg`, `cfgFromFile`, `state`, `elapsed`, `startTimer`, `pollTimer`, `lastCoolant`, `lastOil`, `swayTime`, `swayAmp`, `swayTarget`, `swayWritten`, `swayStart`, `swayEnd`, `swayAnnounced`, `aiCheckT` and `aiCheckMode`.
+
+## Algorithm
+
+Start the engine, poll coolant/oil until both pass or the timeout expires, then call `finish()`. `finish()` clears sway, releases the handbrake, auto-enables pedals/wheel, selects AI mode and notifies GE. Sway is an absolute relative-time sine write and is bounded by `0.035`.
+
 `off` is also used after reset. `done` can still fade a small remaining sway value to zero.
 
 ## Main functions

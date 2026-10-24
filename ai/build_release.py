@@ -15,10 +15,10 @@ Development-only files (tests, venv, logs, CSV, caches, old sounds) are
 excluded.
 
 Usage:
-    python build_release.py
-    python build_release.py --dry-run
-    python build_release.py --output-dir C:\\Temp\\soulPilot-release
-    python build_release.py --version 0.1.0
+    python ai/build_release.py
+    python ai/build_release.py --dry-run
+    python ai/build_release.py --output-dir C:\\Temp\\soulPilot-release
+    python ai/build_release.py --version 0.1.0
 
 By default the archive is written to a sibling folder outside the mod's
 runtime tree (../soulPilot-dist relative to the mod folder). This keeps
@@ -34,7 +34,8 @@ import sys
 import zipfile
 from pathlib import Path, PurePosixPath
 
-ROOT = Path(__file__).resolve().parent
+# This script lives in ai/; the project root is one level above it.
+ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 MOD_INFO = SRC / "mod_info" / "soulPilot" / "mod_info.ini"
 # Keep release output outside mods/unpacked; otherwise BeamNG may scan the

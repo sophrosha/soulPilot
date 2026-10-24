@@ -56,3 +56,11 @@ soulPilotWarmupCmd.on(path)
 ```
 
 Do not add new `autopilotLive*Cmd` calls.
+
+## Algorithm
+
+Each enable command resolves the config path, queues a `soulPilot*Cmd` call and optionally starts CSV. Each disable command queues an `off` plus a status round-trip. The module never calls vehicle globals directly; it goes through `vehicleBridge`.
+
+## State ownership
+
+`wheel_requested`, `pedals_requested` and `warmup_requested` mirror vehicle state. They are reset on mission changes and updated by vehicle callbacks.

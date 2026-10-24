@@ -45,3 +45,11 @@
 ## Failure behavior
 
 A warm-up timeout or missing callback cancels the pending state after 60 seconds. The system does not leave the master waiting forever.
+
+## Algorithm
+
+`aplAutopilot("on")` starts warm-up and enters `waiting_warmup`. A vehicle callback or the 2-second fallback poll finishes the handover. `finish()` enables modules, sets AI mode and marks master `on`; a 60-second guard cancels a stuck wait.
+
+## State ownership
+
+Master owns `state`, `pending`, `wait_time` and `poll_acc`; enabled flags stay in `commands.lua` so direct module commands and master auto-engagement do not fight each other.

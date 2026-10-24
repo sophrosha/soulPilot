@@ -48,3 +48,15 @@ raw throttle/brake
 ## Safety
 
 The watchdog releases stale overrides. Hard clamps and neutral handling prevent unsafe throttle when the AI is not driving.
+
+## State
+
+`pedalsState` owns `cfg`, `active`, `need_init`, `init_from_zero`, `overrides_written`, `clutch_written`, `predictive_on`, `start_time`, `smooth_start_skipped`, per-channel `pipe` (`throttle`, `brake`), `last_out`, `last_raw`, watchdog timers, shift hold, `rate_scale`, `rate_scale_time` and diagnostic history.
+
+## Algorithm
+
+Read raw throttle/brake, arbitrate brake priority, apply rate limits and EMA/lerp, apply neutral/shift/predictive modifiers, then write only the resulting overrides. Disabled or not-AI states clear overrides through the watchdog and reset paths.
+
+## Exported surface
+
+`soulPilotPedalsCmd.on`, `.off`, `.setRateScale`, `.status`; `soulPilotPedalsGetState`; `M.updateGFX`, `M.onReset`, `M.onVehicleDestroyed`.

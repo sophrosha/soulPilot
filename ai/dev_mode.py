@@ -6,8 +6,8 @@ The project keeps sources in src/; this script mirrors the runtime folders to
 the root before an in-game test.
 
 Usage:
-    python dev_mode.py
-    python dev_mode.py --dry-run
+    python ai/dev_mode.py
+    python ai/dev_mode.py --dry-run
 
 The script copies by default (portable on Windows). It removes stale files
 inside the deployed folders, but never removes the source tree or other root
@@ -23,7 +23,8 @@ import shutil
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+# This script lives in ai/; the project root is one level above it.
+ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 
 # Runtime folders that BeamNG expects at the mod root. src/tests is source-only

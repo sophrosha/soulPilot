@@ -26,7 +26,7 @@ src/tests/                             Python/Lua golden tests
 
 ## Active work
 
-- Documentation restructuring under `docs/ai` and `docs/lang`.
+- Documentation restructuring under `docs/ai` and `docs/dev`.
 - Final release zip verification.
 - In-game smoke test of warm-up sway and popup debug blinking.
 

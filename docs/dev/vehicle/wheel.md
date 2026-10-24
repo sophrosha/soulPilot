@@ -50,3 +50,15 @@ AI/manual target
 - `lerp_tau.steer`.
 
 Current custom values: `6.0/8.0`, EMA `0.08`, lerp `0.05`.
+
+## State
+
+`wheelState` owns `cfg`, `active`, `active_config_path`, `rate_scale`, `need_init`, `seed_zero`, `init_grace`, `spawn_guard`, the `pipe` (`rate_limited`, `ema`, `output`), `last_out`, `last_raw` and rate statistics.
+
+## Algorithm
+
+Wait until AI is driving; while AI is inactive or in the spawn grace period, write zero and keep the pipeline seeded from zero. Once active, read the raw target, optionally reject `|target| > 0.9` during spawn, then run rate limit, EMA, lerp, music offsets and clamp before writing `steering_input`.
+
+## Exported surface
+
+`soulPilotWheelCmd.on`, `.off`, `.setRateScale`, `.status`; `soulPilotWheelGetState`; `M.updateGFX`, `M.onReset`, `M.onVehicleDestroyed`.

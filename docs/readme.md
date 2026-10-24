@@ -26,15 +26,15 @@
 
 ### GE Lua
 
-- [main.lua](lang/gelua/main.md)
-- [master.lua](lang/gelua/master.md)
-- [commands.lua](lang/gelua/commands.md)
+- [main.lua](dev/ge/main.md)
+- [master.lua](dev/ge/master.md)
+- [commands.lua](dev/ge/commands.md)
 
 ### Vehicle Lua
 
-- [warmup.lua](lang/vlua/warmup.md)
-- [wheel.lua](lang/vlua/wheel.md)
-- [pedals.lua](lang/vlua/pedals.md)
+- [warmup.lua](dev/vehicle/warmup.md)
+- [wheel.lua](dev/vehicle/wheel.md)
+- [pedals.lua](dev/vehicle/pedals.md)
 
 ## Quick links
 
