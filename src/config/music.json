@@ -1,15 +1,12 @@
 {
-  "_comment_motion": "Стоянка/прогрев (speed <= stationary_speed_kph): качок руля sway_amp*bass_smooth на частоте sway_hz. Движение (speed >= vibration_min_speed_kph): микро-вибрация vibration_amp*bass_smooth на vibration_hz. bass_smooth — EMA в vehicle-слое (dt*5.0), чтобы бас не дёргал руль мгновенно. Всё добавляется ПОСЛЕ сглаживания wheel; газ/тормоз/КПП не трогаются.",
   "stationary_speed_kph": 3.0,
   "sway_amp": 0.005,
   "sway_hz": 0.6,
   "vibration_amp": 0.001,
   "vibration_hz": 6.0,
   "vibration_min_speed_kph": 5.0,
-  "_comment_beat": "Фаза 11.4: фронт beat даёт МЯГКИЙ толчок руля по огибающей: beatEnv плавно растёт 0.05 с и спадает beat_decay_s. К рулю добавляется beatEnv*beat_amp. Никаких резких ступенек.",
   "beat_amp": 0.01,
   "beat_decay_s": 0.2,
-  "_comment_lights": "Фары от музыки ОТКЛЮЧЕНЫ (lights_pulse: 0) по просьбе игрока — beat идёт в руль. При 1 — старый режим пульса popup (0<->1, pulse_ms, мин. интервал blink_min_interval_ms; ночью и при lights_state=2 не трогает).",
   "lights_pulse": 0,
   "pulse_ms": 120,
   "blink_min_interval_ms": 200

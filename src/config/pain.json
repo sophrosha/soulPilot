@@ -1,8 +1,6 @@
 {
-  "_comment_detect": "stuck: AI ведёт + газ >= stuck_throttle_min + скорость <= stuck_speed_kph дольше stuck_time_s. flipped: up:dot(0,0,1) < flipped_up_dot дольше flipped_time_s. damage: GE шлёт getSectionDamageSum() каждые 2 с; порог damage_threshold (шкала уточняется по status). cooldown_s — пауза между действиями.",
   "check_hz": 1.0,
   "damage_threshold": 50000.0,
-  "_comment_thresholds": "Фаза 10.5: абсолютный порог по умолчанию — 50 000 (Wigeon в хлам ≈ 52 843). Для тяжёлых машин override в damage_threshold_by_model (us_semi = 10 000 000). damage_threshold_percent оставлен на будущее: API максимального урона в 0.39.4 нет (getSectionDamageSum только текущий), поэтому процент не применяется.",
   "damage_threshold_percent": 0.8,
   "damage_threshold_by_model": {
     "us_semi": 10000000.0

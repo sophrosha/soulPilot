@@ -434,8 +434,12 @@ local function swayStep(dt)
 
   -- Кубический синус: сглаженные «плоские пики» — руль замирает в крайних
   -- точках (эффект дыхания), а не качается синусоидой-маятником.
-  local s = math.sin(2 * math.pi * cfg.sway.freq_hz * swayTime)
+  -- Use time relative to the sway start, not an accumulated phase. This
+  -- guarantees a clean oscillation around zero: sin(0)^3 = 0.
+  local phase_time = math.max(elapsed - (swayStart or elapsed), 0)
+  local s = math.sin(2 * math.pi * cfg.sway.freq_hz * phase_time)
   local swayVal = swayAmp * (s ^ 3)
+  swayVal = math.max(-cfg.sway.amplitude, math.min(cfg.sway.amplitude, swayVal))
   pcall(function() electrics.values.steering_input = swayVal end)
   swayWritten = true
 end

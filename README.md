@@ -96,14 +96,14 @@ python build_release.py --dry-run  # inspect the future zip layout
 python build_release.py            # write outside mods/unpacked
 ```
 
-The source layout is described in [docs/en/Dev.md](docs/en/Dev.md).
+The source layout is described in [docs/ai/ARCHITECTURE.md](docs/ai/ARCHITECTURE.md) and [docs/lang/gelua/main.md](docs/lang/gelua/main.md).
 
 ## Documentation
 
 - [Documentation index](docs/readme.md)
 - [English FAQ](docs/en/FAQ.md)
 - [Russian FAQ](docs/ru/FAQ.md)
-- [AI architecture](docs/en/AI.md)
+- [AI architecture](docs/ai/ARCHITECTURE.md)
 
 ## License
 

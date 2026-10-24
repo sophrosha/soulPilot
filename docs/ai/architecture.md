@@ -1,150 +1,67 @@
-# ARCHITECTURE — AutopilotLive (черновик)
+# AI Architecture
 
-> Черновик архитектуры всех 8 экранов. Уточняется по мере прохождения фаз.
-> Дата создания: Фаза 0. Статус: **черновик, не код**.
+## Overview
 
-## Общая схема слоёв
+soulPilot sits between player input, the HUD and BeamNG's built-in AI. It smooths vehicle inputs and orchestrates warm-up, lights, popup, pet and recovery behavior.
 
-```
-Ванильный AI (BeamNG) — принимает решения сам
-        │  готовые сигналы: throttle, brake, steering, clutch
-        ▼
-┌─────────────────────────────────────────────────────┐
-│  VEHICLE-слой (lua/vehicle/extensions/auto/)        │
-│  (автозагрузка при спавне машины, vehicle/main.lua:314) │
-│  - перехват сигналов AI                             │
-│  - конвейер сглаживания: lerp → ema → rate_limit    │
-│  - прогрев, погладить-реакции                       │
-└─────────────────────────────────────────────────────┘
-        │  сглаженные сигналы → электроника машины
-        ▼
-   Машина едет плавно
-
-┌─────────────────────────────────────────────────────┐
-│  GE-слой (lua/ge/extensions/autopilotLive/)         │
-│  (загрузка через scripts/modScript.lua →           │
-│   extensions.load('autopilotLive/main'))            │
-│  - регистрация консольных команд (apl_*)            │
-│  - менеджер сессии логирования, CSV-writer          │
-│  - дамп дорожного графа, фары (core_environment)    │
-└─────────────────────────────────────────────────────┘
+```text
+Player / HUD / Quick Access
+            |
+       GE extension
+   main.lua + modules/*
+            |
+  vehicleBridge.sendToVehicle
+            |
+       Vehicle VM
+   soulPilot*Cmd tables
+            |
+ wheel / pedals / lights / popup / pet / pain
 ```
 
-**Принцип:** vehicle-слой не знает про файлы и консоль; GE-слой не знает про
-сглаживание напрямую — общается через события/общее состояние. Это чтобы слои
-можно было тестировать и менять независимо.
+## GE layer
 
-## Экран 1 — Ядро оверлея (перехват сигналов AI)
+The GE layer owns command registration, configuration, master state, popup model validation, pet audio, damage polling, CSV and logging. `main.lua` only wires modules and forwards BeamNG hooks.
 
-- **Задача:** регистрация мода, менеджер сглаживания, точка входа.
-- **GE:** `lua/ge/extensions/autopilotLive/main.lua` — init, регистрация `apl_*` команд,
-  подписка на события игры (vehicle activated и т.д.), флаг debug on/off.
-- **Vehicle:** хуки на выходные сигналы AI (исследовать в Фазе 1, чтение
-  `D:\...\lua\vehicle\`): перехватываем значения ДО передачи в электронику,
-  пропускаем через конвейер, отдаём дальше.
-- **Правило:** не трогать input.event напрямую, не трогать КПП.
-- **Фаза:** 1 (каркас + команды), дорабатывается в 3–4.
+Key modules:
 
-## Экран 2 — Дебаг + CSV + логирование + дамп дороги
+- `master.lua` — state machine and module orchestration;
+- `commands.lua` — public commands and `apl_*` aliases;
+- `vehicleBridge.lua` — GE → vehicle queueing;
+- `configLoader.lua` — user/source/runtime config resolution;
+- `popup.lua` — model guard and popup start/night updates;
+- `pet.lua` — purr playback and command routing.
 
-- **CSV-writer** (GE-слой): пишет `ai/csv/YYYY-MM-DD_HH-MM-SS_drive.csv`.
-  Колонки: time, pos(x,y,z), speed, accel, steer_raw, steer_smoothed,
-  throttle_raw, throttle_smoothed, brake_raw, brake_smoothed, clutch_raw,
-  clutch_smoothed, gear, rpm, engine_temp, oil_temp, water_temp, engine_thermal,
-  d_steer/dt, d_throttle/dt, d_brake/dt.
-- **Event-лог** `ai/logs/...txt`: уровни INFO/WARN/ERROR. Ошибки мода — сюда,
-  не в beamng.log. Логирование активно только при `apl_debug`; без дебага — только ERROR.
-- **Анализ поворотов** (Python/pandas из ai/venv): отдельная таблица событий
-  (вход, угол, длительность, средняя скорость, макс. d_steer/dt).
-- **Дамп графа** (Фаза 2): JSON/CSV, узлы (x,y,z,тип) + рёбра (a,b,кривизна,
-  угол°, радиус, рекомендованная скорость). Метки пользователя: `apl_mark` →
-  `ai/road/marks.csv` (позиция + комментарий).
-- **Фазы:** 1 (CSV+логи), 2 (граф+метки).
+## Vehicle layer
 
-## Экран 3 — Сглаживание педалей
+The vehicle layer owns physical writes:
 
-- **Вход:** throttle, brake, clutch от AI.
-- **Конвейер:** `lerp` (плавность) → `ema` (инерция) → `rate_limit` (защита от
-  скачков). При конфликте — приоритет rate_limit.
-- **Арбитраж:** brake > throttle при одновременной подаче, но плавно.
-- **Предиктивность:** brake > 0.8 → начинаем тормозить заранее, мягко
-  (не «в горке тупо тормозим»).
-- **Старт:** плавный разгон, ограничение по достигнутой скорости (не 0→1).
-- **Баг «стоит на нейтрали, газует»:** neutral + throttle>0 + speed≈0 →
-  приоритет brake, плавный сброс throttle. (Детект нейтрали = чтение передачи,
-  НЕ переключение.)
-- **Ограничение угловой скорости** для грузовиков — конфигом.
-- **Фаза:** 3.
+- wheel: `steering_input`, `rate_limit -> EMA -> lerp -> clamp`;
+- pedals: throttle/brake arbitration and overrides;
+- warm-up: engine start, temperatures, relative sway, AI handover;
+- lights: `lights_state`, auto/manual guard and popup suppression;
+- popup: eye open/close state machine;
+- pet/pain: animation and recovery guards.
 
-## Экран 4 — Сглаживание руля
+## Master sequence
 
-- **Вход:** steer от AI.
-- **Конвейер:** тот же lerp → ema → rate_limit по угловой скорости.
-- **НЕ срезаем углы** (AI даёт 250° — отдаём 250°, но плавно во времени).
-- **Предиктивное начало поворота:** по дорожному графу из Фазы 2 — если впереди
-  поворот > X° и приближаемся → готовимся заранее.
-- **Снижение скорости перед сложным поворотом** по рекомендованной скорости из графа.
-- **Не конфликтовать** с встроенными ассистентами BeamNG (замедление руля на
-  скорости: старт 50 км/ч, конец 120 км/ч, 100%) — работать поверх.
-- **Приоритет:** медленно и мягко, даже если чуть менее точно.
-- **Фаза:** 4.
+```text
+apl_autopilot("on")
+  -> warm-up state machine
+  -> engine start + temperature checks
+  -> relative sway fades to zero
+  -> wheel/pedals enabled
+  -> wheel seeded from zero
+  -> ai.setMode("traffic")
+  -> lights/popup/pain enabled
+```
 
-## Экран 5 — Прогрев машины
+A warm-up timeout is reported but still hands control over safely. Already-enabled modules are not duplicated.
 
-- **Триггер:** команда `apl_warmup`.
-- **Логика:** если машина заведена — пропустить. Иначе: время = max(реальное
-  прогревание по температуре, 10 сек). Порог: water+oil ≈ 80–90°C, конфигом.
-- **Параметры:** rpm, waterTemperature, oilTemperature (+ engineThermal).
-- **При прогреве:** плавное покачивание рулём (амплитуда/частота конфигом, мягко).
-- **Перед стартом:** снять ручник, если поднят.
-- **Clutch:** если можно предугадать первую передачу — подготовить clutch,
-  но НЕ переключать. КПП не трогаем.
-- **Фаза:** 5.
+## Safety invariants
 
-## Экран 6 — Фары день/ночь
-
-- **Авто-режим** (опционально, включается игроком).
-- **Время суток:** из `core_environment` (GE-слой).
-- **Конфиг карт:** `ai/config/lights_by_map.json` — day_start, night_start,
-  day_brightness, night_brightness, режим (DRL/ближний/дальний) на карту.
-- **РФ-стандарт:** днём основные фары горят не ярко, ночью — ярко.
-- **Три режима:** дальний, ближний, выкл. Без лишних промежуточных переключений
-  (только фулл → выкл → фулл).
-- **Ручное вмешательство игрока:** если игрок трогает переключатель — мод плавно
-  возвращает свою логику (как кнопка, которая сама возвращается).
-- **Фаза:** 6.
-
-## Экран 7 — Кнопка «погладить»
-
-- **Триггер сейчас:** команда `apl_pet` (потом бинд, потом радиальное меню).
-- **Toggle:** нажал → мурчит N сек (default 5), нажал ещё → стоп.
-- **Реакции:** руль ещё плавнее (−% скорость изменения steer), rpm слегка
-  сбрасываются, педали слегка подёргиваются (малая амплитуда, мягко).
-- **Звук мурчания:** Фаза 7б — исследование fmod-звуков игры (понижение тона/вибрация).
-- **Защита от спама:** повторные нажатия → предупреждение / «машина устала».
-- **Hook «сенсор» (на будущее):** сила воздействия → сила реакции. Не реализуется,
-  только заложен интерфейс.
-- **Визуально в HUD ничего не нужно**, но реальное изменение педалей видно.
-- **Фазы:** 7а (реакции), 7б (звук).
-
-## Экран 8 — Pop-up фары (глазки) для Wigeon/Bolide
-
-- **Только:** Ibishu Wigeon и Civetta Bolide, и только если игрок включил опцию.
-- **Открываются/закрываются как живые, не часто.** Случайный интервал 120–300 сек,
-  без привязки к времени суток.
-- **Последовательность:** без лишних промежуточных (фулл → выкл → фулл).
-- **Не влезать** в логику, если игрок сам трогает переключатель.
-- **Фаза:** 8.
-
-## Конфиги (ai/config/)
-
-- `lights_by_map.json` — настройки фар по картам (Фаза 6).
-- `smoothing.json` — константы сглаживания lerp/ema/rate_limit для педалей и руля (Фаза 3–4).
-- `warmup.json` — пороги и время прогрева (Фаза 5).
-- `pet.json` — длительность и амплитуда «погладить» (Фаза 7).
-- `eye.json` — интервалы глазков (Фаза 8).
-
-## Порядок фаз (строго)
-
-0 → 1 (дебаг+CSV) → 2 (граф дороги) → 3 (педали) → 4 (руль) → 5 (прогрев) →
-6 (фары) → 7 (погладить) → 8 (глазки).
+- Sway is `amp * sin(2π f (elapsed - sway_start))^3`, bounded by `0.035`.
+- Warm-up never integrates phase across starts.
+- Manual full lock never becomes the AI's initial wheel target after warm-up.
+- Pedal overrides are cleared on reset and guarded by a watchdog.
+- Popup night suppression is bypassed only by explicit debug mode.
+- GE commands must tolerate a missing player vehicle.

@@ -1,86 +1,40 @@
 # FAQ
 
-## The game still prints `autopilotLive_main`
+## How do I open the settings menu?
 
-1. Close the game.
-2. Remove `mods/unpacked/AutopilotLive`.
-3. Remove old `dist` folders from inside the mod.
-4. Delete `mods/db.json`.
-5. Run `python dev_mode.py`.
-6. Start the game and check that the mod list shows **soulPilot**.
+Open the HUD app catalogue with `Ctrl+Shift+U`, then choose **soulPilot**. You can also use Quick Access and select **soulPilot → Master**.
 
-## The wheel turns to full lock after warm-up
+## How do I start autopilot?
 
-Warm-up sway is limited to `0.035` normalized steering. At the end of warm-up the sway value is reset and the wheel is re-seeded from zero, so the AI starts from a neutral steering position. If you turned the physical wheel during warm-up, the next AI takeover should ignore that manual position.
+Press `Ctrl+Shift+A`, use Quick Access → soulPilot → Master, or run:
 
-If it still happens, check `warmup.json`:
-
-```json
-"sway": {
-  "enabled": 1,
-  "amplitude": 0.035
-}
+```lua
+apl_autopilot("on")
 ```
 
-Do not raise the amplitude above `0.035` for normal use.
+The car warms up, then the assistant enables steering, pedals, lights and traffic AI according to `master.json`.
 
-## Popup eyes do not blink
+## How do I enable music?
 
-- Popup is supported only on configured JBeam models. The default list is:
-
-```json
-"models": ["bolide", "wigeon"]
-```
-
-- During the night, normal blinking is intentionally suppressed.
-- To test immediately, set a debug interval in `popup.json`:
-
-```json
-"debug_force_blink_delay_s": 5
-```
-
-Then run `apl_popup("auto")`. Debug mode blinks even at night.
-
-- If the model is correct and the debug value is non-zero but nothing moves, check `soulPilotLightsCmd` and the vehicle console for `aplPopup` messages.
-
-## Pet does not purr
-
-Pet requires a running engine and the vehicle must not be moving while AI is disabled. Check `pet.json`:
-
-```json
-"sound_event": "art/sound/apl_pet.wav"
-```
-
-The GE layer calls `Engine.Audio.playOnce("AudioGui", ...)` and retries with `file:`. The vehicle layer handles the pet animation; both layers must be current.
-
-## Music does not react
-
-The optional Python bridge writes:
-
-```text
-mods/unpacked/soulPilot/src_music/current.json
-```
-
-Start it with:
+Music is optional. Install the Python requirements, start the music bridge, select the VB-Cable capture device and enable **Music** in the soulPilot menu:
 
 ```powershell
 .\ai\venv\Scripts\python.exe src_music\main.py --console
 ```
 
-Select the VB-Cable capture device and start the music in Spotify. The Lua side marks stale data after 0.3 s and safely falls back to neutral.
+The bridge writes `src_music/current.json`; the vehicle layer reads it and adds a small steering offset.
 
-## Where are my settings?
+## How does petting work?
 
-User settings:
+Press `Ctrl+Shift+P` or run `apl_pet("on")`. The car performs a short petting animation (about 6 seconds) with purring. Petting has a speed gate, a spam limit and a cooldown; press `apl_pet("off")` to stop it.
 
-```text
-%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\settings\mod_settings\soulPilot\
-```
+## What are the default keybinds?
 
-Mod defaults:
+| Action | Key |
+|---|---|
+| Autopilot on/off | `Ctrl+Shift+A` |
+| Pet / purr | `Ctrl+Shift+P` |
+| Warm-up | `Ctrl+Shift+W` |
+| HUD app catalogue | `Ctrl+Shift+U` |
 
-```text
-src/config/
-```
-
-A deployed mod uses the root `config/` folder. The loader checks user, source and runtime paths in that order.
+All binds can be changed in BeamNG **Options → Controls**.

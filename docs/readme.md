@@ -1,27 +1,44 @@
 # soulPilot documentation
 
-## English
+## Player guides
+
+### English
 
 - [Installing](en/Installing.md)
 - [FAQ](en/FAQ.md)
-- [Modules](en/Modules.md)
+- [Modules overview](en/Modules.md)
 - [Settings](en/Settings.md)
-- [Development](en/Dev.md)
-- [AI architecture](en/AI.md)
 
-## Русский
+### Русский
 
 - [Установка](ru/Installing.md)
 - [FAQ](ru/FAQ.md)
-- [Модули](ru/Modules.md)
+- [Обзор модулей](ru/Modules.md)
 - [Настройки](ru/Settings.md)
-- [Разработка](ru/Dev.md)
-- [Архитектура AI](ru/AI.md)
+
+## Developer documentation
+
+### AI / project
+
+- [Project state](ai/PROJECT_STATE.md)
+- [Architecture](ai/ARCHITECTURE.md)
+- [Agent and developer rules](ai/AGENTS.md)
+
+### GE Lua
+
+- [main.lua](lang/gelua/main.md)
+- [master.lua](lang/gelua/master.md)
+- [commands.lua](lang/gelua/commands.md)
+
+### Vehicle Lua
+
+- [warmup.lua](lang/vlua/warmup.md)
+- [wheel.lua](lang/vlua/wheel.md)
+- [pedals.lua](lang/vlua/pedals.md)
 
 ## Quick links
 
 - [Project README](../README.md)
 - [Popup settings](en/Settings.md#popup)
 - [Warm-up settings](en/Settings.md#warm-up)
-- [GE ↔ vehicle bridge](en/Dev.md#ge--vehicle-bridge)
-- [Release checklist](en/Dev.md#release)
+- [Release workflow](ai/AGENTS.md#release-workflow)
