@@ -23,7 +23,7 @@
   "apl_ui_toggle": {
     "title": "AutopilotLive: Меню",
     "desc": "Показать/скрыть панель AutopilotLive",
-    "onDown": "if apl_ui then apl_ui('toggle') end",
+    "onDown": "if core_quickAccess then core_quickAccess.toggle('/root/sandbox/apl/') end",
     "category": "autopilotLive",
     "ctx": "tlua"
   }

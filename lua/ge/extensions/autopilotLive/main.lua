@@ -1015,6 +1015,7 @@ local petSoundTickAcc = 0    -- аккумулятор playOnce, сек
 local petSoundIds = {}       -- sourceId играющих пачек (для мгновенного стопа)
 local petSoundPosWarned = false -- WARN про позицию выведен
 local petSoundResolved = nil  -- рабочий путь 'file:...'/event (кэш, 24.10)
+local petActive = false       -- поглаживание активно (для меню/статуса)
 
 -- Мгновенная остановка: удаляем все играющие пачки playOnce (идемпотентно)
 local function petSoundStop()
@@ -1427,6 +1428,7 @@ function apl_pet(mode)
       -- GE playOnce не умеет кастомные .ogg (нет SFX-профиля).
       petSoundEvent = cfg.sound_event
       petSoundActive = false
+      petActive = true
       -- Звук: ОДИН playOnce (файл 10 с > 6 с петмода). Рабочий путь — чистый
       -- VFS без file: и без ведущего слэша (проверено: art/sound/apl_pet.wav).
       if cfg.sound_event ~= '' then
@@ -1445,6 +1447,7 @@ function apl_pet(mode)
     return true
   elseif mode == 'off' then
     petSoundStop() -- звук гасим мгновенно (не дожидаясь vehicle)
+    petActive = false
     petSoundEvent = ''
     if sendToVehicle('autopilotLivePetCmd.stop()') then
       print('apl_pet: ПОГЛАЖИВАНИЕ ПРЕРВАНО — газ/ручник/руль штатные')
@@ -1481,11 +1484,13 @@ end
 -- Фаза 7б: vehicle сообщает завершение/отклонение — GE гасит луп (fade 1 с).
 function M.onVehiclePetDone()
   petSoundStop()
+  petActive = false
   logLine('INFO', 'pet: vehicle завершил поглаживание — луп остановлен')
 end
 
 function M.onVehiclePetRejected()
   petSoundStop()
+  petActive = false
   logLine('INFO', 'pet: vehicle отклонил (guard) — луп остановлен')
 end
 
@@ -1993,6 +1998,14 @@ function apl_autopilot(mode)
 
   print('Использование: apl_autopilot("on"|"off"|"toggle"|"status")')
   return false
+end
+
+function apl_autopilotState()
+  return masterState
+end
+
+function apl_petActive()
+  return petActive
 end
 
 function apl_debug()
@@ -2520,6 +2533,7 @@ function M.onClientPostStartMission()
   masterState = 'off' -- Фаза 10.1: мастер не переживает смену миссии
   masterPending = false
   masterWaitT = 0
+  petActive = false
   petSoundStop() -- Фаза 7б: луп не переживает смену миссии
   petSoundEvent = '' -- звук мурчания — только по явному on
   if not csvActive then return end
@@ -2549,5 +2563,8 @@ function M.onConsoleExecuteCommand(context, cmd)
     apl_status()
   end
 end
+
+-- Фаза 10.2: встроенное радиальное меню (Quick Access)
+pcall(function() extensions.load('autopilotLive/quickAccessMenu') end)
 
 return M
