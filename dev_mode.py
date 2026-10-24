@@ -30,8 +30,9 @@ SRC = ROOT / "src"
 # and is deliberately not deployed.
 RUNTIME_DIRS = ("lua", "ui", "mod_info", "art", "config")
 
-# These stay at the root already and are not mirrored from src/.
-ROOT_RUNTIME = ("scripts", "src_music", "locales")
+# Runtime folders that are not part of src/lua, src/ui, etc. The source may be
+# in src/<name> or already at the mod root (the current repository layout).
+ROOT_RUNTIME_DIRS = ("scripts", "src_music", "locales")
 
 
 def log(message: str) -> None:
@@ -112,11 +113,28 @@ def verify_root() -> list[str]:
     for name in RUNTIME_DIRS:
         if not (SRC / name).is_dir():
             errors.append(f"missing: src/{name}/")
-    if not (ROOT / "scripts" / "modScript.lua").is_file():
-        errors.append("missing: scripts/modScript.lua")
-    if not (ROOT / "src_music").is_dir():
-        errors.append("missing: src_music/")
+
+    for name in ROOT_RUNTIME_DIRS:
+        if not (SRC / name).is_dir() and not (ROOT / name).is_dir():
+            errors.append(f"missing: {name}/ (or src/{name}/)")
+
+    if not (SRC / "scripts" / "modScript.lua").is_file() and not (
+        ROOT / "scripts" / "modScript.lua"
+    ).is_file():
+        errors.append("missing: scripts/modScript.lua (or src/scripts/modScript.lua)")
     return errors
+
+
+def deploy_root_runtime(name: str, dry_run: bool) -> tuple[int, int, int, str]:
+    """Copy src/<name> to <root>/<name>, or verify an existing root folder."""
+    source = SRC / name
+    target = ROOT / name
+    if source.is_dir() and source.resolve() != target.resolve():
+        copied, unchanged, removed = copy_tree(source, target, dry_run)
+        return copied, unchanged, removed, f"src/{name} -> {name}"
+    if target.is_dir():
+        return 0, 0, 0, "already at root"
+    return 0, 0, 0, "missing"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -143,7 +161,20 @@ def main(argv: list[str] | None = None) -> int:
             + (" (dry-run)" if args.dry_run else "")
         )
 
-    log("root files not deployed: " + ", ".join(ROOT_RUNTIME))
+    for name in ROOT_RUNTIME_DIRS:
+        copied, unchanged, removed, status = deploy_root_runtime(name, args.dry_run)
+        total_copied += copied
+        total_unchanged += unchanged
+        total_removed += removed
+        log(
+            f"{name}: copied={copied}, unchanged={unchanged}, removed={removed} "
+            f"({status})" + (" (dry-run)" if args.dry_run else "")
+        )
+
+    log(
+        f"total: copied={total_copied}, unchanged={total_unchanged}, "
+        f"removed={total_removed}"
+    )
     log("done" if not args.dry_run else "dry-run complete; no files changed")
     return 0
 
