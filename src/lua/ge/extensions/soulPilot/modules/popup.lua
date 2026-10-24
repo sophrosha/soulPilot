@@ -50,6 +50,11 @@ function M.aplPopup(mode)
     end
     local jbeam = playerJBeam(vehicle)
     local config = config_loader.loadPopupConfig()
+    local debug_delay = tonumber(config.debug_force_blink_delay_s) or 0
+    print(string.format("popup: loaded config debug_force_blink_delay_s = %.1f", debug_delay))
+    if logger then
+      logger.logLine("INFO", string.format("popup: loaded config debug_force_blink_delay_s = %.1f", debug_delay))
+    end
     local allowed = false
     for _, model in ipairs(config.models) do
       if model == jbeam then

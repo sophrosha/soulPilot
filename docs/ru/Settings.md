@@ -67,7 +67,7 @@ config/
 
 ```json
 {
-  "models": ["bolide", "wigeon"],
+  "models": ["bolide", "wigeon", "200bx"],
   "day_min_s": 120,
   "day_max_s": 180,
   "night_min_s": 180,
@@ -95,7 +95,7 @@ config/
 }
 ```
 
-`mode: comfort/sport` включает пресет, `custom` использует явные значения.
+`mode: comfort/sport` включает пресет, `custom` использует явные значения. Comfort: rise/fall `3.5/5.0`, EMA `0.12`, lerp `0.10`.
 
 ## Pet
 

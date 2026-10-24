@@ -1,7 +1,8 @@
 {
   "models": [
     "bolide",
-    "wigeon"
+    "wigeon",
+    "200bx"
   ],
   "day_min_s": 120.0,
   "day_max_s": 180.0,
@@ -9,5 +10,5 @@
   "night_max_s": 300.0,
   "blink_min_s": 1.2,
   "blink_max_s": 1.2,
-  "debug_force_blink_delay_s": 5
+  "debug_force_blink_delay_s": 0
 }

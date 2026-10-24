@@ -12,7 +12,7 @@ M.DEFAULTS = {
 }
 
 M.PRESETS = {
-  comfort = { rise = 4.0, fall = 6.0, ema = 0.15, lerp = 0.12 },
+  comfort = { rise = 3.5, fall = 5.0, ema = 0.12, lerp = 0.10 },
   sport = { rise = 6.0, fall = 7.0, ema = 0.04, lerp = 0.05 },
 }
 
@@ -59,12 +59,14 @@ end
 local function applyMode(config, decoded, notify)
   local mode = type(decoded.mode) == "string" and decoded.mode:lower() or "comfort"
   local preset = M.PRESETS[mode]
+  local profile = type(decoded.profiles) == "table" and type(decoded.profiles[mode]) == "table"
+    and decoded.profiles[mode] or nil
 
   if preset then
-    config.rate_limit.steer_rise = preset.rise
-    config.rate_limit.steer_fall = preset.fall
-    config.ema_tau.steer = preset.ema
-    config.lerp_tau.steer = preset.lerp
+    config.rate_limit.steer_rise = tonumber(profile and profile.steer_rise) or preset.rise
+    config.rate_limit.steer_fall = tonumber(profile and profile.steer_fall) or preset.fall
+    config.ema_tau.steer = tonumber(profile and profile.ema_tau) or preset.ema
+    config.lerp_tau.steer = tonumber(profile and profile.lerp_tau) or preset.lerp
     config.mode = mode
     return
   end
