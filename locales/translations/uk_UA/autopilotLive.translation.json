@@ -1,7 +1,6 @@
 {
   "ui.apps.apl.name": "AutopilotLive",
   "ui.apps.apl.description": "Налаштування AutopilotLive: майстер, фари, музика, паркування.",
-
   "apl.ui.title": "AutopilotLive",
   "apl.ui.subtitle": "Налаштування помічника водіння",
   "apl.ui.normal": "Звичайний",
@@ -28,7 +27,6 @@
   "apl.ui.error": "Помилка",
   "apl.ui.aboutText": "Панель керування AutopilotLive. Звичайний режим — прості перемикачі, Експерт — тонке налаштування.",
   "apl.ui.expertHint": "Зміни експерта зберігаються в ai/config і можуть потребувати переспавну авто.",
-
   "apl.modules.master": "Майстер",
   "apl.modules.master.desc": "Прогрів, кермо, педалі, фари, popup, біль і AI-трафік.",
   "apl.modules.lights": "Фари",
@@ -39,7 +37,6 @@
   "apl.modules.parking.desc": "Знайти місце, зупинитися, увімкнути ручник і заглушити двигун.",
   "apl.modules.wheel": "Кермо",
   "apl.modules.wheel.desc": "Конвеєр згладжування керма AI.",
-
   "apl.fields.sway_amp": "Амплітуда похитування на стоянці",
   "apl.fields.vibration_amp": "Амплітуда вібрації в русі",
   "apl.fields.beat_amp": "Амплітуда поштовху на beat",
@@ -52,8 +49,16 @@
   "apl.fields.route_speed": "Швидкість маршруту паркування (м/с)",
   "apl.fields.arrival_radius": "Радіус прибуття (м)",
   "apl.fields.stop_speed": "Швидкість зупинки (м/с)",
-
   "apl.profile.comfort": "Комфорт",
   "apl.profile.sport": "Спорт",
-  "apl.profile.custom": "Свій"
+  "apl.profile.custom": "Свій",
+  "apl.about.version": "v12.3",
+  "apl.about.description": "Оверлей, який перетворює ШІ з бездушного робота на живішу машину.",
+  "apl.about.sources": "Джерела",
+  "apl.about.purring": "Муркотіння:",
+  "apl.about.info": "Інформація",
+  "apl.about.author": "Автор: Sophron Ragozin | Ліцензія: MIT",
+  "apl.about.links": "Посилання",
+  "apl.about.github": "GitHub",
+  "apl.about.website": "Сайт"
 }

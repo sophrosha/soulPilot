@@ -93,6 +93,11 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - Бинд `apl_ui_toggle` (Ctrl+Shift+U): открывает `pause.hudApps.selector` с поиском «AutopilotLive» (fallback — Quick Access). Первый раз приложение добавляется в HUD-раскладку через каталог, дальше доступно как HUD-app.
 - Проверки: app.vue компилируется через `@vue/compiler-sfc`; JSON/Lua (luaparser) OK; uiConfig в LuaJIT-моке читает/пишет конфиги и вызывает модули.
 
+**ФАЗА 12.3.3 (2026-10-25): Языковой dropdown + блок LivingAutopilot.**
+- Язык: вместо 4 кнопок — одна кнопка с текущим кодом и выпадающим меню вверх; `langOpen`/`currentLanguage`, закрытие по клику вне; смена языка мгновенная, сохранение в `ui.json`.
+- About: белая заглушка `apl_preview_ui.png` удалена; добавлены LivingAutopilot, версия, описание, источники, автор/лицензия и две ссылки с белыми кружками GH/WEB.
+- Локализация: +9 ключей `apl.about.*` в en-US/ru_RU/uk_UA/be_BY (по 62 ключа), локальные словари app.vue обновлены.
+
 **ФАЗА 12.3.2 (2026-10-25): UI — только настройки.**
 - `uiConfig.setModule` пишет только `enable_*` в `settings/autopilotLive/master.json` и возвращает true/false; никаких apl_music/apl_lights/apl_park/apl_autopilot/callGlobal. Parking — флаг `enable_parking` (не запуск); Master — `enable_master`.
 - `stateTable` читает сохранённые флаги master.json (UI показывает настройки, не live-состояние).

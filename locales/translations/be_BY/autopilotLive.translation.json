@@ -1,7 +1,6 @@
 {
   "ui.apps.apl.name": "AutopilotLive",
   "ui.apps.apl.description": "Налады AutopilotLive: майстар, фары, музыка, паркоўка.",
-
   "apl.ui.title": "AutopilotLive",
   "apl.ui.subtitle": "Налады памочніка кіравання",
   "apl.ui.normal": "Звычайны",
@@ -28,7 +27,6 @@
   "apl.ui.error": "Памылка",
   "apl.ui.aboutText": "Панэль кіравання AutopilotLive. Звычайны рэжым — простыя пераключальнікі, Эксперт — тонкая наладка.",
   "apl.ui.expertHint": "Змены эксперта захоўваюцца ў ai/config і могуць патрабаваць пераспаўну машыны.",
-
   "apl.modules.master": "Майстар",
   "apl.modules.master.desc": "Прагрэў, руль, педалі, фары, popup, боль і AI-трафік.",
   "apl.modules.lights": "Фары",
@@ -39,7 +37,6 @@
   "apl.modules.parking.desc": "Знайсці месца, спыніцца, уключыць ручнік і заглушыць рухавік.",
   "apl.modules.wheel": "Руль",
   "apl.modules.wheel.desc": "Канвеер згладжвання руля AI.",
-
   "apl.fields.sway_amp": "Амплітуда гайдання на стаянцы",
   "apl.fields.vibration_amp": "Амплітуда вібрацыі ў руху",
   "apl.fields.beat_amp": "Амплітуда штуршка на beat",
@@ -52,8 +49,16 @@
   "apl.fields.route_speed": "Хуткасць маршруту паркоўкі (м/с)",
   "apl.fields.arrival_radius": "Радыус прыбыцця (м)",
   "apl.fields.stop_speed": "Хуткасць прыпынку (м/с)",
-
   "apl.profile.comfort": "Камфорт",
   "apl.profile.sport": "Спорт",
-  "apl.profile.custom": "Свой"
+  "apl.profile.custom": "Свой",
+  "apl.about.version": "v12.3",
+  "apl.about.description": "Оверлей, які ператварае ШІ з бяздушнага робата ў больш жывую машыну.",
+  "apl.about.sources": "Крыніцы",
+  "apl.about.purring": "Муркатанне:",
+  "apl.about.info": "Інфармацыя",
+  "apl.about.author": "Аўтар: Sophron Ragozin | Ліцэнзія: MIT",
+  "apl.about.links": "Спасылкі",
+  "apl.about.github": "GitHub",
+  "apl.about.website": "Сайт"
 }

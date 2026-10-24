@@ -23,16 +23,22 @@
       </nav>
 
       <div class="apl-sidebar-bottom">
-        <div class="apl-language">
-          <button
-            v-for="item in languages"
-            :key="item.id"
-            class="apl-lang-btn"
-            :class="{ active: lang === item.id }"
-            @click="changeLanguage(item.id)"
-          >
-            <span>{{ item.label }}</span>
+        <div ref="langRoot" class="apl-language">
+          <button class="apl-lang-current" @click.stop="langOpen = !langOpen">
+            <span>{{ currentLanguage.label }}</span>
+            <span class="apl-lang-arrow">{{ langOpen ? "▴" : "▾" }}</span>
           </button>
+          <div v-if="langOpen" class="apl-lang-menu">
+            <button
+              v-for="item in languages"
+              :key="item.id"
+              class="apl-lang-btn"
+              :class="{ active: lang === item.id }"
+              @click.stop="changeLanguage(item.id)"
+            >
+              {{ item.label }}
+            </button>
+          </div>
         </div>
         <div class="apl-version">AutopilotLive · 12.3</div>
       </div>
@@ -290,12 +296,56 @@
           <section id="about" class="apl-group">
             <h2 class="apl-group-title">{{ t("apl.ui.about") }}</h2>
             <div class="apl-group-frame apl-about">
-              <p>{{ t("apl.ui.aboutText") }}</p>
-              <img
-                class="apl-preview"
-                src="/ui/modules/apps/AutopilotLive/apl_preview_ui.png"
-                alt="AutopilotLive preview"
-              />
+              <div class="about-hero">
+                <h3>LivingAutopilot</h3>
+                <span class="about-version">{{ t("apl.about.version") }}</span>
+                <p>{{ t("apl.about.description") }}</p>
+              </div>
+
+              <div class="about-block">
+                <h4>{{ t("apl.about.sources") }}</h4>
+                <p>
+                  {{ t("apl.about.purring") }}
+                  <a href="https://zvukogram.com/zvuk/44356/" target="_blank" rel="noopener">
+                    zvukogram.com/zvuk/44356/
+                  </a>
+                </p>
+              </div>
+
+              <div class="about-block">
+                <h4>{{ t("apl.about.info") }}</h4>
+                <p>{{ t("apl.about.author") }}</p>
+              </div>
+
+              <div class="about-block">
+                <h4>{{ t("apl.about.links") }}</h4>
+                <div class="about-links">
+                  <a
+                    class="about-link"
+                    href="https://github.com/sophrosha"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    <span class="about-circle">GH</span>
+                    <span class="about-link-text">
+                      {{ t("apl.about.github") }}
+                      <small>github.com/sophrosha</small>
+                    </span>
+                  </a>
+                  <a
+                    class="about-link"
+                    href="https://sophron.ru"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    <span class="about-circle">WEB</span>
+                    <span class="about-link-text">
+                      {{ t("apl.about.website") }}
+                      <small>sophron.ru</small>
+                    </span>
+                  </a>
+                </div>
+              </div>
             </div>
           </section>
         </template>
@@ -316,7 +366,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from "vue"
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue"
 import { BngIcon } from "@/common/components/base"
 import { useBridge } from "@/bridge"
 
@@ -376,7 +426,16 @@ const MESSAGES = {
     "apl.fields.stop_speed": "Stop speed (m/s)",
     "apl.profile.comfort": "Comfort",
     "apl.profile.sport": "Sport",
-    "apl.profile.custom": "Custom"
+    "apl.profile.custom": "Custom",
+    "apl.about.version": "v12.3",
+    "apl.about.description": "An overlay that turns the AI from a soulless robot into a more alive machine.",
+    "apl.about.sources": "Sources",
+    "apl.about.purring": "Purring:",
+    "apl.about.info": "Information",
+    "apl.about.author": "Author: Sophron Ragozin | License: MIT",
+    "apl.about.links": "Links",
+    "apl.about.github": "GitHub",
+    "apl.about.website": "Website"
   },
   "ru": {
     "ui.apps.apl.name": "AutopilotLive",
@@ -431,7 +490,16 @@ const MESSAGES = {
     "apl.fields.stop_speed": "Скорость остановки (м/с)",
     "apl.profile.comfort": "Комфорт",
     "apl.profile.sport": "Спорт",
-    "apl.profile.custom": "Свой"
+    "apl.profile.custom": "Свой",
+    "apl.about.version": "v12.3",
+    "apl.about.description": "Оверлей, меняющий ИИ из бездушного робота в более живую машину.",
+    "apl.about.sources": "Источники",
+    "apl.about.purring": "Мурчание:",
+    "apl.about.info": "Информация",
+    "apl.about.author": "Автор: Sophron Ragozin | Лицензия: MIT",
+    "apl.about.links": "Ссылки",
+    "apl.about.github": "GitHub",
+    "apl.about.website": "Сайт"
   },
   "uk": {
     "ui.apps.apl.name": "AutopilotLive",
@@ -486,7 +554,16 @@ const MESSAGES = {
     "apl.fields.stop_speed": "Швидкість зупинки (м/с)",
     "apl.profile.comfort": "Комфорт",
     "apl.profile.sport": "Спорт",
-    "apl.profile.custom": "Свій"
+    "apl.profile.custom": "Свій",
+    "apl.about.version": "v12.3",
+    "apl.about.description": "Оверлей, який перетворює ШІ з бездушного робота на живішу машину.",
+    "apl.about.sources": "Джерела",
+    "apl.about.purring": "Муркотіння:",
+    "apl.about.info": "Інформація",
+    "apl.about.author": "Автор: Sophron Ragozin | Ліцензія: MIT",
+    "apl.about.links": "Посилання",
+    "apl.about.github": "GitHub",
+    "apl.about.website": "Сайт"
   },
   "by": {
     "ui.apps.apl.name": "AutopilotLive",
@@ -541,7 +618,16 @@ const MESSAGES = {
     "apl.fields.stop_speed": "Хуткасць прыпынку (м/с)",
     "apl.profile.comfort": "Камфорт",
     "apl.profile.sport": "Спорт",
-    "apl.profile.custom": "Свой"
+    "apl.profile.custom": "Свой",
+    "apl.about.version": "v12.3",
+    "apl.about.description": "Оверлей, які ператварае ШІ з бяздушнага робата ў больш жывую машыну.",
+    "apl.about.sources": "Крыніцы",
+    "apl.about.purring": "Муркатанне:",
+    "apl.about.info": "Інфармацыя",
+    "apl.about.author": "Аўтар: Sophron Ragozin | Ліцэнзія: MIT",
+    "apl.about.links": "Спасылкі",
+    "apl.about.github": "GitHub",
+    "apl.about.website": "Сайт"
   }
 }
 
@@ -553,6 +639,18 @@ const languages = [
   { id: "uk", label: "UK" },
   { id: "by", label: "BY" },
 ]
+
+const langOpen = ref(false)
+const langRoot = ref(null)
+const currentLanguage = computed(
+  () => languages.find(item => item.id === lang.value) || languages[1],
+)
+
+function closeLangMenu(event) {
+  if (langRoot.value && !langRoot.value.contains(event.target)) {
+    langOpen.value = false
+  }
+}
 
 function normalizeLang(value) {
   const raw = String(value || "").toLowerCase().replace(/-/g, "_")
@@ -635,6 +733,7 @@ function applyStatus(status) {
 }
 
 function changeLanguage(nextLang) {
+  langOpen.value = false
   if (!nextLang || nextLang === lang.value) return
   const previous = lang.value
   lang.value = nextLang
@@ -780,7 +879,14 @@ function save() {
   )
 }
 
-onMounted(refresh)
+onMounted(() => {
+  document.addEventListener("click", closeLangMenu)
+  refresh()
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener("click", closeLangMenu)
+})
 </script>
 
 <style scoped lang="scss">
@@ -895,26 +1001,66 @@ onMounted(refresh)
 }
 
 .apl-language {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
+  position: relative;
   padding: 0 8px 10px;
 }
 
-.apl-lang-btn {
+.apl-lang-current {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 5px;
-  height: 26px;
-  padding: 0 4px;
+  justify-content: space-between;
+  width: 100%;
+  height: 30px;
+  padding: 0 9px;
   border: 1px solid var(--apl-line);
-  border-radius: 3px;
+  border-radius: 4px;
   background: #20242a;
+  color: var(--apl-text);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+
+  &:hover {
+    background: #292d33;
+  }
+}
+
+.apl-lang-arrow {
+  color: var(--apl-muted);
+  font-size: 10px;
+}
+
+.apl-lang-menu {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 100%;
+  z-index: 10;
+  margin-bottom: 4px;
+  overflow: hidden;
+  border: 1px solid var(--apl-line);
+  border-radius: 4px;
+  background: #1a1d21;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.apl-lang-btn {
+  display: block;
+  width: 100%;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-bottom: 1px solid var(--apl-line);
+  background: transparent;
   color: var(--apl-muted);
   font: inherit;
-  font-size: 10px;
+  font-size: 11px;
+  text-align: left;
   cursor: pointer;
+
+  &:last-child {
+    border-bottom: 0;
+  }
 
   &:hover {
     background: #292d33;
@@ -922,9 +1068,8 @@ onMounted(refresh)
   }
 
   &.active {
-    border-color: var(--apl-accent);
     background: rgba(255, 138, 31, 0.12);
-    color: #fff;
+    color: var(--apl-accent);
   }
 }
 
@@ -1169,24 +1314,118 @@ onMounted(refresh)
 }
 
 .apl-about {
-  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
 
   p {
-    margin: 0 0 12px;
+    margin: 0;
     color: var(--apl-muted);
     font-size: 12px;
-    line-height: 1.45;
+    line-height: 1.5;
+  }
+
+  a {
+    color: var(--apl-accent);
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
   }
 }
 
-.apl-preview {
+.about-hero {
+  padding-left: 12px;
+  border-left: 3px solid var(--apl-accent);
+
+  h3 {
+    display: block;
+    margin: 0;
+    color: #fff;
+    font-size: 25px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+  }
+
+  p {
+    margin-top: 6px;
+  }
+}
+
+.about-version {
   display: block;
-  width: 100%;
-  max-height: 280px;
-  object-fit: contain;
+  margin-top: 3px;
+  color: #6d737a;
+  font-size: 10px;
+}
+
+.about-block {
+  h4 {
+    margin: 0 0 5px;
+    color: var(--apl-accent);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+  }
+
+  p {
+    font-size: 11px;
+  }
+}
+
+.about-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.about-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 190px;
+  padding: 8px 11px;
+  border: 1px solid var(--apl-line);
+  border-radius: 6px;
+  background: var(--apl-panel-2);
+  transition: border-color 0.15s, background 0.15s;
+
+  &:hover {
+    border-color: var(--apl-accent);
+    background: #262b31;
+    text-decoration: none !important;
+  }
+}
+
+.about-circle {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
   background: #fff;
-  border: 1px solid #fff;
-  border-radius: 5px;
+  color: #111;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.about-link-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--apl-text);
+  font-size: 12px;
+
+  small {
+    color: var(--apl-muted);
+    font-size: 10px;
+  }
 }
 
 .apl-footer {

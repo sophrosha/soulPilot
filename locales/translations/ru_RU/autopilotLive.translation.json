@@ -1,7 +1,6 @@
 {
   "ui.apps.apl.name": "AutopilotLive",
   "ui.apps.apl.description": "Настройки AutopilotLive: мастер, фары, музыка, паркинг.",
-
   "apl.ui.title": "AutopilotLive",
   "apl.ui.subtitle": "Настройки помощника вождения",
   "apl.ui.normal": "Обычный",
@@ -28,7 +27,6 @@
   "apl.ui.error": "Ошибка",
   "apl.ui.aboutText": "Панель управления AutopilotLive. Обычный режим — простые переключатели, Эксперт — тонкая настройка.",
   "apl.ui.expertHint": "Изменения эксперта сохраняются в ai/config и могут требовать переспавна машины.",
-
   "apl.modules.master": "Мастер",
   "apl.modules.master.desc": "Прогрев, руль, педали, фары, popup, боль и AI-трафик.",
   "apl.modules.lights": "Фары",
@@ -39,7 +37,6 @@
   "apl.modules.parking.desc": "Найти место, остановиться, включить ручник и заглушить двигатель.",
   "apl.modules.wheel": "Руль",
   "apl.modules.wheel.desc": "Конвейер сглаживания руля AI.",
-
   "apl.fields.sway_amp": "Амплитуда качка на стоянке",
   "apl.fields.vibration_amp": "Амплитуда вибрации в движении",
   "apl.fields.beat_amp": "Амплитуда толчка на beat",
@@ -52,8 +49,16 @@
   "apl.fields.route_speed": "Скорость маршрута паркинга (м/с)",
   "apl.fields.arrival_radius": "Радиус прибытия (м)",
   "apl.fields.stop_speed": "Скорость остановки (м/с)",
-
   "apl.profile.comfort": "Комфорт",
   "apl.profile.sport": "Спорт",
-  "apl.profile.custom": "Свой"
+  "apl.profile.custom": "Свой",
+  "apl.about.version": "v12.3",
+  "apl.about.description": "Оверлей, меняющий ИИ из бездушного робота в более живую машину.",
+  "apl.about.sources": "Источники",
+  "apl.about.purring": "Мурчание:",
+  "apl.about.info": "Информация",
+  "apl.about.author": "Автор: Sophron Ragozin | Лицензия: MIT",
+  "apl.about.links": "Ссылки",
+  "apl.about.github": "GitHub",
+  "apl.about.website": "Сайт"
 }
