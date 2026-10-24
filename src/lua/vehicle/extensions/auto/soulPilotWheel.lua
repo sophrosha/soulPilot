@@ -71,6 +71,9 @@ end
 -- Public commands are kept under the current extension name for compatibility.
 soulPilotWheelCmd = {}
 
+-- Legacy migration alias; new code must use soulPilotWheelCmd.
+autopilotLiveWheelCmd = soulPilotWheelCmd
+
 function soulPilotWheelCmd.on(config_path)
   local path = type(config_path) == "string" and config_path or wheel_config.FALLBACK_CONFIG
 

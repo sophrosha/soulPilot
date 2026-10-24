@@ -208,6 +208,9 @@ end
 
 soulPilotPainCmd = {}
 
+-- Legacy migration alias; new code must use soulPilotPainCmd.
+autopilotLivePainCmd = soulPilotPainCmd
+
 function soulPilotPainCmd.start(params)
   if active then return false end
   local t = type(params) == 'table' and params or {}

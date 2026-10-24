@@ -121,6 +121,9 @@ end
 -- === Публичные команды (GE шлёт через queueLuaCommand) ===
 soulPilotParkCmd = {}
 
+-- Legacy migration alias; new code must use soulPilotParkCmd.
+autopilotLiveParkCmd = soulPilotParkCmd
+
 function soulPilotParkCmd.beginStop(newOpts)
   if phase == 'stopping' then return false end
   local o = type(newOpts) == 'table' and newOpts or {}

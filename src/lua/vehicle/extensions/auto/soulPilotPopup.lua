@@ -219,6 +219,9 @@ end
 
 soulPilotPopupCmd = {}
 
+-- Legacy migration alias; new code must use soulPilotPopupCmd.
+autopilotLivePopupCmd = soulPilotPopupCmd
+
 -- Фаза 11.2: музыка временно управляет светом (пульс в такт beat).
 -- Пока musicHold=true, обычная логика popup не трогает lights_state.
 function soulPilotPopupCmd.musicOverride(state)

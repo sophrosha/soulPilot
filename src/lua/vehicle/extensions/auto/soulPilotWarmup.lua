@@ -510,6 +510,9 @@ end
 -- === Публичные команды (GE шлёт через queueLuaCommand) ===
 soulPilotWarmupCmd = {}
 
+-- Legacy migration alias; new code must use soulPilotWarmupCmd.
+autopilotLiveWarmupCmd = soulPilotWarmupCmd
+
 function soulPilotWarmupCmd.on(confPath, opts)
   if state == 'starting_engine' or state == 'warming_up' then
     toGE('WARN', 'warmup: уже идёт (фаза ' .. state .. ', ' .. fmt(elapsed) ..

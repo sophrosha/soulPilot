@@ -20,6 +20,42 @@ local function stopSound()
   sound_event = ""
 end
 
+local function playPurr(config)
+  if type(config.sound_event) ~= "string" or config.sound_event == "" then
+    return false
+  end
+
+  local options = {
+    volume = config.sound_volume,
+    pitch = config.pitch,
+  }
+  if config.sound_no_pos then
+    options.no_pos = true
+  end
+
+  -- The VFS path (art/sound/...) is the normal form. The file: form is a
+  -- fallback for older GE builds that need an explicit file prefix.
+  local attempts = { config.sound_event }
+  if not config.sound_event:match("^file:") then
+    attempts[#attempts + 1] = "file:" .. config.sound_event
+  end
+
+  for _, sound_name in ipairs(attempts) do
+    local ok, source = pcall(function()
+      return Engine.Audio.playOnce("AudioGui", sound_name, options)
+    end)
+    if ok and source ~= nil then
+      sound_ids[#sound_ids + 1] = source
+      sound_event = config.sound_event
+      print("apl_pet: playOnce " .. sound_name .. " -> OK")
+      return true
+    end
+    print("apl_pet: playOnce " .. sound_name .. " -> failed")
+  end
+
+  return false
+end
+
 function M.init(config_module, vehicle_bridge, logger_module)
   config_loader = config_module
   bridge = vehicle_bridge
@@ -59,19 +95,7 @@ function M.aplPet(mode)
     end
 
     active = true
-    if config.sound_event ~= "" then
-      local ok, source = pcall(function()
-        return Engine.Audio.playOnce("AudioGui", config.sound_event, {
-          volume = config.sound_volume,
-          pitch = config.pitch,
-        })
-      end)
-      if ok and source ~= nil then
-        sound_ids[#sound_ids + 1] = source
-      end
-      print("apl_pet: playOnce " .. config.sound_event .. " -> " .. (ok and "OK" or "failed"))
-      sound_event = config.sound_event
-    end
+    playPurr(config)
 
     print("apl_pet: command sent (config=" .. (config.from_file and "file" or "DEFAULTS") .. ")")
     if logger then

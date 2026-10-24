@@ -197,6 +197,9 @@ end
 
 soulPilotCmd = {}
 
+-- Legacy migration alias; new code must use soulPilotCmd.
+autopilotLiveCmd = soulPilotCmd
+
 function soulPilotCmd.setDebug(on)
   aplDebugEnabled = (on == true or on == 1)
   if aplDebugEnabled then print('aplDebug: vehicle logging ON') end

@@ -189,6 +189,9 @@ end
 -- === Публичные команды (GE шлёт через queueLuaCommand) ===
 soulPilotPetCmd = {}
 
+-- Legacy migration alias; new code must use soulPilotPetCmd.
+autopilotLivePetCmd = soulPilotPetCmd
+
 -- start(params): GE присылает таблицу параметров из pet.json (см. DEFAULTS).
 function soulPilotPetCmd.start(params)
   local t = type(params) == 'table' and params or {}

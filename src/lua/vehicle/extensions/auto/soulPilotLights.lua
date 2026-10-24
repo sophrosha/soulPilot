@@ -74,6 +74,9 @@ end
 -- === Публичные команды (GE шлёт через queueLuaCommand) ===
 soulPilotLightsCmd = {}
 
+-- Legacy migration alias; new code must use soulPilotLightsCmd.
+autopilotLiveLightsCmd = soulPilotLightsCmd
+
 -- Включение auto: GE уже вычислил первый target по времени/карте.
 function soulPilotLightsCmd.autoOn(initialTarget)
   target = clampState(initialTarget)

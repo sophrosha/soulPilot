@@ -170,6 +170,9 @@ end
 -- === Публичные команды (GE шлёт через queueLuaCommand) ===
 soulPilotMusicCmd = {}
 
+-- Legacy migration alias; new code must use soulPilotMusicCmd.
+autopilotLiveMusicCmd = soulPilotMusicCmd
+
 local function startInternal(verbose)
   if active then return false end
   cfg, cfgFromFile = loadConfig()

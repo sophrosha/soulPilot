@@ -244,6 +244,9 @@ end
 -- Public commands are kept under the current extension name for compatibility.
 soulPilotPedalsCmd = {}
 
+-- Legacy migration alias; new code must use soulPilotPedalsCmd.
+autopilotLivePedalsCmd = soulPilotPedalsCmd
+
 function soulPilotPedalsCmd.on(config_path)
   state.cfg, state.cfg_from_file = pedals_config.load(
     type(config_path) == "string" and config_path or pedals_config.FALLBACK_CONFIG,
