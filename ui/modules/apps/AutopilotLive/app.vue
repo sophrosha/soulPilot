@@ -4,8 +4,8 @@
       <div class="apl-brand">
         <span class="apl-brand-mark">APL</span>
         <div>
-          <strong>{{ $t("apl.ui.title") }}</strong>
-          <small>{{ $t("apl.ui.subtitle") }}</small>
+          <strong>{{ t("apl.ui.title") }}</strong>
+          <small>{{ t("apl.ui.subtitle") }}</small>
         </div>
       </div>
 
@@ -18,18 +18,26 @@
           @click="goTo(item.id)"
         >
           <BngIcon :type="item.icon" class="apl-nav-icon" />
-          <span>{{ $t(item.label) }}</span>
+          <span>{{ t(item.label) }}</span>
         </button>
       </nav>
 
-      <div class="apl-version">AutopilotLive · 12.2</div>
+      <div class="apl-sidebar-bottom">
+        <label class="apl-language">
+          <span>{{ t("apl.ui.language") }}</span>
+          <select v-model="lang" class="apl-language-select" @change="changeLanguage">
+            <option v-for="item in languages" :key="item.id" :value="item.id">{{ item.label }}</option>
+          </select>
+        </label>
+        <div class="apl-version">AutopilotLive · 12.3</div>
+      </div>
     </aside>
 
     <section class="apl-main">
       <header class="apl-topbar">
         <div>
-          <h1>{{ $t("apl.ui.title") }}</h1>
-          <p>{{ $t("apl.ui.subtitle") }}</p>
+          <h1>{{ t("apl.ui.title") }}</h1>
+          <p>{{ t("apl.ui.subtitle") }}</p>
         </div>
         <div class="apl-mode">
           <button
@@ -37,29 +45,29 @@
             :class="{ active: mode === 'normal' }"
             @click="mode = 'normal'"
           >
-            {{ $t("apl.ui.normal") }}
+            {{ t("apl.ui.normal") }}
           </button>
           <button
             class="apl-mode-btn"
             :class="{ active: mode === 'expert' }"
             @click="mode = 'expert'"
           >
-            {{ $t("apl.ui.expert") }}
+            {{ t("apl.ui.expert") }}
           </button>
         </div>
       </header>
 
       <div ref="scrollArea" class="apl-scroll">
-        <div v-if="loading" class="apl-empty">{{ $t("apl.ui.loading") }}</div>
+        <div v-if="loading" class="apl-empty">{{ t("apl.ui.loading") }}</div>
 
         <template v-else>
           <section id="general" class="apl-group">
-            <h2 class="apl-group-title">{{ $t("apl.ui.general") }}</h2>
+            <h2 class="apl-group-title">{{ t("apl.ui.general") }}</h2>
             <div class="apl-group-frame">
               <div class="apl-row">
                 <div class="apl-row-label">
-                  <span>{{ $t("apl.modules.master") }}</span>
-                  <small>{{ $t("apl.modules.master.desc") }}</small>
+                  <span>{{ t("apl.modules.master") }}</span>
+                  <small>{{ t("apl.modules.master.desc") }}</small>
                 </div>
                 <button
                   class="apl-toggle"
@@ -72,8 +80,8 @@
 
               <div class="apl-row">
                 <div class="apl-row-label">
-                  <span>{{ $t("apl.modules.lights") }}</span>
-                  <small>{{ $t("apl.modules.lights.desc") }}</small>
+                  <span>{{ t("apl.modules.lights") }}</span>
+                  <small>{{ t("apl.modules.lights.desc") }}</small>
                 </div>
                 <button
                   class="apl-toggle"
@@ -86,8 +94,8 @@
 
               <div class="apl-row">
                 <div class="apl-row-label">
-                  <span>{{ $t("apl.modules.music") }}</span>
-                  <small>{{ $t("apl.modules.music.desc") }}</small>
+                  <span>{{ t("apl.modules.music") }}</span>
+                  <small>{{ t("apl.modules.music.desc") }}</small>
                 </div>
                 <button
                   class="apl-toggle"
@@ -100,8 +108,8 @@
 
               <div class="apl-row">
                 <div class="apl-row-label">
-                  <span>{{ $t("apl.modules.parking") }}</span>
-                  <small>{{ $t("apl.modules.parking.desc") }}</small>
+                  <span>{{ t("apl.modules.parking") }}</span>
+                  <small>{{ t("apl.modules.parking.desc") }}</small>
                 </div>
                 <button
                   class="apl-toggle"
@@ -115,16 +123,16 @@
           </section>
 
           <section id="steering" class="apl-group">
-            <h2 class="apl-group-title">{{ $t("apl.ui.steering") }}</h2>
+            <h2 class="apl-group-title">{{ t("apl.ui.steering") }}</h2>
             <div class="apl-group-frame">
               <div class="apl-row">
                 <div class="apl-row-label">
-                  <span>{{ $t("apl.ui.profile") }}</span>
-                  <small>{{ $t("apl.modules.wheel.desc") }}</small>
+                  <span>{{ t("apl.ui.profile") }}</span>
+                  <small>{{ t("apl.modules.wheel.desc") }}</small>
                 </div>
                 <div class="apl-cycle">
                   <button class="apl-cycle-arrow" @click="cycleProfile(-1)">‹</button>
-                  <span class="apl-cycle-value">{{ $t(profileLabel) }}</span>
+                  <span class="apl-cycle-value">{{ t(profileLabel) }}</span>
                   <button class="apl-cycle-arrow" @click="cycleProfile(1)">›</button>
                 </div>
               </div>
@@ -132,8 +140,8 @@
               <template v-if="mode === 'expert'">
                 <div v-for="f in expert.steering" :key="f.path" class="apl-row">
                   <div class="apl-row-label">
-                    <span>{{ $t(f.label) }}</span>
-                    <small>{{ f.hint ? $t(f.hint) : "" }}</small>
+                    <span>{{ t(f.label) }}</span>
+                    <small>{{ f.hint ? t(f.hint) : "" }}</small>
                   </div>
                   <div class="apl-slider-cell">
                     <input
@@ -161,12 +169,12 @@
           </section>
 
           <section id="music" class="apl-group">
-            <h2 class="apl-group-title">{{ $t("apl.ui.music") }}</h2>
+            <h2 class="apl-group-title">{{ t("apl.ui.music") }}</h2>
             <div class="apl-group-frame">
               <div class="apl-row">
                 <div class="apl-row-label">
-                  <span>{{ $t("apl.modules.music") }}</span>
-                  <small>{{ $t("apl.modules.music.desc") }}</small>
+                  <span>{{ t("apl.modules.music") }}</span>
+                  <small>{{ t("apl.modules.music.desc") }}</small>
                 </div>
                 <button
                   class="apl-toggle"
@@ -180,8 +188,8 @@
               <template v-if="mode === 'expert'">
                 <div v-for="f in expert.music" :key="f.path" class="apl-row">
                   <div class="apl-row-label">
-                    <span>{{ $t(f.label) }}</span>
-                    <small>{{ f.hint ? $t(f.hint) : "" }}</small>
+                    <span>{{ t(f.label) }}</span>
+                    <small>{{ f.hint ? t(f.hint) : "" }}</small>
                   </div>
                   <div class="apl-slider-cell">
                     <input
@@ -209,12 +217,12 @@
           </section>
 
           <section id="parking" class="apl-group">
-            <h2 class="apl-group-title">{{ $t("apl.ui.parking") }}</h2>
+            <h2 class="apl-group-title">{{ t("apl.ui.parking") }}</h2>
             <div class="apl-group-frame">
               <div class="apl-row">
                 <div class="apl-row-label">
-                  <span>{{ $t("apl.modules.parking") }}</span>
-                  <small>{{ $t("apl.modules.parking.desc") }}</small>
+                  <span>{{ t("apl.modules.parking") }}</span>
+                  <small>{{ t("apl.modules.parking.desc") }}</small>
                 </div>
                 <button
                   class="apl-toggle"
@@ -228,7 +236,7 @@
               <template v-if="mode === 'expert'">
                 <div v-for="f in expert.parking" :key="f.path" class="apl-row">
                   <div class="apl-row-label">
-                    <span>{{ $t(f.label) }}</span>
+                    <span>{{ t(f.label) }}</span>
                   </div>
                   <div class="apl-slider-cell">
                     <input
@@ -256,12 +264,12 @@
           </section>
 
           <section id="debug" class="apl-group">
-            <h2 class="apl-group-title">{{ $t("apl.ui.debug") }}</h2>
+            <h2 class="apl-group-title">{{ t("apl.ui.debug") }}</h2>
             <div class="apl-group-frame">
               <div class="apl-row">
                 <div class="apl-row-label">
-                  <span>{{ $t("apl.ui.debugLogging") }}</span>
-                  <small>{{ $t("apl.ui.debugLogging.desc") }}</small>
+                  <span>{{ t("apl.ui.debugLogging") }}</span>
+                  <small>{{ t("apl.ui.debugLogging.desc") }}</small>
                 </div>
                 <button
                   class="apl-toggle"
@@ -275,9 +283,9 @@
           </section>
 
           <section id="about" class="apl-group">
-            <h2 class="apl-group-title">{{ $t("apl.ui.about") }}</h2>
+            <h2 class="apl-group-title">{{ t("apl.ui.about") }}</h2>
             <div class="apl-group-frame apl-about">
-              <p>{{ $t("apl.ui.aboutText") }}</p>
+              <p>{{ t("apl.ui.aboutText") }}</p>
               <img
                 class="apl-preview"
                 src="/ui/modules/apps/AutopilotLive/apl_preview_ui.png"
@@ -291,11 +299,11 @@
       <footer class="apl-footer">
         <div class="apl-message">
           <span v-if="error" class="apl-error">{{ error }}</span>
-          <span v-else-if="messageKey">{{ $t(messageKey) }}</span>
+          <span v-else-if="messageKey">{{ t(messageKey) }}</span>
         </div>
         <div class="apl-footer-actions">
-          <button class="apl-btn secondary" @click="refresh">{{ $t("apl.ui.refresh") }}</button>
-          <button class="apl-btn primary" @click="save">{{ $t("apl.ui.save") }}</button>
+          <button class="apl-btn secondary" @click="refresh">{{ t("apl.ui.refresh") }}</button>
+          <button class="apl-btn primary" @click="save">{{ t("apl.ui.save") }}</button>
         </div>
       </footer>
     </section>
@@ -309,7 +317,250 @@ import { useBridge } from "@/bridge"
 
 const { api } = useBridge()
 
+const MESSAGES = {
+  "en": {
+    "ui.apps.apl.name": "AutopilotLive",
+    "ui.apps.apl.description": "AutopilotLive settings: master, lights, music, parking.",
+    "apl.ui.title": "AutopilotLive",
+    "apl.ui.subtitle": "Driving assistant settings",
+    "apl.ui.normal": "Normal",
+    "apl.ui.expert": "Expert",
+    "apl.ui.overview": "Overview",
+    "apl.ui.general": "General",
+    "apl.ui.steering": "Steering",
+    "apl.ui.profile": "Steering profile",
+    "apl.ui.music": "Music",
+    "apl.ui.wheel": "Steering",
+    "apl.ui.parking": "Parking",
+    "apl.ui.debug": "Debug",
+    "apl.ui.debugLogging": "Debug Logging",
+    "apl.ui.debugLogging.desc": "Print detailed vehicle diagnostics to the console.",
+    "apl.ui.language": "Language",
+    "apl.ui.about": "About",
+    "apl.ui.state": "State",
+    "apl.ui.loading": "Loading...",
+    "apl.ui.save": "Save",
+    "apl.ui.refresh": "Refresh",
+    "apl.ui.saved": "Saved",
+    "apl.ui.noChanges": "No changes",
+    "apl.ui.requiresRespawn": "Saved. Respawn the vehicle to apply wheel settings.",
+    "apl.ui.error": "Error",
+    "apl.ui.aboutText": "AutopilotLive control panel. Normal mode - simple switches; Expert mode - fine tuning.",
+    "apl.ui.expertHint": "Expert changes are saved to ai/config and may require a vehicle respawn.",
+    "apl.modules.master": "Master",
+    "apl.modules.master.desc": "Warmup, wheel, pedals, lights, popup, pain and AI traffic.",
+    "apl.modules.lights": "Lights",
+    "apl.modules.lights.desc": "Automatic day/night headlights.",
+    "apl.modules.music": "Music",
+    "apl.modules.music.desc": "Bass-reactive steering from Spotify via VB-Cable.",
+    "apl.modules.parking": "Parking",
+    "apl.modules.parking.desc": "Find a parking spot, stop, engage brake and switch the engine off.",
+    "apl.modules.wheel": "Steering",
+    "apl.modules.wheel.desc": "AI steering smoothing pipeline.",
+    "apl.fields.sway_amp": "Parking sway amplitude",
+    "apl.fields.vibration_amp": "Driving vibration amplitude",
+    "apl.fields.beat_amp": "Beat kick amplitude",
+    "apl.fields.beat_decay_s": "Beat decay (s)",
+    "apl.fields.vibration_hz": "Vibration frequency (Hz)",
+    "apl.fields.steer_rise": "Steering rise rate",
+    "apl.fields.steer_fall": "Steering fall rate",
+    "apl.fields.ema_tau": "Steering EMA (s)",
+    "apl.fields.lerp_tau": "Steering lerp (s)",
+    "apl.fields.route_speed": "Parking route speed (m/s)",
+    "apl.fields.arrival_radius": "Arrival radius (m)",
+    "apl.fields.stop_speed": "Stop speed (m/s)",
+    "apl.profile.comfort": "Comfort",
+    "apl.profile.sport": "Sport",
+    "apl.profile.custom": "Custom"
+  },
+  "ru": {
+    "ui.apps.apl.name": "AutopilotLive",
+    "ui.apps.apl.description": "Настройки AutopilotLive: мастер, фары, музыка, паркинг.",
+    "apl.ui.title": "AutopilotLive",
+    "apl.ui.subtitle": "Настройки помощника вождения",
+    "apl.ui.normal": "Обычный",
+    "apl.ui.expert": "Эксперт",
+    "apl.ui.overview": "Обзор",
+    "apl.ui.general": "Основное",
+    "apl.ui.steering": "Руль",
+    "apl.ui.profile": "Профиль руля",
+    "apl.ui.music": "Музыка",
+    "apl.ui.wheel": "Руль",
+    "apl.ui.parking": "Паркинг",
+    "apl.ui.debug": "Отладка",
+    "apl.ui.debugLogging": "Логирование отладки",
+    "apl.ui.debugLogging.desc": "Печатать подробную диагностику vehicle-слоя в консоль.",
+    "apl.ui.language": "Язык",
+    "apl.ui.about": "О программе",
+    "apl.ui.state": "Состояние",
+    "apl.ui.loading": "Загрузка...",
+    "apl.ui.save": "Сохранить",
+    "apl.ui.refresh": "Обновить",
+    "apl.ui.saved": "Сохранено",
+    "apl.ui.noChanges": "Изменений нет",
+    "apl.ui.requiresRespawn": "Сохранено. Для применения настроек руля переспавните машину.",
+    "apl.ui.error": "Ошибка",
+    "apl.ui.aboutText": "Панель управления AutopilotLive. Обычный режим — простые переключатели, Эксперт — тонкая настройка.",
+    "apl.ui.expertHint": "Изменения эксперта сохраняются в ai/config и могут требовать переспавна машины.",
+    "apl.modules.master": "Мастер",
+    "apl.modules.master.desc": "Прогрев, руль, педали, фары, popup, боль и AI-трафик.",
+    "apl.modules.lights": "Фары",
+    "apl.modules.lights.desc": "Автоматические фары день/ночь.",
+    "apl.modules.music": "Музыка",
+    "apl.modules.music.desc": "Реакция руля на бас из Spotify через VB-Cable.",
+    "apl.modules.parking": "Паркинг",
+    "apl.modules.parking.desc": "Найти место, остановиться, включить ручник и заглушить двигатель.",
+    "apl.modules.wheel": "Руль",
+    "apl.modules.wheel.desc": "Конвейер сглаживания руля AI.",
+    "apl.fields.sway_amp": "Амплитуда качка на стоянке",
+    "apl.fields.vibration_amp": "Амплитуда вибрации в движении",
+    "apl.fields.beat_amp": "Амплитуда толчка на beat",
+    "apl.fields.beat_decay_s": "Затухание beat (с)",
+    "apl.fields.vibration_hz": "Частота вибрации (Гц)",
+    "apl.fields.steer_rise": "Скорость руля к упору",
+    "apl.fields.steer_fall": "Скорость руля к центру",
+    "apl.fields.ema_tau": "Инерция руля EMA (с)",
+    "apl.fields.lerp_tau": "Дотягивание руля (с)",
+    "apl.fields.route_speed": "Скорость маршрута паркинга (м/с)",
+    "apl.fields.arrival_radius": "Радиус прибытия (м)",
+    "apl.fields.stop_speed": "Скорость остановки (м/с)",
+    "apl.profile.comfort": "Комфорт",
+    "apl.profile.sport": "Спорт",
+    "apl.profile.custom": "Свой"
+  },
+  "uk": {
+    "ui.apps.apl.name": "AutopilotLive",
+    "ui.apps.apl.description": "Налаштування AutopilotLive: майстер, фари, музика, паркування.",
+    "apl.ui.title": "AutopilotLive",
+    "apl.ui.subtitle": "Налаштування помічника водіння",
+    "apl.ui.normal": "Звичайний",
+    "apl.ui.expert": "Експерт",
+    "apl.ui.overview": "Огляд",
+    "apl.ui.general": "Основне",
+    "apl.ui.steering": "Кермо",
+    "apl.ui.profile": "Профіль керма",
+    "apl.ui.music": "Музика",
+    "apl.ui.wheel": "Кермо",
+    "apl.ui.parking": "Паркування",
+    "apl.ui.debug": "Налагодження",
+    "apl.ui.debugLogging": "Логування налагодження",
+    "apl.ui.debugLogging.desc": "Друкувати докладну діагностику vehicle-шару в консоль.",
+    "apl.ui.language": "Мова",
+    "apl.ui.about": "Про програму",
+    "apl.ui.state": "Стан",
+    "apl.ui.loading": "Завантаження...",
+    "apl.ui.save": "Зберегти",
+    "apl.ui.refresh": "Оновити",
+    "apl.ui.saved": "Збережено",
+    "apl.ui.noChanges": "Змін немає",
+    "apl.ui.requiresRespawn": "Збережено. Для застосування налаштувань керма переспавніть авто.",
+    "apl.ui.error": "Помилка",
+    "apl.ui.aboutText": "Панель керування AutopilotLive. Звичайний режим — прості перемикачі, Експерт — тонке налаштування.",
+    "apl.ui.expertHint": "Зміни експерта зберігаються в ai/config і можуть потребувати переспавну авто.",
+    "apl.modules.master": "Майстер",
+    "apl.modules.master.desc": "Прогрів, кермо, педалі, фари, popup, біль і AI-трафік.",
+    "apl.modules.lights": "Фари",
+    "apl.modules.lights.desc": "Автоматичні фари день/ніч.",
+    "apl.modules.music": "Музика",
+    "apl.modules.music.desc": "Реакція керма на бас зі Spotify через VB-Cable.",
+    "apl.modules.parking": "Паркування",
+    "apl.modules.parking.desc": "Знайти місце, зупинитися, увімкнути ручник і заглушити двигун.",
+    "apl.modules.wheel": "Кермо",
+    "apl.modules.wheel.desc": "Конвеєр згладжування керма AI.",
+    "apl.fields.sway_amp": "Амплітуда похитування на стоянці",
+    "apl.fields.vibration_amp": "Амплітуда вібрації в русі",
+    "apl.fields.beat_amp": "Амплітуда поштовху на beat",
+    "apl.fields.beat_decay_s": "Затухання beat (с)",
+    "apl.fields.vibration_hz": "Частота вібрації (Гц)",
+    "apl.fields.steer_rise": "Швидкість керма до упору",
+    "apl.fields.steer_fall": "Швидкість керма до центру",
+    "apl.fields.ema_tau": "Інерція керма EMA (с)",
+    "apl.fields.lerp_tau": "Дотягування керма (с)",
+    "apl.fields.route_speed": "Швидкість маршруту паркування (м/с)",
+    "apl.fields.arrival_radius": "Радіус прибуття (м)",
+    "apl.fields.stop_speed": "Швидкість зупинки (м/с)",
+    "apl.profile.comfort": "Комфорт",
+    "apl.profile.sport": "Спорт",
+    "apl.profile.custom": "Свій"
+  },
+  "by": {
+    "ui.apps.apl.name": "AutopilotLive",
+    "ui.apps.apl.description": "Налады AutopilotLive: майстар, фары, музыка, паркоўка.",
+    "apl.ui.title": "AutopilotLive",
+    "apl.ui.subtitle": "Налады памочніка кіравання",
+    "apl.ui.normal": "Звычайны",
+    "apl.ui.expert": "Эксперт",
+    "apl.ui.overview": "Агляд",
+    "apl.ui.general": "Асноўнае",
+    "apl.ui.steering": "Руль",
+    "apl.ui.profile": "Профіль руля",
+    "apl.ui.music": "Музыка",
+    "apl.ui.wheel": "Руль",
+    "apl.ui.parking": "Паркоўка",
+    "apl.ui.debug": "Адладка",
+    "apl.ui.debugLogging": "Лагаванне адладкі",
+    "apl.ui.debugLogging.desc": "Друкаваць падрабязную дыягностыку vehicle-слоя ў кансоль.",
+    "apl.ui.language": "Мова",
+    "apl.ui.about": "Пра праграму",
+    "apl.ui.state": "Стан",
+    "apl.ui.loading": "Загрузка...",
+    "apl.ui.save": "Захаваць",
+    "apl.ui.refresh": "Абнавіць",
+    "apl.ui.saved": "Захавана",
+    "apl.ui.noChanges": "Змен няма",
+    "apl.ui.requiresRespawn": "Захавана. Для прымянення налад руля пераспаўніце машыну.",
+    "apl.ui.error": "Памылка",
+    "apl.ui.aboutText": "Панэль кіравання AutopilotLive. Звычайны рэжым — простыя пераключальнікі, Эксперт — тонкая наладка.",
+    "apl.ui.expertHint": "Змены эксперта захоўваюцца ў ai/config і могуць патрабаваць пераспаўну машыны.",
+    "apl.modules.master": "Майстар",
+    "apl.modules.master.desc": "Прагрэў, руль, педалі, фары, popup, боль і AI-трафік.",
+    "apl.modules.lights": "Фары",
+    "apl.modules.lights.desc": "Аўтаматычныя фары дзень/ноч.",
+    "apl.modules.music": "Музыка",
+    "apl.modules.music.desc": "Рэакцыя руля на бас са Spotify праз VB-Cable.",
+    "apl.modules.parking": "Паркоўка",
+    "apl.modules.parking.desc": "Знайсці месца, спыніцца, уключыць ручнік і заглушыць рухавік.",
+    "apl.modules.wheel": "Руль",
+    "apl.modules.wheel.desc": "Канвеер згладжвання руля AI.",
+    "apl.fields.sway_amp": "Амплітуда гайдання на стаянцы",
+    "apl.fields.vibration_amp": "Амплітуда вібрацыі ў руху",
+    "apl.fields.beat_amp": "Амплітуда штуршка на beat",
+    "apl.fields.beat_decay_s": "Затуханне beat (с)",
+    "apl.fields.vibration_hz": "Частата вібрацыі (Гц)",
+    "apl.fields.steer_rise": "Хуткасць руля да ўпору",
+    "apl.fields.steer_fall": "Хуткасць руля да цэнтра",
+    "apl.fields.ema_tau": "Інерцыя руля EMA (с)",
+    "apl.fields.lerp_tau": "Дотягванне руля (с)",
+    "apl.fields.route_speed": "Хуткасць маршруту паркоўкі (м/с)",
+    "apl.fields.arrival_radius": "Радыус прыбыцця (м)",
+    "apl.fields.stop_speed": "Хуткасць прыпынку (м/с)",
+    "apl.profile.comfort": "Камфорт",
+    "apl.profile.sport": "Спорт",
+    "apl.profile.custom": "Свой"
+  }
+}
+
 const scrollArea = ref(null)
+const lang = ref("en")
+const languages = [
+  { id: "ru", label: "RU" },
+  { id: "en", label: "EN" },
+  { id: "uk", label: "UK" },
+  { id: "by", label: "BY" },
+]
+
+function normalizeLang(value) {
+  const raw = String(value || "").toLowerCase().replace(/-/g, "_")
+  if (raw.includes("uk") || raw.includes("ua")) return "uk"
+  if (raw.startsWith("be") || raw.includes("by")) return "by"
+  if (raw.includes("ru")) return "ru"
+  return "en"
+}
+
+function t(key) {
+  const table = MESSAGES[lang.value] || MESSAGES.en
+  return table[key] || MESSAGES.en[key] || key
+}
 const activeSection = ref("general")
 const loading = ref(true)
 const mode = ref("normal")
@@ -318,7 +569,7 @@ const messageKey = ref("")
 const debugEnabled = ref(false)
 
 const nav = [
-  { id: "general", label: "apl.ui.general", icon: "settings" },
+  { id: "general", label: "apl.ui.general", icon: "cogOutline" },
   { id: "steering", label: "apl.ui.steering", icon: "steeringWheelSporty" },
   { id: "music", label: "apl.ui.music", icon: "music" },
   { id: "parking", label: "apl.ui.parking", icon: "parking" },
@@ -370,11 +621,28 @@ const expert = {
 
 function applyStatus(status) {
   if (!status) return
-  moduleState.master = status.master === "on" || status.master === "waiting_warmup"
+  moduleState.master = status.master === true || status.master === 1 || status.master === "on"
   moduleState.lights = status.lights === true
   moduleState.music = status.music === true
   moduleState.parking = status.parking === true
   debugEnabled.value = status.debug === true
+  if (status.language) lang.value = normalizeLang(status.language)
+}
+
+function changeLanguage() {
+  error.value = ""
+  messageKey.value = ""
+  api.engineLua(
+    `extensions.autopilotLive_uiConfig.setLanguage(${JSON.stringify(lang.value)})`,
+    result => {
+      if (!result || result.ok === false) {
+        error.value = (result && result.error) || "Unable to save language"
+        return
+      }
+      if (result.state) applyStatus(result.state)
+      messageKey.value = "apl.ui.saved"
+    },
+  )
 }
 
 function refresh() {
@@ -406,7 +674,9 @@ function goTo(id) {
   const root = scrollArea.value
   if (!root) return
   const element = root.querySelector(`#${id}`)
-  if (element) root.scrollTo({ top: element.offsetTop - 8, behavior: "smooth" })
+  if (element) {
+    element.scrollIntoView({ block: "start", behavior: "smooth" })
+  }
 }
 
 function toggleModule(id) {
@@ -531,8 +801,8 @@ onMounted(refresh)
 }
 
 .apl-sidebar {
-  width: 232px;
-  flex: 0 0 232px;
+  width: 220px;
+  flex: 0 0 220px;
   display: flex;
   flex-direction: column;
   padding: 20px 12px 14px;
@@ -584,11 +854,12 @@ onMounted(refresh)
 .apl-nav-item {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 10px;
   width: 100%;
-  padding: 11px 10px;
+  min-height: 40px;
+  padding: 8px 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   background: transparent;
   color: var(--apl-text);
   font: inherit;
@@ -613,10 +884,36 @@ onMounted(refresh)
   opacity: 0.9;
 }
 
-.apl-version {
+.apl-sidebar-bottom {
   margin-top: auto;
-  padding: 14px 10px 0;
+  padding-top: 12px;
   border-top: 1px solid var(--apl-line);
+}
+
+.apl-language {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px 10px;
+  color: var(--apl-muted);
+  font-size: 11px;
+}
+
+.apl-language-select {
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--apl-line);
+  border-radius: 3px;
+  background: #111316;
+  color: var(--apl-text);
+  font: inherit;
+  font-size: 11px;
+  outline: none;
+}
+
+.apl-version {
+  padding: 0 10px;
   color: #6d737a;
   font-size: 10px;
   letter-spacing: 0.3px;
@@ -683,13 +980,13 @@ onMounted(refresh)
 }
 
 .apl-group {
-  margin-bottom: 18px;
+  margin-bottom: 24px;
 }
 
 .apl-group-title {
   margin: 0 0 8px 4px;
   color: #fff;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.2px;
 }
@@ -705,9 +1002,9 @@ onMounted(refresh)
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 22px;
-  min-height: 54px;
-  padding: 10px 14px;
+  gap: 16px;
+  min-height: 40px;
+  padding: 6px 12px;
   background: var(--apl-panel-2);
   border-bottom: 1px solid var(--apl-line);
 
@@ -736,8 +1033,8 @@ onMounted(refresh)
 .apl-toggle {
   position: relative;
   flex: 0 0 auto;
-  width: 42px;
-  height: 23px;
+  width: 36px;
+  height: 20px;
   padding: 0;
   border: 1px solid #3a3f46;
   border-radius: 999px;
@@ -749,8 +1046,8 @@ onMounted(refresh)
     position: absolute;
     top: 2px;
     left: 2px;
-    width: 17px;
-    height: 17px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
     background: #c4c8cd;
     transition: left 0.15s, background 0.15s;
@@ -761,7 +1058,7 @@ onMounted(refresh)
     background: var(--apl-accent);
 
     .apl-toggle-knob {
-      left: 21px;
+      left: 18px;
       background: #fff;
     }
   }
@@ -809,7 +1106,7 @@ onMounted(refresh)
 
 .apl-range {
   flex: 1;
-  height: 4px;
+  height: 3px;
   margin: 0;
   appearance: none;
   background: linear-gradient(to right, #b9bec4, #b9bec4);
@@ -820,7 +1117,7 @@ onMounted(refresh)
   &::-webkit-slider-thumb {
     appearance: none;
     width: 12px;
-    height: 20px;
+    height: 18px;
     border: 0;
     background: #fff;
     clip-path: polygon(22% 0, 100% 0, 78% 100%, 0 100%);
@@ -829,7 +1126,7 @@ onMounted(refresh)
 
   &::-moz-range-thumb {
     width: 12px;
-    height: 20px;
+    height: 18px;
     border: 0;
     border-radius: 0;
     background: #fff;

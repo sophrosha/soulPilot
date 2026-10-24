@@ -94,12 +94,14 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - Проверки: app.vue компилируется через `@vue/compiler-sfc`; JSON/Lua (luaparser) OK; uiConfig в LuaJIT-моке читает/пишет конфиги и вызывает модули.
 
 **ФАЗА 12.3 (2026-10-25): UI в стиле BeamNG + userPath-конфиги + debug.**
-- `app.vue` переписан под нативный экран настроек: тёмный shell, левая навигация с иконками (выбранный пункт оранжевый, hover серый), справа группы в рамках, жирные белые заголовки; всё на одном экране (навигация скроллит), без отдельных страниц. Тумблеры овальные, профиль руля `< Комфорт >`, ползунки с параллелограммным бегунком и числовым полем. Normal/Expert; Debug Logging. Заглушка `apl_preview_ui.png` (белая) в About.
-- Конфиги: `settings/autopilotLive/*.json` — источник записей UI; `ai/config/*.json` — только дефолты. `uiConfig.readJson` читает user→mod; `setConfig` пишет только user; `main.readJsonFile` сначала user, `configPath` отдаёт vehicle user-путь при наличии. Затронуты wheel/pedals/warmup/music/parking/lights/master/popup/pain и UI-файлы.
-- Дефолты UI: `setModule` для music/lights/wheel/popup пишет `master.json` (`enable_music`/`enable_lights`/...); `masterFinish` перечитывает конфиг и не включает музыку, если UI её выключил.
-- Debug: `settings/autopilotLive/debug.json` + `apl_debug_set`; флаг уходит в vehicle (`autopilotLiveCmd.setDebug`); частые vehicle-print заменены на `aplPrint` (WARN/ERROR/status остаются). По умолчанию OFF.
+- `app.vue`: нативный экран настроек с левой навигацией (иконки, активный пункт оранжевый, hover серый), группы в рамках, тёмный фон, один экран. Размеры: sidebar 220px, строки 40px, панели/отступы 24px, границы 1px. Тумблеры овальные, профиль руля `< >`, плоские ползунки с параллелограммным бегунком и числовым полем. Normal/Expert, Debug Logging. Заглушка `apl_preview_ui.png` (белая) в About.
+- `app.vue`: локальные словари en/ru/uk/by с fallback на en (устраняет `??????` даже если game-locale не загрузился), селектор языка внизу слева; выбор пишется в `settings/autopilotLive/ui.json`, по умолчанию берётся `core_locales.getLanguage()`. Навигация использует `scrollIntoView({block:'start'})`.
+- **Master в UI — только настройка:** `setModule('master')` пишет `master.json.enable_master` и НЕ вызывает `apl_autopilot`; физический запуск — только `apl_autopilot("on")` / Quick Access.
+- `settings/autopilotLive/*.json` — источник записей UI; `ai/config/*.json` — дефолты. `readJsonFile`/`configPath` в main, vehicle-модули wheel/pedals/warmup/music/parking/lights/master/popup/pain используют userPath.
+- Дефолты UI: music/lights/wheel/popup пишут `master.json.enable_*`; `masterFinish` перечитывает конфиг и не включает музыку, если UI её выключил.
+- Debug: `debug.json` + `apl_debug_set`; флаг в vehicle; частые vehicle-print на `aplPrint`, WARN/ERROR/status остаются; OFF по умолчанию.
 - Quick Access: третья кнопка «Парковка» → `apl_park("auto")`.
-- Проверки: @vue/compiler-sfc, luaparser, uiConfig LuaJIT-мок (userPath, setModule/master, debug), JSON переводов.
+- Проверки: @vue/compiler-sfc, luaparser, uiConfig LuaJIT-мок (userPath, master save-only, language, debug), JSON переводов.
 
 **ФАЗА 12.1.1 (2026-10-25): Parking audit — маршрут только по связному навграфу.** По тесту: AI чуть не врезался в столб, поехал через лес и остановился посреди дороги.
 - Причина: `wpTargetList` — список **последовательных целей**, а не готовый маршрут; при неполном/пустом `getPointNodePath` и fallback `map.getPath` можно было отправить одну/несвязанные точки → AI ехал напрямик. Плюс не был включён traffic-режим до маршрута.

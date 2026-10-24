@@ -26,6 +26,7 @@ local FILES = {
   warmup  = 'warmup.json',
   parking = 'parking.json',
   debug   = 'debug.json',
+  ui      = 'ui.json',
 }
 
 local moduleState = {
@@ -152,9 +153,40 @@ local function setMasterDefault(key, on)
   writeJson('master', data)
 end
 
+local function savedMaster()
+  local data = readJson('master') or {}
+  return (tonumber(data.enable_master) or 0) ~= 0
+end
+
+local function getGameLanguage()
+  local ok, value = pcall(function()
+    if core_locales and core_locales.getLanguage then return core_locales.getLanguage() end
+    return 'en-US'
+  end)
+  return ok and tostring(value or 'en-US') or 'en-US'
+end
+
+local function normalizeLanguage(value)
+  local v = tostring(value or ''):lower():gsub('-', '_')
+  if v:find('uk', 1, true) or v:find('ua', 1, true) then return 'uk' end
+  if v:find('be', 1, true) or v:find('by', 1, true) then return 'by' end
+  if v:find('ru', 1, true) then return 'ru' end
+  return 'en'
+end
+
+local function uiLanguage()
+  local ui = readJson('ui') or {}
+  if type(ui.language) == 'string' and ui.language ~= '' then
+    return normalizeLanguage(ui.language)
+  end
+  return normalizeLanguage(getGameLanguage())
+end
+
 local function stateTable()
   return {
-    master = masterState(),
+    master = savedMaster(),
+    masterLive = masterState(),
+    language = uiLanguage(),
     lights = moduleState.lights,
     music = moduleState.music,
     parking = moduleState.parking,
@@ -241,7 +273,9 @@ function M.setModule(name, on)
 
   local ok, result
   if name == 'master' then
-    ok, result = callGlobal('apl_autopilot', on and 'on' or 'off')
+    -- UI — только настройки. Физический запуск — только apl_autopilot("on").
+    setMasterDefault('enable_master', on)
+    ok, result = true, on
   elseif name == 'lights' then
     setMasterDefault('enable_lights', on)
     ok, result = callGlobal('apl_lights', on and 'auto' or 'off')
@@ -290,6 +324,17 @@ function M.setDebug(on)
     if apl_debug_set then apl_debug_set(enabled) end
   end)
   return { ok = true, enabled = enabled }
+end
+
+function M.setLanguage(lang)
+  local normalized = normalizeLanguage(lang)
+  local ui = readJson('ui') or {}
+  ui.language = normalized
+  local ok, err = writeJson('ui', ui)
+  if not ok then
+    return { ok = false, error = tostring(err) }
+  end
+  return { ok = true, language = normalized, state = stateTable() }
 end
 
 function M.getState()

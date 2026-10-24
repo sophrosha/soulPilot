@@ -1,14 +1,22 @@
 {
   "ui.apps.apl.name": "AutopilotLive",
   "ui.apps.apl.description": "Налады AutopilotLive: майстар, фары, музыка, паркоўка.",
+
   "apl.ui.title": "AutopilotLive",
   "apl.ui.subtitle": "Налады памочніка кіравання",
   "apl.ui.normal": "Звычайны",
   "apl.ui.expert": "Эксперт",
   "apl.ui.overview": "Агляд",
+  "apl.ui.general": "Асноўнае",
+  "apl.ui.steering": "Руль",
+  "apl.ui.profile": "Профіль руля",
   "apl.ui.music": "Музыка",
   "apl.ui.wheel": "Руль",
   "apl.ui.parking": "Паркоўка",
+  "apl.ui.debug": "Адладка",
+  "apl.ui.debugLogging": "Лагаванне адладкі",
+  "apl.ui.debugLogging.desc": "Друкаваць падрабязную дыягностыку vehicle-слоя ў кансоль.",
+  "apl.ui.language": "Мова",
   "apl.ui.about": "Пра праграму",
   "apl.ui.state": "Стан",
   "apl.ui.loading": "Загрузка...",
@@ -20,6 +28,7 @@
   "apl.ui.error": "Памылка",
   "apl.ui.aboutText": "Панэль кіравання AutopilotLive. Звычайны рэжым — простыя пераключальнікі, Эксперт — тонкая наладка.",
   "apl.ui.expertHint": "Змены эксперта захоўваюцца ў ai/config і могуць патрабаваць пераспаўну машыны.",
+
   "apl.modules.master": "Майстар",
   "apl.modules.master.desc": "Прагрэў, руль, педалі, фары, popup, боль і AI-трафік.",
   "apl.modules.lights": "Фары",
@@ -30,6 +39,7 @@
   "apl.modules.parking.desc": "Знайсці месца, спыніцца, уключыць ручнік і заглушыць рухавік.",
   "apl.modules.wheel": "Руль",
   "apl.modules.wheel.desc": "Канвеер згладжвання руля AI.",
+
   "apl.fields.sway_amp": "Амплітуда гайдання на стаянцы",
   "apl.fields.vibration_amp": "Амплітуда вібрацыі ў руху",
   "apl.fields.beat_amp": "Амплітуда штуршка на beat",
@@ -42,13 +52,8 @@
   "apl.fields.route_speed": "Хуткасць маршруту паркоўкі (м/с)",
   "apl.fields.arrival_radius": "Радыус прыбыцця (м)",
   "apl.fields.stop_speed": "Хуткасць прыпынку (м/с)",
-  "apl.ui.general": "????????",
-  "apl.ui.steering": "????",
-  "apl.ui.profile": "??????? ????",
-  "apl.ui.debug": "???????",
-  "apl.ui.debugLogging": "Debug Logging",
-  "apl.ui.debugLogging.desc": "????????? ??????????? ??????????? vehicle-???? ? ???????.",
-  "apl.profile.comfort": "???????",
-  "apl.profile.sport": "?????",
-  "apl.profile.custom": "????"
+
+  "apl.profile.comfort": "Камфорт",
+  "apl.profile.sport": "Спорт",
+  "apl.profile.custom": "Свой"
 }
