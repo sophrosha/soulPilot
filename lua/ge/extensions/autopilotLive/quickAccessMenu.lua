@@ -1,7 +1,7 @@
 -- AutopilotLive — Фаза 10.2: встроенное радиальное меню (Quick Access)
 -- Официальный API: core_quickAccess.addEntry (экспортирован, quickAccess.lua:2753).
 -- Вкладка «AutopilotLive» появляется рядом с «Ремонт»/«ИИ» в списке категорий
--- Free roam (/root/sandbox/), внутри — две кнопки с динамическим статусом.
+-- Free roam (/root/sandbox/), внутри — три кнопки (мастер, погладить, парковка).
 
 local M = {}
 local registered = false
@@ -45,6 +45,17 @@ function M.register()
         uniqueID = 'aplPet',
         onSelect = function()
           if apl_pet then apl_pet('on') end
+          return { 'hide' }
+        end
+      })
+      table.insert(entries, {
+        title = 'Парковка',
+        desc = 'Найти место, остановиться, ручник, заглушить двигатель',
+        icon = 'parking',
+        startSlot = 3,
+        uniqueID = 'aplParking',
+        onSelect = function()
+          if apl_park then apl_park('auto') end
           return { 'hide' }
         end
       })

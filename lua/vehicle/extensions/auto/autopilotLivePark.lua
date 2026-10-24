@@ -48,7 +48,7 @@ local function notify(method, args)
 end
 
 local function logGE(msg)
-  print('aplPark(vehicle): ' .. tostring(msg))
+  aplPrint('aplPark(vehicle): ' .. tostring(msg))
   pcall(function()
     obj:queueGameEngineLua(string.format(
       'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehicleLog then extensions.autopilotLive_main.onVehicleLog("INFO", %s) end',
@@ -68,7 +68,7 @@ local function finishPark()
   local pbOk, pbErr = pcall(function()
     controller.mainController.smartParkingBrake(1, FILTER_DIRECT, true)
   end)
-  print('aplPark(vehicle): ручник=' .. tostring(pbOk) ..
+  aplPrint('aplPark(vehicle): ручник=' .. tostring(pbOk) ..
     (pbOk and '' or (' (' .. tostring(pbErr) .. ')')))
 
   local ignOk, ignErr = false, nil
@@ -76,10 +76,10 @@ local function finishPark()
     ignOk, ignErr = pcall(function()
       electrics.setIgnitionLevel(0)
     end)
-    print('aplPark(vehicle): зажигание 0=' .. tostring(ignOk) ..
+    aplPrint('aplPark(vehicle): зажигание 0=' .. tostring(ignOk) ..
       (ignOk and ' (автомат выберет P/N)' or (' (' .. tostring(ignErr) .. ')')))
   else
-    print('aplPark(vehicle): engine_off=0 — двигатель оставлен')
+    aplPrint('aplPark(vehicle): engine_off=0 — двигатель оставлен')
   end
 
   phase = 'parked'
@@ -115,7 +115,7 @@ function autopilotLiveParkCmd.beginStop(newOpts)
   elapsed = 0
   holdT = 0
   pcall(function() ai.setMode('stop') end)
-  print(string.format(
+  aplPrint(string.format(
     'aplPark(vehicle): STOP — ждём %.2f м/с %.1f с (timeout %.0f с), brake=%d, engine_off=%d',
     opts.stop_speed_mps, opts.stop_hold_s, opts.stopping_timeout_s,
     opts.parking_brake, opts.engine_off))
@@ -125,14 +125,14 @@ end
 function autopilotLiveParkCmd.cancel()
   if phase == 'idle' then return false end
   if phase == 'parked' then
-    print('aplPark(vehicle): уже припарковано; cancel не снимает ручник')
+    aplPrint('aplPark(vehicle): уже припарковано; cancel не снимает ручник')
     return false
   end
   phase = 'idle'
   elapsed = 0
   holdT = 0
   pcall(function() ai.setMode('stop') end)
-  print('aplPark(vehicle): отменено (ручник/зажигание не трогаем)')
+  aplPrint('aplPark(vehicle): отменено (ручник/зажигание не трогаем)')
   return true
 end
 

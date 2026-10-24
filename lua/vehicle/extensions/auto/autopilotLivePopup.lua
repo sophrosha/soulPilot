@@ -124,7 +124,7 @@ local function autoOff(reason)
   active = false
   warmupHold = false
   phase = 'sleep'
-  print('aplPopup: АВТО-ОТКЛЮЧЕНО — ' .. reason)
+  aplPrint('aplPopup: АВТО-ОТКЛЮЧЕНО — ' .. reason)
   toGE('WARN', 'popup auto off: ' .. reason)
   notifyGE('onVehiclePopupAutoOff')
 end
@@ -183,14 +183,14 @@ function M.updateGFX(dt)
     dbgT = dbgT + dt
     if dbgT >= 10 then
       dbgT = 0
-      print(string.format('aplPopup: TICK awake — timer=%.1f с, state=%d, night=%s, f6auto=%s, suppress=%s',
+      aplPrint(string.format('aplPopup: TICK awake — timer=%.1f с, state=%d, night=%s, f6auto=%s, suppress=%s',
         timer, cur, tostring(night), tostring(isLightsAuto()), tostring(suppressHeld)))
     end
     if timer <= 0 then
       local okBlink, why = blinkAllowed()
       if not okBlink then
         timer = nextDelay()
-        print('aplPopup: моргание отложено (' .. why .. ')')
+        aplPrint('aplPopup: моргание отложено (' .. why .. ')')
         toGE('INFO', 'popup: моргание отложено (' .. why .. ')')
         return
       end
@@ -199,7 +199,7 @@ function M.updateGFX(dt)
       lastSeen = EYES_CLOSED
       phase = 'blink'
       timer = blinkDuration()
-      print('aplPopup: МОРГАНИЕ (закрыты на ' .. string.format('%.1f', timer) .. ' с)')
+      aplPrint('aplPopup: МОРГАНИЕ (закрыты на ' .. string.format('%.1f', timer) .. ' с)')
       toGE('INFO', 'popup blink close=' .. string.format('%.1f', timer) .. 's')
     end
   elseif phase == 'blink' then
@@ -210,7 +210,7 @@ function M.updateGFX(dt)
       setSuppress(false)
       phase = 'awake'
       timer = nextDelay()
-      print('aplPopup: моргание завершено, следующее через ' ..
+      aplPrint('aplPopup: моргание завершено, следующее через ' ..
         string.format('%.0f', timer) .. ' с')
       toGE('INFO', 'popup blink done, next in ' .. string.format('%.0f', timer) .. 's')
     end
@@ -269,10 +269,10 @@ function autopilotLivePopupCmd.start(params)
   end
   phase = 'awake'
   timer = nextDelay()
-  print('aplPopup: ВКЛ. Глаза ОТКРЫТЫ (state=' .. tostring(lastSeen) ..
+  aplPrint('aplPopup: ВКЛ. Глаза ОТКРЫТЫ (state=' .. tostring(lastSeen) ..
     '). Следующее моргание через ' .. string.format('%.0f', timer) .. ' с' ..
     (night and ' (сейчас ночь — моргание подавлено)' or ''))
-  print('aplPopup: START получен — night=' .. tostring(t.night) ..
+  aplPrint('aplPopup: START получен — night=' .. tostring(t.night) ..
     ', debug=' .. tostring(cfg.debugDelay) .. ' с')
   toGE('INFO', 'popup auto ON, eyes open, first blink in ' ..
     string.format('%.0f', timer) .. 's, night=' .. tostring(night))
@@ -288,7 +288,7 @@ function autopilotLivePopupCmd.sleep()
   phase = 'sleep'
   applyEyes(EYES_CLOSED)
   lastSeen = EYES_CLOSED
-  print(string.format('aplPopup: СОН — state %d → %d (команда 0), auto=%s, warmupHold=true, suppress=true',
+  aplPrint(string.format('aplPopup: СОН — state %d → %d (команда 0), auto=%s, warmupHold=true, suppress=true',
     before, curState(), tostring(active)))
   return true
 end
@@ -306,13 +306,13 @@ function autopilotLivePopupCmd.wake_up()
       lastSeen = curState()
       phase = 'awake'
       timer = nextDelay()
-      print(string.format('aplPopup: ПРОБУЖДЕНИЕ (ночь) — state %d оставлен как есть, моргание подавлено',
+      aplPrint(string.format('aplPopup: ПРОБУЖДЕНИЕ (ночь) — state %d оставлен как есть, моргание подавлено',
         lastSeen))
     else
       applyEyes(EYES_OPEN) -- lastSeen ставит applyEyes (не перечитываем state!)
       phase = 'awake'
       timer = nextDelay()
-      print(string.format('aplPopup: ПРОБУЖДЕНИЕ — state %d → %d, глаза открыты, следующее моргание через %.0f с',
+      aplPrint(string.format('aplPopup: ПРОБУЖДЕНИЕ — state %d → %d, глаза открыты, следующее моргание через %.0f с',
         before, curState(), timer))
     end
   else
@@ -320,7 +320,7 @@ function autopilotLivePopupCmd.wake_up()
     if savedState == 1 or savedState == 2 then restore = savedState end
     applyEyes(restore)
     savedState = nil
-    print(string.format('aplPopup: ПРОБУЖДЕНИЕ (warmup) — state %d → %d (восстановлен %d)',
+    aplPrint(string.format('aplPopup: ПРОБУЖДЕНИЕ (warmup) — state %d → %d (восстановлен %d)',
       before, curState(), restore))
   end
   return true
@@ -332,12 +332,12 @@ end
 function autopilotLivePopupCmd.setNight(v)
   local nb = v == true
   -- Явное подтверждение ПРИЁМА (диагностика рассинхрона GE/vehicle 24.10)
-  print('aplPopup: ПОЛУЧЕН setNight=' .. tostring(nb) ..
+  aplPrint('aplPopup: ПОЛУЧЕН setNight=' .. tostring(nb) ..
     ' (было ' .. tostring(night) .. ')')
   if nb ~= night then
     night = nb
     lastNightCmd = tostring(nb)
-    print('aplPopup: setNight ' .. tostring(not nb) .. ' → ' .. tostring(nb) ..
+    aplPrint('aplPopup: setNight ' .. tostring(not nb) .. ' → ' .. tostring(nb) ..
       (nb and ' (НОЧЬ: моргание подавлено)' or ' (ДЕНЬ)'))
   else
     lastNightCmd = tostring(nb)
@@ -356,7 +356,7 @@ function autopilotLivePopupCmd.stop()
   warmupHold = false
   savedState = nil
   phase = 'sleep'
-  print('aplPopup: ВЫКЛ (свет оставлен как есть)')
+  aplPrint('aplPopup: ВЫКЛ (свет оставлен как есть)')
   toGE('INFO', 'popup auto OFF')
   return true
 end

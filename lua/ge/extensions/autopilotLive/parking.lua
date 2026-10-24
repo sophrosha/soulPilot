@@ -13,7 +13,8 @@
 
 local M = {}
 
-local CONF = 'mods/unpacked/AutopilotLive/ai/config/parking.json'
+local CONF_USER = 'settings/autopilotLive/parking.json'
+local CONF_MOD = 'mods/unpacked/AutopilotLive/ai/config/parking.json'
 
 local DEFAULTS = {
   poll_hz = 5.0,
@@ -83,14 +84,19 @@ end
 local function loadConfig()
   local c = {}
   for k, v in pairs(DEFAULTS) do c[k] = v end
-  local f = io.open(CONF, 'r')
+  local path = CONF_USER
+  local f = io.open(path, 'r')
   if not f then
-    note('WARN', 'конфиг не найден (' .. CONF .. ') — дефолты кода')
+    path = CONF_MOD
+    f = io.open(path, 'r')
+  end
+  if not f then
+    note('WARN', 'конфиг не найден (' .. path .. ') — дефолты кода')
     return c, false
   end
   local content = f:read('*all')
   f:close()
-  local ok, decoded = pcall(jsonDecode, content, CONF)
+  local ok, decoded = pcall(jsonDecode, content, path)
   if not ok or type(decoded) ~= 'table' then
     note('WARN', 'конфиг не распарсен — дефолты кода')
     return c, false

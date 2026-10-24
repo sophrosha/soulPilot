@@ -274,7 +274,7 @@ function autopilotLiveWheelCmd.on(confPath)
   needInit = true
   rateScale = 1.0 -- защита от «залипшего» pet-масштаба после перезапуска wheel
   local r = cfg.rate_limit
-  print('aplWheel: ON — mode=' .. tostring(cfg.mode or 'custom') ..
+  aplPrint('aplWheel: ON — mode=' .. tostring(cfg.mode or 'custom') ..
     ', rate ' .. tostring(r.steer_rise) .. '/' .. tostring(r.steer_fall) ..
     ', ema ' .. tostring(cfg.ema_tau.steer) .. ', lerp ' .. tostring(cfg.lerp_tau.steer))
   toGE('INFO', 'wheel ON (' .. (cfgFromFile and 'конфиг из файла' or 'ДЕФОЛТЫ') ..

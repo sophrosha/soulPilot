@@ -93,6 +93,14 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - Бинд `apl_ui_toggle` (Ctrl+Shift+U): открывает `pause.hudApps.selector` с поиском «AutopilotLive» (fallback — Quick Access). Первый раз приложение добавляется в HUD-раскладку через каталог, дальше доступно как HUD-app.
 - Проверки: app.vue компилируется через `@vue/compiler-sfc`; JSON/Lua (luaparser) OK; uiConfig в LuaJIT-моке читает/пишет конфиги и вызывает модули.
 
+**ФАЗА 12.3 (2026-10-25): UI в стиле BeamNG + userPath-конфиги + debug.**
+- `app.vue` переписан под нативный экран настроек: тёмный shell, левая навигация с иконками (выбранный пункт оранжевый, hover серый), справа группы в рамках, жирные белые заголовки; всё на одном экране (навигация скроллит), без отдельных страниц. Тумблеры овальные, профиль руля `< Комфорт >`, ползунки с параллелограммным бегунком и числовым полем. Normal/Expert; Debug Logging. Заглушка `apl_preview_ui.png` (белая) в About.
+- Конфиги: `settings/autopilotLive/*.json` — источник записей UI; `ai/config/*.json` — только дефолты. `uiConfig.readJson` читает user→mod; `setConfig` пишет только user; `main.readJsonFile` сначала user, `configPath` отдаёт vehicle user-путь при наличии. Затронуты wheel/pedals/warmup/music/parking/lights/master/popup/pain и UI-файлы.
+- Дефолты UI: `setModule` для music/lights/wheel/popup пишет `master.json` (`enable_music`/`enable_lights`/...); `masterFinish` перечитывает конфиг и не включает музыку, если UI её выключил.
+- Debug: `settings/autopilotLive/debug.json` + `apl_debug_set`; флаг уходит в vehicle (`autopilotLiveCmd.setDebug`); частые vehicle-print заменены на `aplPrint` (WARN/ERROR/status остаются). По умолчанию OFF.
+- Quick Access: третья кнопка «Парковка» → `apl_park("auto")`.
+- Проверки: @vue/compiler-sfc, luaparser, uiConfig LuaJIT-мок (userPath, setModule/master, debug), JSON переводов.
+
 **ФАЗА 12.1.1 (2026-10-25): Parking audit — маршрут только по связному навграфу.** По тесту: AI чуть не врезался в столб, поехал через лес и остановился посреди дороги.
 - Причина: `wpTargetList` — список **последовательных целей**, а не готовый маршрут; при неполном/пустом `getPointNodePath` и fallback `map.getPath` можно было отправить одну/несвязанные точки → AI ехал напрямик. Плюс не был включён traffic-режим до маршрута.
 - `parking.lua`: убран fallback `map.getPath`; только `map.getPointNodePath(pos,node,0,1e4,nil,nil,4)`.

@@ -187,7 +187,21 @@ end
 -- === Публичные команды (вызывает GE-слой через queueLuaCommand) ===
 -- Глобальная таблица: GE шлёт строку 'autopilotLiveCmd.startCsv("...")',
 -- она исполняется в VM машины как обычный Lua-код.
+-- === Фаза 12.3: debug flag из GE (UI) ===
+-- Частые диагностические print в vehicle-модулях используют aplPrint;
+-- WARN/ERROR и явные status-команды остаются видимыми.
+aplDebugEnabled = false
+function aplPrint(...)
+  if aplDebugEnabled then print(...) end
+end
+
 autopilotLiveCmd = {}
+
+function autopilotLiveCmd.setDebug(on)
+  aplDebugEnabled = (on == true or on == 1)
+  if aplDebugEnabled then print('aplDebug: vehicle logging ON') end
+  return true
+end
 
 function autopilotLiveCmd.startCsv(path)
   if csvActive then

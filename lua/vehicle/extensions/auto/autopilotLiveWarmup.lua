@@ -325,7 +325,7 @@ local function finish(timedOut)
       -- игровое время и окно карты (vehicle-слой ночь не знает).
       obj:queueGameEngineLua('if apl_popup then apl_popup("auto") end')
       obj:queueGameEngineLua('if apl_lights then apl_lights("auto") end')
-      print('aplWarmup: запрос apl_popup("auto") + apl_lights("auto") (GE)')
+      aplPrint('aplWarmup: запрос apl_popup("auto") + apl_lights("auto") (GE)')
       toGE('INFO', 'warmup: наши pedals/wheel включены (auto_engage) + запрос фар (popup/lights auto)')
     end)
   end
@@ -341,7 +341,7 @@ local function finish(timedOut)
     end)
     aiCheckT = 0.5
     aiCheckMode = aiMode
-    print('aplWarmup: AI START запрошен (vehicle-VM): mode=' .. aiMode ..
+    aplPrint('aplWarmup: AI START запрошен (vehicle-VM): mode=' .. aiMode ..
       (aiMode == 'traffic' and ' + driveInLane(on)' or '') .. (okAi and '' or (' ERR: ' .. tostring(errAi))))
     toGE('INFO', 'warmup: ai.setMode("' .. aiMode .. '") из vehicle-VM, ok=' .. tostring(okAi))
   else
@@ -384,7 +384,7 @@ local function swayStep(dt)
   -- Громкий маркер начала окна (игрок его пропускал — 24.10)
   if activePhase and not swayAnnounced then
     swayAnnounced = true
-    print(string.format('aplWarmup: SWAY START — окно %.2f-%.2f с (elapsed %.2f), amp %.3f, %.2f Гц',
+    aplPrint(string.format('aplWarmup: SWAY START — окно %.2f-%.2f с (elapsed %.2f), amp %.3f, %.2f Гц',
       swayStart, swayEnd, elapsed, cfg.sway.amplitude, cfg.sway.freq_hz))
     toGE('INFO', 'warmup: SWAY START (' .. fmt(swayStart) .. '-' .. fmt(swayEnd) .. 'с)')
   end
@@ -445,7 +445,7 @@ function M.updateGFX(dt)
       pcall(function() mode = tostring(ai.mode) end)
       pcall(function() driving = tostring(ai.isDriving()) end)
       pcall(function() gear = tostring(electrics.values.gear) end)
-      print('aplWarmup: AI CHECK (0.5с после finish): mode=' .. mode ..
+      aplPrint('aplWarmup: AI CHECK (0.5с после finish): mode=' .. mode ..
         ' isDriving=' .. driving .. ' gear=' .. gear .. ' (запрошен ' .. aiCheckMode .. ')')
       toGE('INFO', 'warmup: AI check mode=' .. mode .. ' driving=' .. driving .. ' gear=' .. gear)
     end
@@ -520,11 +520,11 @@ function autopilotLiveWarmupCmd.on(confPath, opts)
   -- Фаза 9.1: быстрый прогрев после восстановления — без покачивания рулём
   if type(opts) == 'table' and opts.noSway then
     cfg.sway.enabled = 0
-    print('aplWarmup: noSway — покачивание рулём отключено (быстрый прогрев)')
+    aplPrint('aplWarmup: noSway — покачивание рулём отключено (быстрый прогрев)')
   end
   -- Фаза 10.1: если двигатель уже заведён — прогрев не ждём (skip_if_warm)
   if type(opts) == 'table' and opts.skipIfWarm and engineRunning() then
-    print('aplWarmup: двигатель уже заведён — прогрев пропущен (skip_if_warm)')
+    aplPrint('aplWarmup: двигатель уже заведён — прогрев пропущен (skip_if_warm)')
     pcall(function()
       if autopilotLivePopupCmd and autopilotLivePopupCmd.wake_up then
         autopilotLivePopupCmd.wake_up()

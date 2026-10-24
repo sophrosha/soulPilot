@@ -377,7 +377,7 @@ local function diagDump(reason, extra)
     lines[#lines + 1] = '  кадр-' .. i .. ': ' .. (diagHist[(diagN - i) % 5 + 1] or 'n/a')
   end
   toGE('WARN', 'pedals DIAG: ' .. table.concat(lines, ' || '))
-  print('aplPedals DIAG: ' .. table.concat(lines, '\n'))
+  aplPrint('aplPedals DIAG: ' .. table.concat(lines, '\n'))
   pcall(function() -- дубль в файл (vehicle-io сандайлен — если нельзя, WARN/print уже ушли)
     local f = io.open('mods/unpacked/AutopilotLive/ai/logs/brake_anomaly.txt', 'a')
     if f then
@@ -402,7 +402,7 @@ function M.updateGFX(dt)
     if rateScaleT <= 0 then
       rateScale = 1.0
       rateScaleT = 0
-      print('aplPedals: rateScale восстановлен (1.00) — режим овоща закончен')
+      aplPrint('aplPedals: rateScale восстановлен (1.00) — режим овоща закончен')
       toGE('INFO', 'pedals rateScale restored to 1.0')
     end
   end
@@ -415,7 +415,7 @@ function M.updateGFX(dt)
   if not aiDriving then
     if aiWasDriving then
       aiWasDriving = false
-      print('aplPedals: AI ПАУЗА — override снят, lastOut ' ..
+      aplPrint('aplPedals: AI ПАУЗА — override снят, lastOut ' ..
         diagFmt(lastOut.throttle) .. ' (raw-вход игрока/ничья)')
     end
     clearOverrides()  -- У1: игрок/ничья — возврат на штатный ввод
@@ -434,7 +434,7 @@ function M.updateGFX(dt)
   if not aiWasDriving then
     aiWasDriving = true
     resumeT = 0
-    print(string.format('aplPedals: AI RESUME — raw %s, lastOut %s, cap %s, gear %s',
+    aplPrint(string.format('aplPedals: AI RESUME — raw %s, lastOut %s, cap %s, gear %s',
       diagFmt(thrRaw), diagFmt(lastOut.throttle), diagFmt(smoothStartFactor(getSpeed())),
       tostring(electrics.values.gear)))
   end
@@ -462,13 +462,13 @@ function M.updateGFX(dt)
         and (cfg.shift.hold_s or 0) > 0 then
       shiftHoldT = cfg.shift.hold_s
       shiftHoldVal = pipe.throttle.out
-      print(string.format('aplPedals: SHIFT %s→%s out=%.3f raw=%.3f ctrlThr=%s rpm=%.0f hold=%.1fs',
+      aplPrint(string.format('aplPedals: SHIFT %s→%s out=%.3f raw=%.3f ctrlThr=%s rpm=%.0f hold=%.1fs',
         prevGear, gear, pipe.throttle.out, thrRaw,
         tostring(electrics.values.throttle), tonumber(electrics.values.rpm) or 0, shiftHoldT))
     elseif prevGear ~= '' then
       -- нейтраль или hold выключен — старый hold не тянем
       shiftHoldT = 0
-      print(string.format('aplPedals: SHIFT %s→%s out=%.3f raw=%.3f (нейтраль/без hold)',
+      aplPrint(string.format('aplPedals: SHIFT %s→%s out=%.3f raw=%.3f (нейтраль/без hold)',
         prevGear, gear, pipe.throttle.out, thrRaw))
     end
   end
@@ -605,7 +605,7 @@ function M.updateGFX(dt)
       local gear, rpm = '?', 0
       pcall(function() gear = tostring(electrics.values.gear) end)
       pcall(function() rpm = tonumber(electrics.values.rpm) or 0 end)
-      print(string.format('aplPedals: ramp out=%.2f raw=%.2f gear=%s rpm=%.0f',
+      aplPrint(string.format('aplPedals: ramp out=%.2f raw=%.2f gear=%s rpm=%.0f',
         thrOut, thrRaw, gear, rpm))
     end
   else
@@ -705,7 +705,7 @@ function autopilotLivePedalsCmd.on(confPath)
     ' brk ' .. tostring(r.brake_rise) .. '/' .. tostring(r.brake_fall) ..
     ', ema ' .. tostring(cfg.ema_tau.throttle) .. '/' .. tostring(cfg.ema_tau.brake) ..
     ' с, старт-кап ' .. tostring(cfg.smooth_start.throttle_cap))
-  print(string.format('aplPedals: ON — rate thr %s/%s (ед/с), brk %s/%s, cap %s, dt-independent',
+  aplPrint(string.format('aplPedals: ON — rate thr %s/%s (ед/с), brk %s/%s, cap %s, dt-independent',
     tostring(r.throttle_rise), tostring(r.throttle_fall),
     tostring(r.brake_rise), tostring(r.brake_fall),
     tostring(cfg.smooth_start.throttle_cap)))
@@ -730,7 +730,7 @@ function autopilotLivePedalsCmd.setRateScale(s, duration)
   rateScale = s
   rateScaleT = duration
   print('=======================================')
-  print('РЕЖИМ ОВОЩА ВКЛЮЧЕН! СКОРОСТЬ ПЕДАЛИ: ' .. tostring(s) ..
+  aplPrint('РЕЖИМ ОВОЩА ВКЛЮЧЕН! СКОРОСТЬ ПЕДАЛИ: ' .. tostring(s) ..
     ' на ' .. string.format('%.1f', duration) .. ' с')
   print('=======================================')
   toGE('INFO', string.format('pedals РЕЖИМ ОВОЩА: rateScale %.2f for %.1fs', s, duration))

@@ -121,7 +121,7 @@ local function finish(reason)
   if active then
     local msg = 'ПОГЛАЖИВАНИЕ ЗАВЕРШЕНО (' .. string.format('%.1f', elapsed) .. ' с' ..
       (reason and (', ' .. reason) or '') .. ') — газ/ручник/руль штатные'
-    print('aplPet: ' .. msg)
+    aplPrint('aplPet: ' .. msg)
     toGE('INFO', 'pet done: ' .. string.format('%.1f', elapsed) .. 's' ..
       (reason and (' (' .. reason .. ')') or ''))
     notifyGE('onVehiclePetDone') -- GE гасит звук
@@ -210,7 +210,7 @@ function autopilotLivePetCmd.start(params)
   }
 
   local function refuse(msg, logMsg)
-    print('aplPet: ' .. msg)
+    aplPrint('aplPet: ' .. msg)
     toGE('WARN', 'pet refused: ' .. logMsg)
     notifyGE('onVehiclePetRejected') -- GE гасит уже запущенный звук
     return false
@@ -284,7 +284,7 @@ function autopilotLivePetCmd.start(params)
   end
   thrOverrideWritten = false
   -- Руль снижаем ПЛАВНО в updateGFX (rampS) — не дёргаем setRateScale здесь.
-  print('aplPet: ПОГЛАЖИВАНИЕ НАЧАТО (' .. string.format('%.0f', cfg.duration) ..
+  aplPrint('aplPet: ПОГЛАЖИВАНИЕ НАЧАТО (' .. string.format('%.0f', cfg.duration) ..
     ' с; газ НЕ трогаем (только звук и руль); ' ..
     ((not aiStart) and 'СТОЯНКА: ручник держим' or 'ДВИЖЕНИЕ: ручник снят') ..
     ', руль ×' .. string.format('%.2f', cfg.rateScale) ..

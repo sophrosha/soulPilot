@@ -1,29 +1,31 @@
--- AutopilotLive — Фаза 12.2: GE-мост для Vue-настроек.
--- Загружается из main.lua: extensions.load('autopilotLive/uiConfig').
+-- AutopilotLive — Фаза 12.3: GE-мост для Vue-настроек.
+-- Настройки живут в userPath: settings/autopilotLive/*.json.
+-- Файл из мода (ai/config) используется только как дефолт/fallback.
+-- Запись ВСЕГДА в settings/autopilotLive — мод можно упаковать в zip.
 --
 -- UI вызывает:
---   extensions.autopilotLive_uiConfig.getConfig()    -> таблица settings/state
+--   extensions.autopilotLive_uiConfig.getConfig()
 --   extensions.autopilotLive_uiConfig.setConfig({files={music={...}, wheel={...}}})
 --   extensions.autopilotLive_uiConfig.setModule("master"|"lights"|"music"|"parking", true|false)
---
--- setConfig сохраняет только известные файлы из ai/config; значения
--- проверяются на finite/тип. Комментарии в JSON сохраняются при слиянии.
+--   extensions.autopilotLive_uiConfig.setDebug(true|false)
 
 local M = {}
 
-local CONFIG_DIR = 'mods/unpacked/AutopilotLive/ai/config/'
+local MOD_CONFIG_DIR = 'mods/unpacked/AutopilotLive/ai/config/'
+local USER_CONFIG_DIR = 'settings/autopilotLive/'
 
 local FILES = {
-  master  = CONFIG_DIR .. 'master.json',
-  wheel   = CONFIG_DIR .. 'wheel.json',
-  music   = CONFIG_DIR .. 'music.json',
-  lights  = CONFIG_DIR .. 'lights.json',
-  popup   = CONFIG_DIR .. 'popup.json',
-  pet     = CONFIG_DIR .. 'pet.json',
-  pain    = CONFIG_DIR .. 'pain.json',
-  pedals  = CONFIG_DIR .. 'pedals.json',
-  warmup  = CONFIG_DIR .. 'warmup.json',
-  parking = CONFIG_DIR .. 'parking.json',
+  master  = 'master.json',
+  wheel   = 'wheel.json',
+  music   = 'music.json',
+  lights  = 'lights.json',
+  popup   = 'popup.json',
+  pet     = 'pet.json',
+  pain    = 'pain.json',
+  pedals  = 'pedals.json',
+  warmup  = 'warmup.json',
+  parking = 'parking.json',
+  debug   = 'debug.json',
 }
 
 local moduleState = {
@@ -32,9 +34,18 @@ local moduleState = {
   parking = false,
   wheel = false,
   popup = false,
+  debug = false,
 }
 
-local function readJson(path)
+local function ensureUserDir()
+  pcall(function()
+    if FS and FS.directoryCreate then
+      FS:directoryCreate(USER_CONFIG_DIR, true)
+    end
+  end)
+end
+
+local function readFile(path)
   local f = io.open(path, 'r')
   if not f then return nil end
   local content = f:read('*all')
@@ -43,6 +54,14 @@ local function readJson(path)
   local ok, decoded = pcall(jsonDecode, content, path)
   if not ok or type(decoded) ~= 'table' then return nil end
   return decoded
+end
+
+-- Пользовательский файл важнее; если его нет — дефолт из мода.
+local function readJson(name)
+  if not FILES[name] then return nil end
+  local user = readFile(USER_CONFIG_DIR .. FILES[name])
+  if user then return user end
+  return readFile(MOD_CONFIG_DIR .. FILES[name])
 end
 
 local function deepCopy(v)
@@ -59,7 +78,6 @@ local function isFiniteNumber(v)
   return true
 end
 
--- Убираем функции/NaN/inf; обычные JSON-типы оставляем.
 local function sanitize(v)
   local tv = type(v)
   if tv == 'number' then
@@ -88,7 +106,10 @@ local function deepMerge(dst, src)
   return dst
 end
 
-local function writeJson(path, data)
+local function writeJson(name, data)
+  if not FILES[name] then return false, 'unknown config: ' .. tostring(name) end
+  ensureUserDir()
+  local path = USER_CONFIG_DIR .. FILES[name]
   if type(jsonWriteFile) == 'function' then
     local ok, err = pcall(jsonWriteFile, path, data, true)
     if ok then return true end
@@ -123,25 +144,39 @@ local function masterState()
   return ok and tostring(value or 'off') or 'off'
 end
 
+-- Сохраняем выбор UI как дефолт мастера: masterFinish читает этот файл.
+local function setMasterDefault(key, on)
+  if not key then return end
+  local data = readJson('master') or {}
+  data[key] = on and 1 or 0
+  writeJson('master', data)
+end
+
+local function stateTable()
+  return {
+    master = masterState(),
+    lights = moduleState.lights,
+    music = moduleState.music,
+    parking = moduleState.parking,
+    wheel = moduleState.wheel,
+    popup = moduleState.popup,
+    debug = moduleState.debug,
+  }
+end
+
 -- === Публичные методы ===
 function M.getConfig()
+  ensureUserDir()
   local out = {
     version = 1,
     values = {},
-    files = {},
-    state = {
-      master = masterState(),
-      lights = moduleState.lights,
-      music = moduleState.music,
-      parking = moduleState.parking,
-      wheel = moduleState.wheel,
-      popup = moduleState.popup,
-    },
+    state = stateTable(),
   }
-  for key, path in pairs(FILES) do
-    out.values[key] = readJson(path) or {}
-    out.files[key] = path
+  for key in pairs(FILES) do
+    out.values[key] = readJson(key) or {}
   end
+  moduleState.debug = (tonumber(out.values.debug.enabled) or 0) ~= 0
+  out.state.debug = moduleState.debug
   return out
 end
 
@@ -172,14 +207,14 @@ function M.setConfig(payload)
 
   local written, errors, requiresRespawn = {}, {}, false
   for file, values in pairs(incoming) do
-    local current = readJson(FILES[file]) or {}
+    local current = readJson(file) or {}
     local sanitized = sanitize(values)
     if type(sanitized) ~= 'table' then
       table.insert(errors, file .. ': invalid values')
     else
       local merged = deepCopy(current)
       deepMerge(merged, sanitized)
-      local ok, err = writeJson(FILES[file], merged)
+      local ok, err = writeJson(file, merged)
       if ok then
         table.insert(written, file)
         if file == 'wheel' then requiresRespawn = true end
@@ -204,22 +239,27 @@ function M.setModule(name, on)
   name = tostring(name or ''):lower()
   on = (on == true or on == 1 or on == 'true')
 
-  local ok, result, err
+  local ok, result
   if name == 'master' then
     ok, result = callGlobal('apl_autopilot', on and 'on' or 'off')
   elseif name == 'lights' then
+    setMasterDefault('enable_lights', on)
     ok, result = callGlobal('apl_lights', on and 'auto' or 'off')
     if ok then moduleState.lights = (result == true) end
   elseif name == 'music' then
+    -- Критично: «музыка выключена» = дефолт мастера, а не только текущая команда.
+    setMasterDefault('enable_music', on)
     ok, result = callGlobal('apl_music', on and 'on' or 'off')
     if ok then moduleState.music = (result == true) end
   elseif name == 'parking' then
     ok, result = callGlobal('apl_park', on and 'auto' or 'cancel')
     if ok then moduleState.parking = (result == true) end
   elseif name == 'wheel' then
+    setMasterDefault('enable_wheel', on)
     ok, result = callGlobal('apl_wheel', on and 'on' or 'off')
     if ok then moduleState.wheel = (result == true) end
   elseif name == 'popup' then
+    setMasterDefault('enable_popup', on)
     ok, result = callGlobal('apl_popup', on and 'auto' or 'off')
     if ok then moduleState.popup = (result == true) end
   else
@@ -234,34 +274,31 @@ function M.setModule(name, on)
     errorMessage = 'module rejected the command'
   end
 
-  return {
-    ok = success,
-    result = result,
-    error = errorMessage,
-    state = {
-      master = masterState(),
-      lights = moduleState.lights,
-      music = moduleState.music,
-      parking = moduleState.parking,
-      wheel = moduleState.wheel,
-      popup = moduleState.popup,
-    },
-  }
+  return { ok = success, result = result, error = errorMessage, state = stateTable() }
+end
+
+function M.setDebug(on)
+  local enabled = (on == true or on == 1 or on == 'true')
+  local data = readJson('debug') or { enabled = 0 }
+  data.enabled = enabled and 1 or 0
+  local ok, err = writeJson('debug', data)
+  if not ok then
+    return { ok = false, error = tostring(err) }
+  end
+  moduleState.debug = enabled
+  pcall(function()
+    if apl_debug_set then apl_debug_set(enabled) end
+  end)
+  return { ok = true, enabled = enabled }
 end
 
 function M.getState()
-  return {
-    master = masterState(),
-    lights = moduleState.lights,
-    music = moduleState.music,
-    parking = moduleState.parking,
-    wheel = moduleState.wheel,
-    popup = moduleState.popup,
-  }
+  return stateTable()
 end
 
 function M.onExtensionLoaded()
-  print('aplUiConfig: GE-модуль загружен (Vue settings bridge)')
+  ensureUserDir()
+  print('aplUiConfig: userPath=' .. USER_CONFIG_DIR .. ', mod defaults=' .. MOD_CONFIG_DIR)
 end
 
 return M

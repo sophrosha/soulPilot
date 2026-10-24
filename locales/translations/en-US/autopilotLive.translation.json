@@ -1,7 +1,6 @@
 {
   "ui.apps.apl.name": "AutopilotLive",
   "ui.apps.apl.description": "AutopilotLive settings: master, lights, music, parking.",
-
   "apl.ui.title": "AutopilotLive",
   "apl.ui.subtitle": "Driving assistant settings",
   "apl.ui.normal": "Normal",
@@ -21,7 +20,6 @@
   "apl.ui.error": "Error",
   "apl.ui.aboutText": "AutopilotLive control panel. Normal mode — simple switches; Expert mode — fine tuning.",
   "apl.ui.expertHint": "Expert changes are saved to ai/config and may require a vehicle respawn.",
-
   "apl.modules.master": "Master",
   "apl.modules.master.desc": "Warmup, wheel, pedals, lights, popup, pain and AI traffic.",
   "apl.modules.lights": "Lights",
@@ -32,7 +30,6 @@
   "apl.modules.parking.desc": "Find a parking spot, stop, engage brake and switch the engine off.",
   "apl.modules.wheel": "Steering",
   "apl.modules.wheel.desc": "AI steering smoothing pipeline.",
-
   "apl.fields.sway_amp": "Parking sway amplitude",
   "apl.fields.vibration_amp": "Driving vibration amplitude",
   "apl.fields.beat_amp": "Beat kick amplitude",
@@ -44,5 +41,14 @@
   "apl.fields.lerp_tau": "Steering lerp (s)",
   "apl.fields.route_speed": "Parking route speed (m/s)",
   "apl.fields.arrival_radius": "Arrival radius (m)",
-  "apl.fields.stop_speed": "Stop speed (m/s)"
+  "apl.fields.stop_speed": "Stop speed (m/s)",
+  "apl.ui.general": "General",
+  "apl.ui.steering": "Steering",
+  "apl.ui.profile": "Steering profile",
+  "apl.ui.debug": "Debug",
+  "apl.ui.debugLogging": "Debug Logging",
+  "apl.ui.debugLogging.desc": "Print detailed vehicle diagnostics to the console.",
+  "apl.profile.comfort": "Comfort",
+  "apl.profile.sport": "Sport",
+  "apl.profile.custom": "Custom"
 }

@@ -125,7 +125,7 @@ local function report(kind, info)
   stuckT = 0
   flippedT = 0
   lastKind = kind
-  print('aplPain: ' .. kind .. ' → ' .. info)
+  aplPrint('aplPain: ' .. kind .. ' → ' .. info)
   toGE('INFO', 'pain ' .. kind .. ': ' .. info)
   notifyGE(kind, info)
 end
@@ -177,7 +177,7 @@ function M.updateGFX(dt)
     flippedT = flippedT + step
   else
     if flippedT > 0 then
-      print(string.format('aplPain: FLIPPED сброс — roll=%.0f pitch=%.0f', roll, pitch))
+      aplPrint(string.format('aplPain: FLIPPED сброс — roll=%.0f pitch=%.0f', roll, pitch))
     end
     flippedT = 0
   end
@@ -228,7 +228,7 @@ function autopilotLivePainCmd.start(params)
   ignoreT = 0
   dmgReqT = 0
   lastKind = '—'
-  print(string.format('aplPain: АВТО-ВОССТАНОВЛЕНИЕ ВКЛ (damage>=%.2f, stuck %.0f км/ч %.0f с, flip |roll|>90 или |pitch|>90)',
+  aplPrint(string.format('aplPain: АВТО-ВОССТАНОВЛЕНИЕ ВКЛ (damage>=%.2f, stuck %.0f км/ч %.0f с, flip |roll|>90 или |pitch|>90)',
     cfg.damage_threshold, cfg.stuck_speed_kph, cfg.stuck_time_s))
   toGE('INFO', 'pain auto ON')
   return true
@@ -238,7 +238,7 @@ function autopilotLivePainCmd.stop()
   if not active then return false end
   active = false
   cfg = nil
-  print('aplPain: ВЫКЛ')
+  aplPrint('aplPain: ВЫКЛ')
   toGE('INFO', 'pain auto OFF')
   return true
 end
@@ -247,7 +247,7 @@ end
 function autopilotLivePainCmd.ignoreDamage(seconds)
   ignoreT = clampNum(seconds, 0, 30, 3.0)
   stuckT, flippedT = 0, 0
-  print('aplPain: ignoreDamage=' .. string.format('%.1f', ignoreT) .. ' с')
+  aplPrint('aplPain: ignoreDamage=' .. string.format('%.1f', ignoreT) .. ' с')
   return true
 end
 
@@ -257,7 +257,7 @@ function autopilotLivePainCmd.setDamage(v, seq)
   local n = tonumber(v)
   if n == nil or n ~= n then n = 0 end
   damage = clampNum(n, 0, 1e9, 0)
-  print('PAIN RECV: ' .. tostring(v) .. ' (seq ' .. tostring(seq or '?') .. ') → damage=' ..
+  aplPrint('PAIN RECV: ' .. tostring(v) .. ' (seq ' .. tostring(seq or '?') .. ') → damage=' ..
     string.format('%.1f', damage) .. ' (порог ' ..
     string.format('%.1f', active and cfg and cfg.damage_threshold or -1) .. ')')
   return true

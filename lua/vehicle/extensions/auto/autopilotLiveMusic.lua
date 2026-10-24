@@ -15,7 +15,8 @@
 
 local M = {}
 
-local CONF = 'mods/unpacked/AutopilotLive/ai/config/music.json'
+local CONF_USER = 'settings/autopilotLive/music.json'
+local CONF_MOD = 'mods/unpacked/AutopilotLive/ai/config/music.json'
 local STALE_S = 0.3
 local BEAT_ATTACK_S = 0.05  -- Фаза 11.4: плавный подъём огибающей beat
 
@@ -70,14 +71,19 @@ end
 local function loadConfig()
   local c = {}
   for k, v in pairs(DEFAULTS) do c[k] = v end
-  local f = io.open(CONF, 'r')
+  local path = CONF_USER
+  local f = io.open(path, 'r')
   if not f then
-    toGE('WARN', 'music: конфиг не найден (' .. CONF .. ') — дефолты кода')
+    path = CONF_MOD
+    f = io.open(path, 'r')
+  end
+  if not f then
+    toGE('WARN', 'music: конфиг не найден (' .. path .. ') — дефолты кода')
     return c, false
   end
   local content = f:read('*all')
   f:close()
-  local ok, decoded = pcall(jsonDecode, content, CONF)
+  local ok, decoded = pcall(jsonDecode, content, path)
   if not ok or type(decoded) ~= 'table' then
     toGE('WARN', 'music: конфиг не распарсен — дефолты кода')
     return c, false
@@ -179,7 +185,7 @@ local function startInternal(verbose)
   pulseActive = false
   lastPulseT = -1e9
   if verbose then
-    print(string.format(
+    aplPrint(string.format(
       'aplMusic: ON — sway %.3f@%.2fГц, вибрация %.4f@%.0fГц, beat %.3f (attack 50мс/decay %.2fс), lights=%d',
       cfg.sway_amp, cfg.sway_hz, cfg.vibration_amp, cfg.vibration_hz,
       cfg.beat_amp, cfg.beat_decay_s, cfg.lights_pulse))
@@ -212,7 +218,7 @@ function autopilotLiveMusicCmd.stop()
   bassSmooth = 0
   beatEnv = 0
   dataAge = STALE_S + 1
-  print('aplMusic: OFF')
+  aplPrint('aplMusic: OFF')
   toGE('INFO', 'music OFF')
   return true
 end

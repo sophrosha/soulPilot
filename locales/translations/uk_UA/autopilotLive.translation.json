@@ -1,7 +1,6 @@
 {
   "ui.apps.apl.name": "AutopilotLive",
   "ui.apps.apl.description": "Налаштування AutopilotLive: майстер, фари, музика, паркування.",
-
   "apl.ui.title": "AutopilotLive",
   "apl.ui.subtitle": "Налаштування помічника водіння",
   "apl.ui.normal": "Звичайний",
@@ -21,7 +20,6 @@
   "apl.ui.error": "Помилка",
   "apl.ui.aboutText": "Панель керування AutopilotLive. Звичайний режим — прості перемикачі, Експерт — тонке налаштування.",
   "apl.ui.expertHint": "Зміни експерта зберігаються в ai/config і можуть потребувати переспавну авто.",
-
   "apl.modules.master": "Майстер",
   "apl.modules.master.desc": "Прогрів, кермо, педалі, фари, popup, біль і AI-трафік.",
   "apl.modules.lights": "Фари",
@@ -32,7 +30,6 @@
   "apl.modules.parking.desc": "Знайти місце, зупинитися, увімкнути ручник і заглушити двигун.",
   "apl.modules.wheel": "Кермо",
   "apl.modules.wheel.desc": "Конвеєр згладжування керма AI.",
-
   "apl.fields.sway_amp": "Амплітуда похитування на стоянці",
   "apl.fields.vibration_amp": "Амплітуда вібрації в русі",
   "apl.fields.beat_amp": "Амплітуда поштовху на beat",
@@ -44,5 +41,14 @@
   "apl.fields.lerp_tau": "Дотягування керма (с)",
   "apl.fields.route_speed": "Швидкість маршруту паркування (м/с)",
   "apl.fields.arrival_radius": "Радіус прибуття (м)",
-  "apl.fields.stop_speed": "Швидкість зупинки (м/с)"
+  "apl.fields.stop_speed": "Швидкість зупинки (м/с)",
+  "apl.ui.general": "???????",
+  "apl.ui.steering": "?????",
+  "apl.ui.profile": "??????? ?????",
+  "apl.ui.debug": "????????????",
+  "apl.ui.debugLogging": "Debug Logging",
+  "apl.ui.debugLogging.desc": "????????? ???????? ??????????? vehicle-???? ? ???????.",
+  "apl.profile.comfort": "???????",
+  "apl.profile.sport": "?????",
+  "apl.profile.custom": "????"
 }

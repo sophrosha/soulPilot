@@ -1089,7 +1089,34 @@ local function inNightWindow(h, s, e)
   return h >= s or h < e
 end
 
+-- Фаза 12.3: пользовательские настройки в userPath (переживают zip-мод).
+-- ai/config — дефолты; settings/autopilotLive — запись UI и приоритет чтения.
+local USER_CONFIG_DIR = 'settings/autopilotLive/'
+local MOD_CONFIG_DIR = 'mods/unpacked/AutopilotLive/ai/config/'
+
+local function configPath(name)
+  if type(name) ~= 'string' or name == '' then return nil end
+  local userPath = USER_CONFIG_DIR .. name
+  local f = io.open(userPath, 'r')
+  if f then
+    f:close()
+    return userPath
+  end
+  return MOD_CONFIG_DIR .. name
+end
+
 local function readJsonFile(path)
+  if type(path) == 'string' then
+    local name = path:match('([^/]+)$')
+    if name then
+      local up = USER_CONFIG_DIR .. name
+      local uf = io.open(up, 'r')
+      if uf then
+        uf:close()
+        path = up
+      end
+    end
+  end
   local f = io.open(path, 'r')
   if not f then return nil end
   local content = f:read('*all')
@@ -1357,8 +1384,10 @@ function apl_lights(mode, value)
     end
     if type(decoded.modes) ~= 'table' then decoded.modes = {} end
     decoded.modes[key] = v
-    if not jsonWriteFile(LIGHTS_CONF, decoded, true) then
-      print('ERROR apl_lights: не удалось записать ' .. LIGHTS_CONF)
+    pcall(function() if FS and FS.directoryCreate then FS:directoryCreate(USER_CONFIG_DIR, true) end end)
+    local userLights = USER_CONFIG_DIR .. 'lights.json'
+    if not jsonWriteFile(userLights, decoded, true) then
+      print('ERROR apl_lights: не удалось записать ' .. userLights)
       logLine('WARN', 'lights config write failed: ' .. key .. '=' .. tostring(v))
       return false
     end
@@ -1525,7 +1554,7 @@ local masterCfg = nil
 local qaRetryAcc = 0           -- Фаза 10.5: retry регистрации Quick Access
 local MASTER_DEFAULTS = {
   enable_wheel = 1, enable_pedals = 1, enable_lights = 1,
-  enable_popup = 1, enable_pain = 1,
+  enable_popup = 1, enable_pain = 1, enable_music = 0,
   ai_mode = 'traffic', skip_warmup_if_warm = 1,
 }
 
@@ -1545,6 +1574,7 @@ local function loadMasterConfig()
     c.enable_lights = num('enable_lights', D.enable_lights)
     c.enable_popup = num('enable_popup', D.enable_popup)
     c.enable_pain = num('enable_pain', D.enable_pain)
+    c.enable_music = num('enable_music', D.enable_music)
     c.skip_warmup_if_warm = num('skip_warmup_if_warm', D.skip_warmup_if_warm)
     if type(decoded.ai_mode) == 'string' then
       local m = decoded.ai_mode:lower()
@@ -1918,7 +1948,7 @@ function M.onVehiclePain(kind, info)
   -- Быстрый прогрев (sway отключается флагом noSway)
   if cfg.warmup_after > 0 then
     sendToVehicle(string.format("autopilotLiveWarmupCmd.on('%s', {noSway=%s})",
-      WARMUP_CONF, tostring(cfg.warmup_sway == 0)))
+      configPath('warmup.json'), tostring(cfg.warmup_sway == 0)))
   end
   -- Вернуть автопилот — ТОЛЬКО если мастер включён (иначе машина не должна ехать)
   if cfg.restore_ai > 0 and masterState == 'on' then
@@ -1933,7 +1963,7 @@ local function masterFinish()
   if not masterPending then return end
   masterPending = false
   masterState = 'on'
-  local cfg = masterCfg or loadMasterConfig()
+  local cfg = loadMasterConfig()
   if cfg.enable_wheel == 1 and not wheelRequested then
     if apl_wheel then apl_wheel('on') end
   end
@@ -1948,6 +1978,10 @@ local function masterFinish()
   end
   if cfg.enable_pain == 1 and not painAuto then
     if apl_pain then apl_pain('auto') end
+  end
+  if cfg.enable_music == 1 and apl_music then
+    -- Уважаем сохранённый дефолт UI: если музыка выключена, мастер её не включает.
+    apl_music('on')
   end
   local mode = (cfg.ai_mode ~= '' and cfg.ai_mode) or 'traffic'
   sendToVehicle(string.format('if ai and ai.setMode then ai.setMode("%s") end', mode))
@@ -1983,7 +2017,7 @@ function apl_autopilot(mode)
     masterWaitT = 0
     local cmd = string.format(
       "autopilotLiveWarmupCmd.on('%s', {noSway=false, skipIfWarm=%s})",
-      WARMUP_CONF, tostring(cfg.skip_warmup_if_warm == 1))
+      configPath('warmup.json'), tostring(cfg.skip_warmup_if_warm == 1))
     if not sendToVehicle(cmd) then
       masterPending = false
       masterState = 'off'
@@ -1995,7 +2029,8 @@ function apl_autopilot(mode)
       (cfg.enable_pedals == 1 and 'pedals ' or '') ..
       (cfg.enable_lights == 1 and 'lights ' or '') ..
       (cfg.enable_popup == 1 and 'popup ' or '') ..
-      (cfg.enable_pain == 1 and 'pain ' or '') .. '+ AI "' .. cfg.ai_mode .. '"')
+      (cfg.enable_pain == 1 and 'pain ' or '') ..
+      (cfg.enable_music == 1 and 'music ' or '') .. '+ AI "' .. cfg.ai_mode .. '"')
     logLine('INFO', 'master ON: warmup started, skipIfWarm=' .. tostring(cfg.skip_warmup_if_warm))
     return true
   end
@@ -2024,9 +2059,9 @@ function apl_autopilot(mode)
     print('модули: wheel=' .. tostring(wheelRequested) .. ' pedals=' .. tostring(pedalsRequested) ..
       ' lights=' .. tostring(lightsAuto) .. ' popup=' .. tostring(popupAuto) ..
       ' pain=' .. tostring(painAuto))
-    print(string.format('конфиг: wheel=%d pedals=%d lights=%d popup=%d pain=%d, ai=%s, skip_warmup_if_warm=%d',
+    print(string.format('конфиг: wheel=%d pedals=%d lights=%d popup=%d pain=%d music=%d, ai=%s, skip_warmup_if_warm=%d',
       cfg.enable_wheel, cfg.enable_pedals, cfg.enable_lights, cfg.enable_popup,
-      cfg.enable_pain, cfg.ai_mode, cfg.skip_warmup_if_warm))
+      cfg.enable_pain, cfg.enable_music, cfg.ai_mode, cfg.skip_warmup_if_warm))
     return true
   end
 
@@ -2053,6 +2088,27 @@ function apl_debug()
     stopCsvRecording()
     closeLogFile()
   end
+  sendToVehicle('autopilotLiveCmd.setDebug(' .. tostring(debugEnabled) .. ')')
+  return debugEnabled
+end
+
+-- Фаза 12.3: debug-флаг из UI (persist в settings/autopilotLive/debug.json).
+function apl_debug_set(on)
+  on = (on == true or on == 1)
+  if on == debugEnabled then
+    sendToVehicle('autopilotLiveCmd.setDebug(' .. tostring(debugEnabled) .. ')')
+    return debugEnabled
+  end
+  debugEnabled = on
+  if on then
+    openLogFile()
+    logLine('INFO', '=== Дебаг ВКЛЮЧЁН (UI) ===')
+  else
+    logLine('INFO', '=== Дебаг ВЫКЛЮЧЕН (UI) ===')
+    closeLogFile()
+  end
+  sendToVehicle('autopilotLiveCmd.setDebug(' .. tostring(debugEnabled) .. ')')
+  print('apl_debug_set: ' .. tostring(debugEnabled))
   return debugEnabled
 end
 
@@ -2078,7 +2134,6 @@ end
 -- Логика сглаживания живёт в vehicle-слое (autopilotLivePedals.lua); GE-слой
 -- только шлёт команду и конфиг. Педали 0..1, конвейер rate_limit→ema→lerp,
 -- перехват через electrics.values.*Override (api_research_phase3.md).
-local PEDALS_CONF = 'mods/unpacked/AutopilotLive/ai/config/pedals.json'
 
 -- Ф8.1 (24.10): авто-старт CSV при включении модулей (надоело забывать apl_debug).
 -- 1 = при apl_pedals("on")/apl_wheel("on")/apl_warmup("start") начать запись,
@@ -2100,6 +2155,7 @@ end
 
 function apl_pedals(mode)
   mode = tostring(mode or ''):lower()
+  local PEDALS_CONF = configPath('pedals.json')
   if mode == 'on' then
     -- Диагностика ДО отправки: конфиг читается vehicle-слоем по тому же
     -- относительному пути (CWD общий для GE и vehicle-VM, см. 1.6b)
@@ -2152,10 +2208,10 @@ end
 -- Логика сглаживания живёт в vehicle-слое (autopilotLiveWheel.lua); GE-слой
 -- только шлёт команду и конфиг. Руль нормированный [-1,1], конвейер
 -- rate_limit→ema→lerp, ЗАМЕНА движкового FILTER_AI своим (api_research_phase4.md).
-local WHEEL_CONF = 'mods/unpacked/AutopilotLive/ai/config/wheel.json'
 
 function apl_wheel(mode)
   mode = tostring(mode or ''):lower()
+  local WHEEL_CONF = configPath('wheel.json')
   if mode == 'on' then
     local confOk = FS and FS:fileExists(WHEEL_CONF) or false
     if not confOk then
@@ -2205,10 +2261,10 @@ end
 -- electrics.setIgnitionLevel(3) (ICE) и прогрев до coolant/oil порогов
 -- (api_research_phase5.md). GE шлёт команду и конфиг. НЕ трогает wheel/pedals:
 -- они работают независимо, warmup — state-machine поверх.
-local WARMUP_CONF = 'mods/unpacked/AutopilotLive/ai/config/warmup.json'
 
 function apl_warmup(mode)
   mode = tostring(mode or 'start'):lower()
+  local WARMUP_CONF = configPath('warmup.json')
   if mode == 'start' then
     local confOk = FS and FS:fileExists(WARMUP_CONF) or false
     if not confOk then
@@ -2280,7 +2336,7 @@ function M.onVehicleWarmupDone(vehId, elapsed, tempC, autoEngage, timedOut)
     -- игрок). GE знает, включены ли уже: повторный on перезапустил бы конфиг
     -- и плавный старт — не дублируем (контракт «warmup не мешает wheel/pedals»).
     if not wheelRequested then
-      if sendToVehicle(string.format('autopilotLiveWheelCmd.on("%s")', WHEEL_CONF)) then
+      if sendToVehicle(string.format('autopilotLiveWheelCmd.on("%s")', configPath('wheel.json'))) then
         wheelRequested = true
         print('apl_warmup: auto_engage — apl_wheel ВКЛЮЧЁН')
         logLine('INFO', 'warmup auto_engage: wheel ON')
@@ -2290,7 +2346,7 @@ function M.onVehicleWarmupDone(vehId, elapsed, tempC, autoEngage, timedOut)
       logLine('INFO', 'warmup auto_engage: wheel уже включён — пропуск')
     end
     if not pedalsRequested then
-      if sendToVehicle(string.format('autopilotLivePedalsCmd.on("%s")', PEDALS_CONF)) then
+      if sendToVehicle(string.format('autopilotLivePedalsCmd.on("%s")', configPath('pedals.json'))) then
         pedalsRequested = true
         print('apl_warmup: auto_engage — apl_pedals ВКЛЮЧЁН')
         logLine('INFO', 'warmup auto_engage: pedals ON')
@@ -2357,6 +2413,7 @@ end
 
 -- vehicle сообщает, что его расширение активно (шаг 1.3 при спавне)
 function M.onVehicleReady(vehId)
+  sendToVehicle('autopilotLiveCmd.setDebug(' .. tostring(debugEnabled) .. ')')
   logLine('INFO', 'Vehicle-слой активен (vehId=' .. tostring(vehId) .. ')')
 end
 
@@ -2567,6 +2624,11 @@ end
 -- === Жизненный цикл расширения ===
 function M.onExtensionLoaded()
   dataDir = resolveDataDir()
+  local dbg = readJsonFile(USER_CONFIG_DIR .. 'debug.json')
+  if dbg and tonumber(dbg.enabled) == 1 then
+    debugEnabled = true
+    openLogFile()
+  end
   if dataDir then
     log('I', logTag, 'AutopilotLive GE-слой загружен. Каталог данных: ' .. dataDir.name)
   else
