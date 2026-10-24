@@ -23,12 +23,17 @@
       </nav>
 
       <div class="apl-sidebar-bottom">
-        <label class="apl-language">
-          <span>{{ t("apl.ui.language") }}</span>
-          <select v-model="lang" class="apl-language-select" @change="changeLanguage">
-            <option v-for="item in languages" :key="item.id" :value="item.id">{{ item.label }}</option>
-          </select>
-        </label>
+        <div class="apl-language">
+          <button
+            v-for="item in languages"
+            :key="item.id"
+            class="apl-lang-btn"
+            :class="{ active: lang === item.id }"
+            @click="changeLanguage(item.id)"
+          >
+            <span>{{ item.label }}</span>
+          </button>
+        </div>
         <div class="apl-version">AutopilotLive · 12.3</div>
       </div>
     </aside>
@@ -629,17 +634,20 @@ function applyStatus(status) {
   if (status.language) lang.value = normalizeLang(status.language)
 }
 
-function changeLanguage() {
+function changeLanguage(nextLang) {
+  if (!nextLang || nextLang === lang.value) return
+  const previous = lang.value
+  lang.value = nextLang
   error.value = ""
   messageKey.value = ""
   api.engineLua(
-    `extensions.autopilotLive_uiConfig.setLanguage(${JSON.stringify(lang.value)})`,
+    `extensions.autopilotLive_uiConfig.setLanguage(${JSON.stringify(nextLang)})`,
     result => {
       if (!result || result.ok === false) {
+        lang.value = previous
         error.value = (result && result.error) || "Unable to save language"
         return
       }
-      if (result.state) applyStatus(result.state)
       messageKey.value = "apl.ui.saved"
     },
   )
@@ -686,15 +694,11 @@ function toggleModule(id) {
   messageKey.value = ""
   api.engineLua(
     `extensions.autopilotLive_uiConfig.setModule(${JSON.stringify(id)}, ${next ? "true" : "false"})`,
-    result => {
-      if (!result || result.ok === false) {
+    saved => {
+      if (saved !== true) {
         moduleState[id] = !next
-        error.value = (result && result.error) || "Unable to change module"
+        error.value = "Unable to save setting"
         return
-      }
-      if (result.state) {
-        state.status = result.state
-        applyStatus(result.state)
       }
       messageKey.value = "apl.ui.saved"
     },
@@ -891,25 +895,37 @@ onMounted(refresh)
 }
 
 .apl-language {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 10px 10px;
-  color: var(--apl-muted);
-  font-size: 11px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 0 8px 10px;
 }
 
-.apl-language-select {
-  height: 28px;
-  padding: 0 6px;
+.apl-lang-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 4px;
   border: 1px solid var(--apl-line);
   border-radius: 3px;
-  background: #111316;
-  color: var(--apl-text);
+  background: #20242a;
+  color: var(--apl-muted);
   font: inherit;
-  font-size: 11px;
-  outline: none;
+  font-size: 10px;
+  cursor: pointer;
+
+  &:hover {
+    background: #292d33;
+    color: var(--apl-text);
+  }
+
+  &.active {
+    border-color: var(--apl-accent);
+    background: rgba(255, 138, 31, 0.12);
+    color: #fff;
+  }
 }
 
 .apl-version {

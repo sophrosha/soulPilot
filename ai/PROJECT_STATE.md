@@ -93,6 +93,14 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - Бинд `apl_ui_toggle` (Ctrl+Shift+U): открывает `pause.hudApps.selector` с поиском «AutopilotLive» (fallback — Quick Access). Первый раз приложение добавляется в HUD-раскладку через каталог, дальше доступно как HUD-app.
 - Проверки: app.vue компилируется через `@vue/compiler-sfc`; JSON/Lua (luaparser) OK; uiConfig в LuaJIT-моке читает/пишет конфиги и вызывает модули.
 
+**ФАЗА 12.3.2 (2026-10-25): UI — только настройки.**
+- `uiConfig.setModule` пишет только `enable_*` в `settings/autopilotLive/master.json` и возвращает true/false; никаких apl_music/apl_lights/apl_park/apl_autopilot/callGlobal. Parking — флаг `enable_parking` (не запуск); Master — `enable_master`.
+- `stateTable` читает сохранённые флаги master.json (UI показывает настройки, не live-состояние).
+- `app.vue.toggleModule` — только `setModule(id,next)` + локальная галочка; физических команд нет.
+- Язык: 4 кнопки RU/EN/UK/BY, `lang` ref меняется сразу (реактивность), выбор пишется в `ui.json`; локальные словари en/ru/uk/by с fallback en; исправлены реальные `??????` в JSON (UTF-8 без BOM).
+- Иконка General: `settings` → `cogOutline` (settings — группа иконок). Sidebar 220px, rows 40px, группы 24px, границы 1px, ползунок 3px/параллелограмм, тумблер 36×20, `scrollIntoView({block:'start'})`.
+- `master.json`: `enable_master`, `enable_parking`.
+
 **ФАЗА 12.3 (2026-10-25): UI в стиле BeamNG + userPath-конфиги + debug.**
 - `app.vue`: нативный экран настроек с левой навигацией (иконки, активный пункт оранжевый, hover серый), группы в рамках, тёмный фон, один экран. Размеры: sidebar 220px, строки 40px, панели/отступы 24px, границы 1px. Тумблеры овальные, профиль руля `< >`, плоские ползунки с параллелограммным бегунком и числовым полем. Normal/Expert, Debug Logging. Заглушка `apl_preview_ui.png` (белая) в About.
 - `app.vue`: локальные словари en/ru/uk/by с fallback на en (устраняет `??????` даже если game-locale не загрузился), селектор языка внизу слева; выбор пишется в `settings/autopilotLive/ui.json`, по умолчанию берётся `core_locales.getLanguage()`. Навигация использует `scrollIntoView({block:'start'})`.

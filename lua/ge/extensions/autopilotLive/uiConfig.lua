@@ -29,15 +29,6 @@ local FILES = {
   ui      = 'ui.json',
 }
 
-local moduleState = {
-  lights = false,
-  music = false,
-  parking = false,
-  wheel = false,
-  popup = false,
-  debug = false,
-}
-
 local function ensureUserDir()
   pcall(function()
     if FS and FS.directoryCreate then
@@ -128,16 +119,6 @@ local function writeJson(name, data)
   return true
 end
 
-local function callGlobal(name, arg)
-  local fn = _G[name]
-  if type(fn) ~= 'function' then
-    return false, 'global ' .. tostring(name) .. ' отсутствует'
-  end
-  local ok, result = pcall(fn, arg)
-  if not ok then return false, tostring(result) end
-  return true, result
-end
-
 local function masterState()
   local ok, value = pcall(function()
     return apl_autopilotState and apl_autopilotState() or 'off'
@@ -147,15 +128,11 @@ end
 
 -- Сохраняем выбор UI как дефолт мастера: masterFinish читает этот файл.
 local function setMasterDefault(key, on)
-  if not key then return end
+  if not key then return false end
   local data = readJson('master') or {}
   data[key] = on and 1 or 0
-  writeJson('master', data)
-end
-
-local function savedMaster()
-  local data = readJson('master') or {}
-  return (tonumber(data.enable_master) or 0) ~= 0
+  local ok = writeJson('master', data)
+  return ok == true
 end
 
 local function getGameLanguage()
@@ -183,16 +160,21 @@ local function uiLanguage()
 end
 
 local function stateTable()
+  local master = readJson('master') or {}
+  local function flag(name)
+    return (tonumber(master[name]) or 0) ~= 0
+  end
+  local debug = readJson('debug') or {}
   return {
-    master = savedMaster(),
+    master = flag('enable_master'),
     masterLive = masterState(),
     language = uiLanguage(),
-    lights = moduleState.lights,
-    music = moduleState.music,
-    parking = moduleState.parking,
-    wheel = moduleState.wheel,
-    popup = moduleState.popup,
-    debug = moduleState.debug,
+    lights = flag('enable_lights'),
+    music = flag('enable_music'),
+    parking = flag('enable_parking'),
+    wheel = flag('enable_wheel'),
+    popup = flag('enable_popup'),
+    debug = (tonumber(debug.enabled) or 0) ~= 0,
   }
 end
 
@@ -207,8 +189,6 @@ function M.getConfig()
   for key in pairs(FILES) do
     out.values[key] = readJson(key) or {}
   end
-  moduleState.debug = (tonumber(out.values.debug.enabled) or 0) ~= 0
-  out.state.debug = moduleState.debug
   return out
 end
 
@@ -267,48 +247,23 @@ function M.setConfig(payload)
   }
 end
 
+-- UI — это только настройки. Никаких вызовов apl_music/apl_lights/
+-- apl_park и т.п.: физический старт делает apl_autopilot("on").
+local MODULE_FLAGS = {
+  master = 'enable_master',
+  lights = 'enable_lights',
+  music = 'enable_music',
+  parking = 'enable_parking',
+  wheel = 'enable_wheel',
+  popup = 'enable_popup',
+}
+
 function M.setModule(name, on)
   name = tostring(name or ''):lower()
+  local key = MODULE_FLAGS[name]
+  if not key then return false end
   on = (on == true or on == 1 or on == 'true')
-
-  local ok, result
-  if name == 'master' then
-    -- UI — только настройки. Физический запуск — только apl_autopilot("on").
-    setMasterDefault('enable_master', on)
-    ok, result = true, on
-  elseif name == 'lights' then
-    setMasterDefault('enable_lights', on)
-    ok, result = callGlobal('apl_lights', on and 'auto' or 'off')
-    if ok then moduleState.lights = (result == true) end
-  elseif name == 'music' then
-    -- Критично: «музыка выключена» = дефолт мастера, а не только текущая команда.
-    setMasterDefault('enable_music', on)
-    ok, result = callGlobal('apl_music', on and 'on' or 'off')
-    if ok then moduleState.music = (result == true) end
-  elseif name == 'parking' then
-    ok, result = callGlobal('apl_park', on and 'auto' or 'cancel')
-    if ok then moduleState.parking = (result == true) end
-  elseif name == 'wheel' then
-    setMasterDefault('enable_wheel', on)
-    ok, result = callGlobal('apl_wheel', on and 'on' or 'off')
-    if ok then moduleState.wheel = (result == true) end
-  elseif name == 'popup' then
-    setMasterDefault('enable_popup', on)
-    ok, result = callGlobal('apl_popup', on and 'auto' or 'off')
-    if ok then moduleState.popup = (result == true) end
-  else
-    return { ok = false, error = 'unknown module: ' .. name }
-  end
-
-  local success = ok and (result ~= false)
-  local errorMessage = nil
-  if not ok then
-    errorMessage = tostring(result)
-  elseif result == false then
-    errorMessage = 'module rejected the command'
-  end
-
-  return { ok = success, result = result, error = errorMessage, state = stateTable() }
+  return setMasterDefault(key, on)
 end
 
 function M.setDebug(on)
@@ -319,7 +274,6 @@ function M.setDebug(on)
   if not ok then
     return { ok = false, error = tostring(err) }
   end
-  moduleState.debug = enabled
   pcall(function()
     if apl_debug_set then apl_debug_set(enabled) end
   end)
