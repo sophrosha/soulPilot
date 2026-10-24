@@ -7,7 +7,7 @@ local M = {}
 
 local DEFAULTS = {
   check_hz = 1.0,
-  damage_threshold = 2500.0,
+  damage_threshold = 10000000.0,
   stuck_speed_kph = 5.0,
   stuck_time_s = 5.0,
   stuck_throttle_min = 0.5,
@@ -66,14 +66,29 @@ local function throttleRaw()
   return v
 end
 
-local function upDot()
-  local ok, d = pcall(function()
-    return obj:getDirectionVectorUp():dot(vec3(0, 0, 1))
-  end)
-  if not ok then return 1 end
-  d = tonumber(d) or 1
-  if d ~= d then return 1 end
-  return d
+-- Углы Эйлера (градусы). getDirectionVectorUp() в 0.39.4 врёт (up≈0.97 при
+-- машине на крыше) — НЕ используем. Fallback: матрица трансформации (up = 3-я
+-- колонка), только если углы подозрительно нулевые.
+local function rollPitch()
+  local roll, pitch = 0, 0
+  pcall(function() roll = tonumber(obj:getRollAngle()) or 0 end)
+  pcall(function() pitch = tonumber(obj:getPitchAngle()) or 0 end)
+  roll = tonumber(roll) or 0
+  pitch = tonumber(pitch) or 0
+  if roll ~= roll then roll = 0 end
+  if pitch ~= pitch then pitch = 0 end
+  local flipped = math.abs(roll) > 90 or math.abs(pitch) > 90
+  if not flipped and math.abs(roll) < 0.01 and math.abs(pitch) < 0.01 then
+    local ok, m = pcall(function() return obj:getTransform() end)
+    if ok and m then
+      local ok2, up = pcall(function() return m:getColumn(2) end)
+      if ok2 and up then
+        local ok3, d = pcall(function() return up:dot(vec3(0, 0, 1)) end)
+        if ok3 and d and d < 0.3 then flipped = true end
+      end
+    end
+  end
+  return roll, pitch, flipped
 end
 
 local function aiDriving()
@@ -143,22 +158,21 @@ function M.updateGFX(dt)
 
   local spd = speedKph()
   local thr = throttleRaw()
-  local up = upDot()
+  local roll, pitch, isFlipped = rollPitch()
   local drv = aiDriving()
 
-  -- FLIPPED: сначала проверяем порог, затем обновляем таймер. Если up >= порога
-  -- (машина стоит ровно) — таймер СБРАСЫВАЕТСЯ (ложные срабатывания 24.10).
-  local isFlipped = up < cfg.flipped_up_dot
+  -- FLIPPED: |roll| > 90 или |pitch| > 90 (углы Эйлера, градусы)
   if isFlipped then
     flippedT = flippedT + step
   else
     if flippedT > 0 then
-      print(string.format('aplPain: FLIPPED сброс — up=%.2f >= %.2f', up, cfg.flipped_up_dot))
+      print(string.format('aplPain: FLIPPED сброс — roll=%.0f pitch=%.0f', roll, pitch))
     end
     flippedT = 0
   end
-  if isFlipped and flippedT >= cfg.flipped_time_s and up < cfg.flipped_up_dot then
-    report('FLIPPED', string.format('up=%.2f %.1fs', up, flippedT))
+  if isFlipped and flippedT >= cfg.flipped_time_s and
+      (math.abs(roll) > 90 or math.abs(pitch) > 90) then
+    report('FLIPPED', string.format('roll=%.0f pitch=%.0f %.1fs', roll, pitch, flippedT))
     return
   end
 
@@ -174,9 +188,10 @@ function M.updateGFX(dt)
     return
   end
 
-  -- DAMAGE: порог (значение из GE)
-  if damage >= cfg.damage_threshold then
-    report('DAMAGE', string.format('damageSum=%.3f', damage))
+  -- DAMAGE: только когда машина реально ВСТАЛА (мертвая). На ходу не чиним,
+  -- даже если урон огромный (грунтовка/кочки дают миллионы).
+  if damage >= cfg.damage_threshold and spd <= cfg.stuck_speed_kph then
+    report('DAMAGE', string.format('damageSum=%.0f speed=%.1f', damage, spd))
   end
 end
 
@@ -201,8 +216,8 @@ function autopilotLivePainCmd.start(params)
   damage = 0
   ignoreT = 0
   lastKind = '—'
-  print(string.format('aplPain: АВТО-ВОССТАНОВЛЕНИЕ ВКЛ (damage>=%.2f, stuck %.0f км/ч %.0f с, flip up<%.2f)',
-    cfg.damage_threshold, cfg.stuck_speed_kph, cfg.stuck_time_s, cfg.flipped_up_dot))
+  print(string.format('aplPain: АВТО-ВОССТАНОВЛЕНИЕ ВКЛ (damage>=%.2f, stuck %.0f км/ч %.0f с, flip |roll|>90 или |pitch|>90)',
+    cfg.damage_threshold, cfg.stuck_speed_kph, cfg.stuck_time_s))
   toGE('INFO', 'pain auto ON')
   return true
 end
@@ -236,16 +251,17 @@ function autopilotLivePainCmd.setDamage(v)
 end
 
 function autopilotLivePainCmd.status()
+  local roll, pitch = rollPitch()
   local lines = {
     '--- apl_pain status (vehicle) ---',
     'active=' .. tostring(active) .. ' last=' .. tostring(lastKind) ..
       ' cooldown=' .. string.format('%.1f', cooldownT) .. 'с',
-    string.format('speed=%.1f км/ч thr=%.2f up=%.2f aiDriving=%s damageSum=%s (порог %.3f)',
-      speedKph(), throttleRaw(), upDot(), tostring(aiDriving()), tostring(damage),
+    string.format('speed=%.1f км/ч thr=%.2f roll=%.0f pitch=%.0f aiDriving=%s damageSum=%s (порог %.3f)',
+      speedKph(), throttleRaw(), roll, pitch, tostring(aiDriving()), tostring(damage),
       active and cfg and cfg.damage_threshold or 0),
-    cfg and string.format('пороги: damage>=%.2f stuck<=%.0fкм/ч/%.0fс flip up<%.2f/%.1fс',
+    cfg and string.format('пороги: damage>=%.2f stuck<=%.0fкм/ч/%.0fс flip |roll|>90/|pitch|>90 %.1fс',
       cfg.damage_threshold, cfg.stuck_speed_kph, cfg.stuck_time_s,
-      cfg.flipped_up_dot, cfg.flipped_time_s) or nil,
+      cfg.flipped_time_s) or nil,
     string.format('таймеры: stuck=%.1f flipped=%.1f ignore=%.1f', stuckT, flippedT, ignoreT),
   }
   for _, l in ipairs(lines) do if l then print('aplPain: ' .. l) end end

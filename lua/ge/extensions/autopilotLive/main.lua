@@ -1545,7 +1545,7 @@ local function loadMasterConfig()
   return c
 end
 local PAIN_DEFAULTS = {
-  check_hz = 1, damage_threshold = 2500,
+  check_hz = 1, damage_threshold = 10000000,
   stuck_speed_kph = 5, stuck_time_s = 5, stuck_throttle_min = 0.5,
   flipped_up_dot = 0.3, flipped_time_s = 2, cooldown_s = 15,
   restore_ai = 1, warmup_after = 1, warmup_sway = 0,
