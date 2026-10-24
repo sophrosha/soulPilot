@@ -30,9 +30,9 @@ local FALLBACK_CONF = 'mods/unpacked/AutopilotLive/ai/config/wheel.json'
 -- Единицы: rate — нормированные [-1,1] единицы/сек (1.0 = полный упор);
 -- tau — секунды. steer_rise = от центра к упору, steer_fall = возврат в центр.
 local DEFAULTS = {
-  rate_limit = { steer_rise = 4.0, steer_fall = 6.0 },
-  ema_tau    = { steer = 0.15 },
-  lerp_tau   = { steer = 0.12 },
+  rate_limit = { steer_rise = 6.0, steer_fall = 8.0 },
+  ema_tau    = { steer = 0.08 },
+  lerp_tau   = { steer = 0.05 },
 }
 
 -- === Состояние ===
@@ -167,7 +167,9 @@ local function loadConfig(path)
     c.mode = mode
   else
     c.mode = 'custom'
-    toGE('WARN', 'wheel: неизвестный mode="' .. tostring(mode) .. '" — числа из wheel.json')
+    if mode ~= 'custom' then
+      toGE('WARN', 'wheel: неизвестный mode="' .. tostring(mode) .. '" — числа из wheel.json')
+    end
   end
   validateConfig(c)
   return c, true

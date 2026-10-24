@@ -1,16 +1,16 @@
 {
-  "mode": "comfort",
+  "mode": "custom",
   "rate_limit": {
-    "_comment": "steer_rise/fall — 4.0/6.0 (мягче, больше инерции; цель всегда clipped-raw). mode=comfort — пресет 4.0/6.0, ema 0.15 / lerp 0.12.",
-    "steer_rise": 4.0,
-    "steer_fall": 6.0
+    "_comment": "custom: steer_rise/fall 6.0/8.0; mode=custom — используются числа из этого файла.",
+    "steer_rise": 6.0,
+    "steer_fall": 8.0
   },
   "ema_tau": {
-    "_comment": "инерция руля (сек): 0.15 — мягче, без PIO (задержка меньше 0.2 с).",
-    "steer": 0.15
+    "_comment": "инерция руля (сек): 0.08; mode=custom — значение из этого файла.",
+    "steer": 0.08
   },
   "lerp_tau": {
-    "_comment": "дотягивание остатка (сек): 0.12 — плавный хвост. 0 => lerp отключён.",
-    "steer": 0.12
+    "_comment": "дотягивание остатка (сек): 0.05; mode=custom — значение из этого файла. 0 => lerp отключён.",
+    "steer": 0.05
   }
 }

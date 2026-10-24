@@ -93,6 +93,10 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - Бинд `apl_ui_toggle` (Ctrl+Shift+U): открывает `pause.hudApps.selector` с поиском «AutopilotLive» (fallback — Quick Access). Первый раз приложение добавляется в HUD-раскладку через каталог, дальше доступно как HUD-app.
 - Проверки: app.vue компилируется через `@vue/compiler-sfc`; JSON/Lua (luaparser) OK; uiConfig в LuaJIT-моке читает/пишет конфиги и вызывает модули.
 
+**ФАЗА 12.3.8 (2026-10-25): wheel mode=custom для теста.**
+- `wheel.json`: mode custom, rise/fall 6.0/8.0, ema 0.08, lerp 0.05.
+- `DEFAULTS` синхронизированы; mode=custom больше не пишет WARN «неизвестный mode».
+
 **ФАЗА 12.3.7 (2026-10-25): comfort-руль ещё мягче + rate-диагностика.**
 - `wheel.json`/`DEFAULTS`/`PRESETS.comfort`: rise 4.0, fall 6.0, ema 0.15, lerp 0.12.
 - `rateScale` применяется к `rate_limit` в `stepWheel` (подтверждено).
