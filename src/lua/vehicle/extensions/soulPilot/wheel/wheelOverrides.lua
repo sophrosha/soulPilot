@@ -43,6 +43,11 @@ function M.write(state, value)
   state.last_out = { engaged = true, steer = value }
 end
 
+function M.writeZero(state)
+  electrics.values.steering_input = 0
+  state.last_out = { engaged = true, steer = 0 }
+end
+
 function M.getMusicOffset(function_name)
   return musicOffset(function_name)
 end

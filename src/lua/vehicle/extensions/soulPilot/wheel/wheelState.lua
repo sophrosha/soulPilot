@@ -11,6 +11,8 @@ function M.create()
     rate_scale = 1.0,
     need_init = true,
     seed_zero = false,
+    init_grace = 0,
+    spawn_guard = false,
     pipe = { rate_limited = 0, ema = 0, output = 0 },
     last_out = { engaged = false, steer = 0 },
     last_raw = 0,

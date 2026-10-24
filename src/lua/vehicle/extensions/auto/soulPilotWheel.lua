@@ -49,15 +49,33 @@ function M.updateGFX(dt)
   if not isAiDriving() then
     wheel_overrides.applyParkMusic(state)
     state.need_init = true
+    state.init_grace = 0.75
+    state.spawn_guard = true
     state.last_out.engaged = false
+    -- Keep the spawn/manual position out of steering_input until the AI
+    -- actually starts driving. This is important for Ibishu spawn values.
+    wheel_overrides.writeZero(state)
     wheel_diagnostics.resetRateStats(state)
     return
   end
 
   local target = readSteerRawNorm()
-  if state.need_init and state.seed_zero then
+  if state.spawn_guard then
+    if math.abs(target) > 0.9 then
+      target = 0
+    else
+      state.spawn_guard = false
+    end
+  end
+  if state.need_init or state.seed_zero then
+    -- Never seed the AI wheel from input.state.steering.val. Several vehicles
+    -- expose a stale/full spawn value there.
     target = 0
     state.seed_zero = false
+  end
+  if state.init_grace > 0 then
+    target = 0
+    state.init_grace = math.max(0, state.init_grace - dt)
   end
   state.last_raw = target
 
@@ -83,6 +101,10 @@ function soulPilotWheelCmd.on(config_path, options)
   if type(options) == "table" and options.seed_zero then
     state.seed_zero = true
     state.need_init = true
+  end
+  state.init_grace = 0.75
+  if type(options) == "table" and options.seed_zero or not isAiDriving() then
+    state.spawn_guard = true
   end
 
   if state.active and state.active_config_path == path then
@@ -137,6 +159,8 @@ function soulPilotWheelCmd.off()
   state.active_config_path = nil
   state.rate_scale = 1.0
   state.seed_zero = false
+  state.init_grace = 0
+  state.spawn_guard = false
   wheel_diagnostics.resetRateStats(state)
   state.last_out.engaged = false
   notify("INFO", "wheel OFF: steering_input rewrite stopped, vanilla FILTER_AI restored")
@@ -162,6 +186,8 @@ end
 function M.onReset()
   state.need_init = true
   state.seed_zero = false
+  state.init_grace = 0.75
+  state.spawn_guard = true
   state.last_out.engaged = false
   wheel_diagnostics.resetRateStats(state)
 end
@@ -170,6 +196,8 @@ function M.onVehicleDestroyed()
   state.active = false
   state.active_config_path = nil
   state.seed_zero = false
+  state.init_grace = 0
+  state.spawn_guard = false
   state.last_out.engaged = false
   wheel_diagnostics.resetRateStats(state)
 end
