@@ -12,6 +12,7 @@
 local M = {}
 
 local MOD_CONFIG_DIR = 'mods/unpacked/soulPilot/src/config/'
+local RUNTIME_CONFIG_DIR = 'mods/unpacked/soulPilot/config/'
 local USER_CONFIG_DIR = 'settings/mod_settings/soulPilot/'
 
 local FILES = {
@@ -52,7 +53,9 @@ local function readJson(name)
   if not FILES[name] then return nil end
   local user = readFile(USER_CONFIG_DIR .. FILES[name])
   if user then return user end
-  return readFile(MOD_CONFIG_DIR .. FILES[name])
+  local source = readFile(MOD_CONFIG_DIR .. FILES[name])
+  if source then return source end
+  return readFile(RUNTIME_CONFIG_DIR .. FILES[name])
 end
 
 local function deepCopy(v)

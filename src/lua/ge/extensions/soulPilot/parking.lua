@@ -15,6 +15,7 @@ local M = {}
 
 local CONF_USER = 'settings/mod_settings/soulPilot/parking.json'
 local CONF_MOD = 'mods/unpacked/soulPilot/src/config/parking.json'
+local CONF_RUNTIME = 'mods/unpacked/soulPilot/config/parking.json'
 
 local DEFAULTS = {
   poll_hz = 5.0,
@@ -91,6 +92,10 @@ local function loadConfig()
   local f = io.open(path, 'r')
   if not f then
     path = CONF_MOD
+    f = io.open(path, 'r')
+  end
+  if not f then
+    path = CONF_RUNTIME
     f = io.open(path, 'r')
   end
   if not f then

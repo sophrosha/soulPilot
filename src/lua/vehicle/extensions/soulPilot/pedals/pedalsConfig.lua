@@ -4,7 +4,7 @@
 
 local M = {}
 
-M.FALLBACK_CONFIG = "mods/unpacked/soulPilot/src/config/pedals.json"
+M.FALLBACK_CONFIG = "mods/unpacked/soulPilot/config/pedals.json"
 
 M.DEFAULTS = {
   rate_limit = {

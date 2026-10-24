@@ -4,6 +4,7 @@ local M = {}
 
 M.USER_CONFIG_DIR = "settings/mod_settings/soulPilot/"
 M.MOD_CONFIG_DIR = "mods/unpacked/soulPilot/src/config/"
+M.RUNTIME_CONFIG_DIR = "mods/unpacked/soulPilot/config/"
 M.GRAPH_DIR = "mods/unpacked/soulPilot/ai/road/"
 M.GRAPH_CONF = M.MOD_CONFIG_DIR .. "graph.json"
 
@@ -113,7 +114,24 @@ function M.configPath(name)
     file:close()
     return user_path
   end
-  return M.MOD_CONFIG_DIR .. name
+
+  -- Development keeps configs under src/config; a deployed/release mod keeps
+  -- them at the mod root. Prefer src when both exist, so tests and dev runs
+  -- keep the same paths.
+  local source_path = M.MOD_CONFIG_DIR .. name
+  file = io.open(source_path, "r")
+  if file then
+    file:close()
+    return source_path
+  end
+
+  local runtime_path = M.RUNTIME_CONFIG_DIR .. name
+  file = io.open(runtime_path, "r")
+  if file then
+    file:close()
+    return runtime_path
+  end
+  return source_path
 end
 
 function M.readJsonFile(path)

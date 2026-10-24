@@ -34,7 +34,7 @@
 local M = {}
 
 -- Конфиг: путь относительный от userPath (sandbox io.open) — GE шлёт в on().
-local FALLBACK_CONF = 'mods/unpacked/soulPilot/src/config/warmup.json'
+local FALLBACK_CONF = 'mods/unpacked/soulPilot/config/warmup.json'
 
 -- === Дефолты конфига (дубль warmup.json — ТОЛЬКО fallback при отсутствии/
 -- битом конфиге; источник истины — файл) ===
@@ -316,10 +316,10 @@ local function finish(timedOut)
   if cfg.finish.auto_engage_after_warmup > 0 then
     pcall(function()
       if soulPilotPedalsCmd and soulPilotPedalsCmd.on then
-        soulPilotPedalsCmd.on('mods/unpacked/soulPilot/src/config/pedals.json')
+        soulPilotPedalsCmd.on('mods/unpacked/soulPilot/config/pedals.json')
       end
       if soulPilotWheelCmd and soulPilotWheelCmd.on then
-        soulPilotWheelCmd.on('mods/unpacked/soulPilot/src/config/wheel.json')
+        soulPilotWheelCmd.on('mods/unpacked/soulPilot/config/wheel.json')
       end
       -- Фары после прогрева (24.10): глазки + авто-свет — через GE, там
       -- игровое время и окно карты (vehicle-слой ночь не знает).

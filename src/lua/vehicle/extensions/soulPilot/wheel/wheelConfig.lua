@@ -3,7 +3,7 @@
 
 local M = {}
 
-M.FALLBACK_CONFIG = "mods/unpacked/soulPilot/src/config/wheel.json"
+M.FALLBACK_CONFIG = "mods/unpacked/soulPilot/config/wheel.json"
 
 M.DEFAULTS = {
   rate_limit = { steer_rise = 6.0, steer_fall = 8.0 },

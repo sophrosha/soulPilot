@@ -9,7 +9,23 @@ local M = {}
 -- ╨┤╨╕╨░╨│╨╜╨╛╤ü╤é╨╕╨║╨░ apl_diag ╨▓ ╨ñ╨░╨╖╨╡ 1).
 
 local GRAPH_DIR = 'mods/unpacked/soulPilot/ai/road/'
-local GRAPH_CONF = 'mods/unpacked/soulPilot/src/config/graph.json'
+local GRAPH_CONF_SRC = 'mods/unpacked/soulPilot/src/config/graph.json'
+local GRAPH_CONF_RUNTIME = 'mods/unpacked/soulPilot/config/graph.json'
+local GRAPH_CONF = GRAPH_CONF_SRC
+
+local function resolveGraphConfigPath()
+  local source_file = io.open(GRAPH_CONF_SRC, 'r')
+  if source_file then
+    source_file:close()
+    return GRAPH_CONF_SRC
+  end
+  local runtime_file = io.open(GRAPH_CONF_RUNTIME, 'r')
+  if runtime_file then
+    runtime_file:close()
+    return GRAPH_CONF_RUNTIME
+  end
+  return GRAPH_CONF_SRC
+end
 
 -- jsonEncodePretty ╨┐╤Ç╨╛╨┐╤â╤ü╨║╨░╨╡╤é ╨║╨╗╤Ä╤ç╨╕ ╤ü╨╛ ╨╖╨╜╨░╤ç╨╡╨╜╨╕╨╡╨╝ nil (utils.lua:402), ╨░
 -- ╨¥╨ò╨╕╨╖╨▓╨╡╤ü╤é╨╜╤ï╨╡ ╤é╨╕╨┐╤ï ╨┐╨╕╤ê╨╡╤é ╨║╨░╨║ null (utils.lua:417) ΓÇö ╤ì╤é╨╕╨╝ ╨┐╨╛╨╗╤î╨╖╤â╨╡╨╝╤ü╤Å ╨┤╨╗╤Å
@@ -18,6 +34,7 @@ local JSON_NULL = function() end
 
 local function loadGraphConfig()
   local defaults = { friction_mu = 0.75, turn_angle_threshold_deg = 20, speed_round_kph = 5 }
+  GRAPH_CONF = resolveGraphConfigPath()
   local f = io.open(GRAPH_CONF, 'r')
   if not f then
     logger.logLine('WARN', '╨Ü╨╛╨╜╤ä╨╕╨│ ╨│╤Ç╨░╤ä╨░ ╨╜╨╡ ╨╜╨░╨╣╨┤╨╡╨╜ (' .. GRAPH_CONF .. ') ΓÇö ╨┤╨╡╤ä╨╛╨╗╤é╤ï: mu=0.75, ╨┐╨╛╤Ç╨╛╨│ 20┬░, ╤ê╨░╨│ 5 ╨║╨╝/╤ç')

@@ -41,8 +41,20 @@
 ...\BeamNG.drive\current\mods\unpacked\soulPilot\
 ```
 
+Перед запуском игры разложите runtime-файлы из `src/` в корень мода:
+
+```text
+python deploy_dev.py
+```
+
 После изменения GE-расширений нужен полный перезапуск игры. Vehicle-модули
 перезагружаются при спавне автомобиля.
+
+Для сборки релизного zip (с `lua/`, `ui/`, `mod_info/` в корне архива):
+
+```text
+python build_release.py
+```
 
 ## Управление
 
@@ -90,7 +102,7 @@ src/config/*.json
 Пользовательские настройки и настройки UI всегда пишутся в userPath:
 
 ```text
-%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\settings\autopilotLive\
+%LOCALAPPDATA%\BeamNG\BeamNG.drive\current\settings\mod_settings\soulPilot\
 ```
 
 Основные файлы:

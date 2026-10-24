@@ -17,6 +17,7 @@ local M = {}
 
 local CONF_USER = 'settings/mod_settings/soulPilot/music.json'
 local CONF_MOD = 'mods/unpacked/soulPilot/src/config/music.json'
+local CONF_RUNTIME = 'mods/unpacked/soulPilot/config/music.json'
 local STALE_S = 0.3
 local BEAT_ATTACK_S = 0.05  -- Фаза 11.4: плавный подъём огибающей beat
 
@@ -75,6 +76,10 @@ local function loadConfig()
   local f = io.open(path, 'r')
   if not f then
     path = CONF_MOD
+    f = io.open(path, 'r')
+  end
+  if not f then
+    path = CONF_RUNTIME
     f = io.open(path, 'r')
   end
   if not f then
