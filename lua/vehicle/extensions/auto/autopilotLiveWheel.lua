@@ -30,9 +30,9 @@ local FALLBACK_CONF = 'mods/unpacked/AutopilotLive/ai/config/wheel.json'
 -- Единицы: rate — нормированные [-1,1] единицы/сек (1.0 = полный упор);
 -- tau — секунды. steer_rise = от центра к упору, steer_fall = возврат в центр.
 local DEFAULTS = {
-  rate_limit = { steer_rise = 6.0, steer_fall = 8.0 },
-  ema_tau    = { steer = 0.10 },
-  lerp_tau   = { steer = 0.08 },
+  rate_limit = { steer_rise = 4.0, steer_fall = 6.0 },
+  ema_tau    = { steer = 0.15 },
+  lerp_tau   = { steer = 0.12 },
 }
 
 -- === Состояние ===
@@ -46,6 +46,11 @@ local needInit = true           -- синхронизировать конвей
 local pipe = { rl = 0, ema = 0, out = 0 }
 local lastOut = { engaged = false, steer = 0 }
 local lastRaw = 0               -- clipped-raw последнего кадра (для статуса)
+local rateRaw = 0               -- сглаженная скорость изменения raw (ед/с)
+local rateOut = 0               -- сглаженная скорость изменения out (ед/с)
+local prevRateRaw = nil
+local prevRateOut = nil
+local RATE_EMA_TAU = 0.15       -- окно оценки скорости в status
 
 -- === Лог событий в GE (паттерн autopilotLivePedals.lua) ===
 local function toGE(level, msg)
@@ -78,6 +83,14 @@ local function safeVal(v)
   v = tonumber(v) or 0
   if v ~= v then return 0 end -- NaN → 0
   return v
+end
+
+-- Для скоростей/rate: diagFmt рассчитан на steering [-1,1], а rate может быть
+-- больше единицы, поэтому здесь свой формат без метки «МУСОР».
+local function fmtRate(v)
+  v = tonumber(v)
+  if v == nil or v ~= v or v == math.huge or v == -math.huge then return 'n/a' end
+  return string.format('%.3f', v)
 end
 
 local function clampSym(v) -- симметричный кламп [-1,1] (руль знаковый)
@@ -138,11 +151,12 @@ local function loadConfig(path)
       end
     end
   end
-  -- Режим руля (24.10): comfort — мягко (3.5/4.0), sport — жёстче (6.0/7.0).
+  -- Режим руля: comfort — мягко/вязко (4.0/6.0, 0.15/0.12),
+  -- sport — жёстче (6.0/7.0, 0.04/0.05).
   -- Строка верхнего уровня wheel.json; числа rate_limit/ema/lerp при этом
   -- заменяются пресетом (mode имеет приоритет).
   local PRESETS = {
-    comfort = { rise = 6.0, fall = 8.0, ema = 0.10, lerp = 0.08 },
+    comfort = { rise = 4.0, fall = 6.0, ema = 0.15, lerp = 0.12 },
     sport   = { rise = 6.0, fall = 7.0, ema = 0.04, lerp = 0.05 },
   }
   local mode = type(decoded.mode) == 'string' and decoded.mode:lower() or 'comfort'
@@ -194,6 +208,22 @@ local function stepWheel(target, dt)
 end
 
 -- ИИ реально ведёт машину? (ai.lua:6167-6169; fallback false)
+local function updateRateStats(raw, out, dt)
+  if prevRateRaw ~= nil and dt > 0 then
+    local alpha = 1 - math.exp(-dt / RATE_EMA_TAU)
+    local rawInstant = (raw - prevRateRaw) / dt
+    local outInstant = (out - prevRateOut) / dt
+    rateRaw = rateRaw + (rawInstant - rateRaw) * alpha
+    rateOut = rateOut + (outInstant - rateOut) * alpha
+  end
+  prevRateRaw, prevRateOut = raw, out
+end
+
+local function resetRateStats()
+  rateRaw, rateOut = 0, 0
+  prevRateRaw, prevRateOut = nil, nil
+end
+
 local function aiDriving()
   local ok, v = pcall(function()
     return (ai ~= nil and ai.isDriving ~= nil) and (ai.isDriving() or false)
@@ -231,6 +261,7 @@ function M.updateGFX(dt)
 
   if not active then
     applyParkMusic()
+    resetRateStats()
     return
   end
 
@@ -241,6 +272,7 @@ function M.updateGFX(dt)
     applyParkMusic() -- музыка на стоянке работает и без AI
     needInit = true -- при резюме AI — синхронизация без прыжка
     lastOut.engaged = false
+    resetRateStats()
     return
   end
 
@@ -251,6 +283,8 @@ function M.updateGFX(dt)
   if needInit then
     pipe.rl, pipe.ema, pipe.out = target, target, target
     needInit = false
+    resetRateStats()
+    prevRateRaw, prevRateOut = target, target
   end
 
   stepWheel(target, dt)
@@ -259,6 +293,7 @@ function M.updateGFX(dt)
   local vibe = musicOffset('autopilotLiveMusicGetDriveOffset')
   local kick = musicOffset('autopilotLiveMusicGetBeatKick')
   local outVal = clampSym(pipe.out + vibe + kick)
+  updateRateStats(target, outVal, dt)
 
   -- Перезапись steering_input — КАЖДЫЙ кадр при engaged (потребитель hydros,
   -- main.lua:91). Затираем движковое FILTER_AI-значение (main.lua:86 → :678).
@@ -286,6 +321,7 @@ function autopilotLiveWheelCmd.on(confPath)
   if not wasActive then
     needInit = true
     rateScale = 1.0 -- защита от «залипшего» pet-масштаба после перезапуска wheel
+    resetRateStats()
   else
     aplPrint('aplWheel: ON уже активен — конфиг перечитан, needInit сохранён')
   end
@@ -311,6 +347,7 @@ function autopilotLiveWheelCmd.off()
   active = false
   activeConfPath = nil
   rateScale = 1.0
+  resetRateStats()
   -- steering_input НЕ трогаем: движок затрёт его сам на следующем кадре
   -- (input.lua:678). Nil-восстановление не нужно (§4).
   lastOut.engaged = false
@@ -342,6 +379,8 @@ function autopilotLiveWheelCmd.status()
       diagFmt(lastRaw), diagFmt(lastOut.steer)),
     string.format('pipe: rl %s ema %s out %s',
       diagFmt(pipe.rl), diagFmt(pipe.ema), diagFmt(pipe.out)),
+    string.format('rate (EMA %.2f с): raw %s/s, out %s/s (насколько out отстаёт от raw)',
+      RATE_EMA_TAU, fmtRate(rateRaw), fmtRate(rateOut)),
     string.format('raw=%s out=%s |delta|=%s (out должен плавно догонять raw; резкий скачок = кламп не работает)',
       diagFmt(lastRaw), diagFmt(pipe.out),
       diagFmt(math.abs((tonumber(lastRaw) or 0) - pipe.out))),
@@ -351,7 +390,8 @@ function autopilotLiveWheelCmd.status()
   for _, l in ipairs(lines) do print('aplWheel: ' .. l) end
   toGE('INFO', 'wheel status: active=' .. tostring(active) ..
     ' engaged=' .. tostring(lastOut.engaged) ..
-    ' steer ' .. diagFmt(lastRaw) .. '->' .. diagFmt(lastOut.steer))
+    ' steer ' .. diagFmt(lastRaw) .. '->' .. diagFmt(lastOut.steer) ..
+    ' rate raw/out ' .. fmtRate(rateRaw) .. '/' .. fmtRate(rateOut) .. '/s')
   return true
 end
 
@@ -370,12 +410,14 @@ function M.onReset()
   -- движок пересоздаёт сам.
   needInit = true
   lastOut.engaged = false
+  resetRateStats()
 end
 
 function M.onVehicleDestroyed()
   active = false
   activeConfPath = nil
   lastOut.engaged = false
+  resetRateStats()
 end
 
 return M
