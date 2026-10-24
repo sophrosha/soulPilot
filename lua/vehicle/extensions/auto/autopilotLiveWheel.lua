@@ -99,6 +99,10 @@ local function validateConfig(c)
     local v = c[gr][key]
     if v == nil or v ~= v or v <= 0 then c[gr][key] = dflt end
   end
+  local function nonneg(gr, key, dflt)
+    local v = c[gr][key]
+    if v == nil or v ~= v or v < 0 then c[gr][key] = dflt end
+  end
   local D = DEFAULTS
   pos('rate_limit', 'steer_rise', D.rate_limit.steer_rise)
   pos('rate_limit', 'steer_fall', D.rate_limit.steer_fall)

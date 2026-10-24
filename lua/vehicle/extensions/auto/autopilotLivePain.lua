@@ -241,12 +241,12 @@ end
 
 -- GE присылает getSectionDamageSum() каждые 2 с (vehicle этого API не видит).
 -- ВАЖНО: шкала — ОЧКИ (тысячи/миллионы), не 0..1. Клампим до 1e9.
-function autopilotLivePainCmd.setDamage(v)
+function autopilotLivePainCmd.setDamage(v, seq)
   local n = tonumber(v)
   if n == nil or n ~= n then n = 0 end
   damage = clampNum(n, 0, 1e9, 0)
-  print(string.format('aplPain: RECV setDamage=%s (type %s) → damage=%.1f (порог %.1f)',
-    tostring(v), type(v), damage, active and cfg and cfg.damage_threshold or -1))
+  print(string.format('aplPain: RECV setDamage #%s = %s → damage=%.1f (порог %.1f)',
+    tostring(seq or '?'), tostring(v), damage, active and cfg and cfg.damage_threshold or -1))
   return true
 end
 

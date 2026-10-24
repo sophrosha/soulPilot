@@ -93,6 +93,8 @@ local rampT = 0             -- print рамп-апа каждые 0.2 с
 local lastGear = ''         -- предыдущая передача (детектор смены)
 local shiftHoldT = 0        -- сек остатка «паузы» после смены передачи
 local shiftHoldVal = 0      -- out на момент смены (потолок цели)
+local rateScale = 1.0       -- Фаза 10.3: временный множитель throttle rate (после ремонта)
+local rateScaleT = 0        -- сек остатка «режима овоща»
 local lastRaw  = { throttle = 0, brake = 0, clutch = 0 }
 
 -- === Лог событий в GE (паттерн autopilotLive.lua) ===
@@ -114,6 +116,15 @@ end
 local function clamp01(v)
   if v < 0 then return 0 end
   if v > 1 then return 1 end
+  return v
+end
+
+-- Фаза 10.3: общий кламп для setRateScale (в этом файле своего не было)
+local function clampNum(v, lo, hi, dflt)
+  v = tonumber(v)
+  if v == nil or v ~= v then return dflt end
+  if v < lo then return lo end
+  if v > hi then return hi end
   return v
 end
 
@@ -174,6 +185,8 @@ local function resetState()
   thrHighT = 0
   thrHighWarnAcc = 0
   rampT = 0
+  rateScale = 1.0
+  rateScaleT = 0
   lastGear = ''
   shiftHoldT = 0
   shiftHoldVal = 0
@@ -383,6 +396,17 @@ function M.updateGFX(dt)
   if not active then return end
   if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then return end -- NaN/перерывы
 
+  -- Фаза 10.3: таймер «режима овоща» (после ремонта/телепорта)
+  if rateScaleT > 0 then
+    rateScaleT = rateScaleT - dt
+    if rateScaleT <= 0 then
+      rateScale = 1.0
+      rateScaleT = 0
+      print('aplPedals: rateScale восстановлен (1.00) — режим овоща закончен')
+      toGE('INFO', 'pedals rateScale restored to 1.0')
+    end
+  end
+
   -- ИИ реально ведёт машину? (ai.lua:6167-6169; fallback false = не пишем)
   local aiDriving = false
   pcall(function()
@@ -497,7 +521,9 @@ function M.updateGFX(dt)
 
   -- === Конвейер (только throttle/brake — clutch passthrough ниже) ===
   local rl, et, lt = cfg.rate_limit, cfg.ema_tau, cfg.lerp_tau
-  stepChannel(pipe.throttle, thrT, dt, rl.throttle_rise, rl.throttle_fall, et.throttle, lt.throttle, 'throttle')
+  -- Фаза 10.3: «режим овоща» после ремонта — газ медленнее в rateScale раз
+  stepChannel(pipe.throttle, thrT, dt, rl.throttle_rise * rateScale,
+    rl.throttle_fall * rateScale, et.throttle, lt.throttle, 'throttle')
   stepChannel(pipe.brake, brkT, dt, rl.brake_rise, rl.brake_fall, et.brake, lt.brake, 'brake')
 
   -- === Арбитраж brake > throttle (ПОСЛЕ сглаживания, непрерывно) ===
@@ -523,8 +549,8 @@ function M.updateGFX(dt)
   do
     local prev = tonumber(lastOut.throttle) or 0
     if prev ~= prev or prev < 0 then prev = 0 elseif prev > 1 then prev = 1 end
-    local up = (cfg.rate_limit.throttle_rise or 2.0) * dt
-    local down = (cfg.rate_limit.throttle_fall or 3.0) * dt
+    local up = (cfg.rate_limit.throttle_rise or 2.0) * rateScale * dt
+    local down = (cfg.rate_limit.throttle_fall or 3.0) * rateScale * dt
     if thrOut > prev + up then thrOut = prev + up end
     if thrOut < prev - down then thrOut = prev - down end
     if thrOut < 0 then thrOut = 0 elseif thrOut > 1 then thrOut = 1 end
@@ -692,6 +718,18 @@ function autopilotLivePedalsCmd.off()
   return true
 end
 
+-- Фаза 10.3: «режим овоща» после ремонта — временно снизить скорость газа.
+-- Вызывается из GE (painRecover): setRateScale(0.5, 3.0).
+function autopilotLivePedalsCmd.setRateScale(s, duration)
+  s = clampNum(s, 0.1, 1.0, 1.0)
+  duration = clampNum(duration, 0, 10, 3.0)
+  rateScale = s
+  rateScaleT = duration
+  print(string.format('aplPedals: режим овоща — throttle ×%.2f на %.1f с', s, duration))
+  toGE('INFO', string.format('pedals rateScale %.2f for %.1fs', s, duration))
+  return true
+end
+
 function autopilotLivePedalsCmd.status()
   local aiDriving = false
   pcall(function()
@@ -740,7 +778,9 @@ function autopilotLivePedalsCmd.status()
         ' | controller: throttle=' .. tostring(ect) ..
         ' brakeOvr=' .. tostring(eb) ..
         ' | gasHigh=' .. string.format('%.1f', thrHighT) .. 'с' ..
-        ' | lastGear=' .. lastGear .. ' shiftHold=' .. string.format('%.1f', shiftHoldT) .. 'с'
+        ' | lastGear=' .. lastGear .. ' shiftHold=' .. string.format('%.1f', shiftHoldT) .. 'с' ..
+        ' rateScale=' .. string.format('%.2f', rateScale) ..
+        ' (' .. string.format('%.1f', rateScaleT) .. 'с)'
     end)(),
     -- ЛОВУШКА (диагностика 2026-10-15, доказательство 2026-10-16): независимый
     -- ДУБЛЬ тех же значений. lastOut пишется только из sanitizeOut ∈ [0,1]

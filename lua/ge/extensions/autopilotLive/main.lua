@@ -1507,6 +1507,7 @@ local popupNightDbgAcc = 0     -- аккумулятор печати keepalive 
 local painAuto = false         -- включается ТОЛЬКО apl_pain("auto")
 local painDamageAcc = 0        -- аккумулятор отправки damageSum vehicle (2 с)
 local painDbgAcc = 0           -- печать raw damageSum в консоль (10 с)
+local painDamageSeq = 0        -- счётчик пакетов setDamage (диагностика моста)
 local painVerifyT = 0          -- через сколько проверить, помог ли resetVehicle
 local painTpFrom = nil         -- позиция до телепорта (для проверки «переместилась ли»)
 local painTpT = 0              -- таймер проверки телепорта
@@ -1626,6 +1627,8 @@ local function painRecover(veh, kind)
   -- Фаза 9.5: 3 с неуязвимости в vehicle-слое — падение после телепорта
   -- не должно снова запускать DAMAGE/STUCK/FLIPPED.
   sendToVehicle('autopilotLivePainCmd.ignoreDamage(3.0)')
+  -- Фаза 10.3: «режим овоща» — первые 3 с газ вдвое медленнее
+  sendToVehicle('autopilotLivePedalsCmd.setRateScale(0.5, 3.0)')
   print(string.format('aplPain: recover %s — resetVehicle=%s, setPosRot через 0.2 с (reset + ближайшая дорога)',
     tostring(kind), tostring(okR)))
 end
@@ -1888,9 +1891,11 @@ function M.onVehiclePain(kind, info)
     sendToVehicle(string.format("autopilotLiveWarmupCmd.on('%s', {noSway=%s})",
       WARMUP_CONF, tostring(cfg.warmup_sway == 0)))
   end
-  -- Вернуть автопилот
-  if cfg.restore_ai > 0 then
+  -- Вернуть автопилот — ТОЛЬКО если мастер включён (иначе машина не должна ехать)
+  if cfg.restore_ai > 0 and masterState == 'on' then
     sendToVehicle('if ai and ai.setMode then ai.setMode("traffic") end')
+  elseif cfg.restore_ai > 0 then
+    print('aplPain: AI не включаю — мастер выключен (masterState=' .. tostring(masterState) .. ')')
   end
 end
 
@@ -2326,15 +2331,16 @@ function M.onUpdate(dtReal)
           print('apl_pain: WARN getSectionDamageSum вернул nil/ошибку')
         end
         if d then
-          local cmd = string.format('autopilotLivePainCmd.setDamage(%.6f)', d)
-          local sent = sendToVehicle(cmd)
-          if not sent and veh and veh.queueLuaCommand then
-            local okq = pcall(function() veh:queueLuaCommand(cmd) end)
-            sent = okq and veh or nil
-            print('apl_pain: sendToVehicle не сработал → queueLuaCommand ok=' .. tostring(okq))
+          painDamageSeq = painDamageSeq + 1
+          local cmd = string.format('autopilotLivePainCmd.setDamage(%.6f, %d)', d, painDamageSeq)
+          -- Надёжнее: напрямую в vehicle VM (sendToVehicle — fallback).
+          local okq = false
+          if veh and veh.queueLuaCommand then
+            okq = pcall(function() veh:queueLuaCommand(cmd) end)
           end
-          print(string.format('apl_pain: SEND damageSum=%.1f → vehicle (%s)',
-            d, sent and 'ok' or 'FAIL'))
+          local sent = sendToVehicle(cmd)
+          print(string.format('apl_pain: SEND #%d damageSum=%.1f → queueLuaCommand=%s, sendToVehicle=%s',
+            painDamageSeq, d, tostring(okq), tostring(sent ~= nil)))
           painDbgAcc = painDbgAcc + 2
           if painDbgAcc >= 10 then
             painDbgAcc = 0
