@@ -85,6 +85,12 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - **Wheel (финальный комфорт):** `"mode": "comfort"`, пресет comfort = rise/fall **6.0/8.0** (быстрый трекинг raw, без PIO), `ema_tau 0.10`, `lerp_tau 0.08`; DEFAULTS и числа JSON синхронизированы. Виляние ушло ещё на 6/8 + малых tau; 0.10/0.08 убирают остаточную резкость.
 - Диагностика после полного перезапуска: `extensions.isExtensionLoaded('autopilotLive/main')`, `extensions.autopilotLive_main ~= nil`, vehicle→GE `GE_EXT=true`.
 
+**ФАЗА 11.3 (2026-10-25): реакции музыки — beat в руль, мягче бас.** По фидбеку игрока (амбиент даёт слишком сильную дрожь; фары не нужны):
+- `ai/config/music.json`: `lights_pulse=0` (фары от музыки отключены по умолчанию; старый код пульса сохранён, включается обратно флагом), `sway_amp=0.005`, `vibration_amp=0.001`, `vibration_hz=6.0`; новые `beat_kick_amp=0.01`, `beat_kick_ms=90`.
+- Vehicle `autopilotLiveMusic.lua`: `bass_smooth` EMA (`bassSmooth += (bass-bassSmooth)*min(dt*5,1)`) используется для качка/вибрации; на фронт beat — затухающий импульс `beat_kick_amp*(1-age/dur)` через `autopilotLiveMusicGetBeatKick()`. Фары не трогаются при `lights_pulse=0` (popup не блокируется).
+- Wheel: `outVal = clampSym(pipe.out + drive + kick)` после сглаживания; на стоянке `applyParkMusic` добавляет `park + kick` к текущему `steering_input` (после warmup-sway).
+- Проверки в LuaJIT-моке: lights_calls пуст при lights_pulse=0; kick 0.01 на фронте и 0 через 90 мс; bassSmooth нарастает; конфиг/синтаксис OK.
+
 **ФАЗА 11.2 (2026-10-25): Spotify/Audio-Reactive — UI + Lua-интеграция.**
 - **UI `ai/music/ui.py`:** PySide6-окно (выбор устройства, Start/Stop, полоски Bass/Beat, BPM, статус/ошибки). Захват и FFT в `QThread`; на Windows worker сам делает `CoInitializeEx(MTA)`, устройство переоткрывается по имени. Настройки (`device`, `device_index`) — `ai/music/config.json` (gitignore). `app.py` по умолчанию открывает GUI, `--console`/`--list`/`--seconds` — консоль; без PySide6 — автоматический fallback в консоль.
 - **GE `lua/ge/extensions/autopilotLive/music.lua`:** читает `mods/unpacked/AutopilotLive/ai/music/current.json` каждые 50 мс, парсит `jsonDecode`; свежесть по `seq` (нет нового > 300 мс → bass/beat=0); ночь — `extensions.autopilotLive_main.isNightNow()` раз в 1 с; шлёт `autopilotLiveMusicCmd.set(bass,beat,bpm,night)`; `start()` повторяется раз в 5 с после respawn. Команда `apl_music("on"|"off"|"toggle"|"status")`. Загружается из `main.lua`.

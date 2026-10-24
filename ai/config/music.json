@@ -1,16 +1,20 @@
 {
-  "_comment": "AutopilotLive Фаза 11.2: Spotify/Audio-Reactive. Реакции vehicle-слоя; данные (bass/beat/bpm) приходят из ai/music/current.json через GE раз в 50 мс. Включается ТОЛЬКО командой apl_music(\"on\").",
+  "_comment": "AutopilotLive Фаза 11.3: Spotify/Audio-Reactive. Реакции vehicle-слоя; данные (bass/beat/bpm) приходят из ai/music/current.json через GE раз в 50 мс. Включается ТОЛЬКО командой apl_music(\"on\").",
 
-  "_comment_motion": "Стоянка/прогрев (speed <= stationary_speed_kph): качок руля амплитудой sway_amp*bass на частоте sway_hz. Движение (speed >= vibration_min_speed_kph): микро-вибрация vibration_amp*bass на vibration_hz, добавляется ПОСЛЕ сглаживания wheel, НЕ трогает газ/тормоз/КПП.",
+  "_comment_motion": "Стоянка/прогрев (speed <= stationary_speed_kph): качок руля sway_amp*bass_smooth на частоте sway_hz. Движение (speed >= vibration_min_speed_kph): микро-вибрация vibration_amp*bass_smooth на vibration_hz. bass_smooth — EMA в vehicle-слое (dt*5.0), чтобы бас не дёргал руль мгновенно. Всё добавляется ПОСЛЕ сглаживания wheel; газ/тормоз/КПП не трогаются.",
   "stationary_speed_kph": 3.0,
-  "sway_amp": 0.02,
+  "sway_amp": 0.005,
   "sway_hz": 0.6,
-  "vibration_amp": 0.002,
-  "vibration_hz": 10.0,
+  "vibration_amp": 0.001,
+  "vibration_hz": 6.0,
   "vibration_min_speed_kph": 5.0,
 
-  "_comment_lights": "Пульс фар на фронт beat: из 0 открыть 1, из 1 закрыть 0; lights_state=2 (дальний) не трогаем; ночью пульс запрещён. Минимальный интервал между пульсами — blink_min_interval_ms (не меньше 200). Пока музыка включена на стоянке, popup-модуль не моргает сам (musicHold).",
-  "lights_pulse": 1,
+  "_comment_beat": "Фаза 11.3: фронт beat даёт короткий микро-толчок руля (затухающий импульс), а НЕ моргание фар. Амплитуда beat_kick_amp, длительность beat_kick_ms; добавляется к pipe.out после сглаживания.",
+  "beat_kick_amp": 0.01,
+  "beat_kick_ms": 90,
+
+  "_comment_lights": "Фары от музыки ОТКЛЮЧЕНЫ (lights_pulse: 0) по просьбе игрока — beat идёт в руль. При 1 — старый режим пульса popup (0<->1, pulse_ms, мин. интервал blink_min_interval_ms; ночью и при lights_state=2 не трогает).",
+  "lights_pulse": 0,
   "pulse_ms": 120,
   "blink_min_interval_ms": 200
 }

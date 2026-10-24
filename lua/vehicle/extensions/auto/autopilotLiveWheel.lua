@@ -200,9 +200,10 @@ local function aiDriving()
   return (ok and v) or false
 end
 
--- === Музыка (Фаза 11.2): добавка ПОСЛЕ сглаживания ===
+-- === Музыка (Фаза 11.3): добавка ПОСЛЕ сглаживания ===
 -- Глобальные функции определены в autopilotLiveMusic.lua (загружается
 -- автоматически). pcall — музыка не должна ломать руль.
+-- park = качок+beat-kick на стоянке; drive = вибрация+beat-kick в движении.
 local function musicOffset(fname)
   local fn = _G[fname]
   if type(fn) ~= 'function' then return 0 end
@@ -217,6 +218,7 @@ end
 -- записать warmup-sway; wheel идёт позже в порядке хуков).
 local function applyParkMusic()
   local off = musicOffset('autopilotLiveMusicGetParkOffset')
+    + musicOffset('autopilotLiveMusicGetBeatKick')
   if off == 0 then return end
   local cur = tonumber(electrics.values.steering_input) or 0
   electrics.values.steering_input = clampSym(cur + off)
@@ -252,9 +254,10 @@ function M.updateGFX(dt)
 
   stepWheel(target, dt)
 
-  -- Микро-вибрация в движении — ПОСЛЕ сглаживания (Фаза 11.2).
+  -- Микро-вибрация + микро-толчок на beat — ПОСЛЕ сглаживания (Фаза 11.3).
   local vibe = musicOffset('autopilotLiveMusicGetDriveOffset')
-  local outVal = clampSym(pipe.out + vibe)
+  local kick = musicOffset('autopilotLiveMusicGetBeatKick')
+  local outVal = clampSym(pipe.out + vibe + kick)
 
   -- Перезапись steering_input — КАЖДЫЙ кадр при engaged (потребитель hydros,
   -- main.lua:91). Затираем движковое FILTER_AI-значение (main.lua:86 → :678).

@@ -3,10 +3,11 @@
 --
 -- Ответственность:
 --   * принимать bass/beat/bpm/night от GE (autopilotLiveMusicCmd.set);
---   * на стоянке/прогреве: пульс фар в такт beat (мин. интервал 200 мс)
---     через popup-модуль (musicOverride/musicRelease) + лёгкий качок руля;
---   * в движении: микро-вибрация руля 0.002*bass на 10 Гц — добавляется
---     ПОСЛЕ сглаживания (хук в autopilotLiveWheel.lua);
+--   * на стоянке/прогреве: лёгкий качок руля (bass_smooth) и микро-толчок
+--     руля на фронт beat; фары от музыки отключены (lights_pulse=0);
+--   * в движении: микро-вибрация руля vibration_amp*bass_smooth на
+--     vibration_hz — добавляется ПОСЛЕ сглаживания (хук в wheel);
+--   * bass сглаживается EMA (dt*5.0), чтобы удары не дёргали руль;
 --   * не трогает газ/тормоз/КПП, не вызывает input.event.
 --
 -- Приоритеты: при петмоде/боли/ручном вождении музыка не вмешивается
@@ -21,12 +22,14 @@ local DEFAULTS = {
   stationary_speed_kph = 3.0,
   pulse_ms = 120,
   blink_min_interval_ms = 200,
-  sway_amp = 0.02,
+  sway_amp = 0.005,
   sway_hz = 0.6,
-  vibration_amp = 0.002,
-  vibration_hz = 10.0,
+  vibration_amp = 0.001,
+  vibration_hz = 6.0,
   vibration_min_speed_kph = 5.0,
-  lights_pulse = 1,
+  lights_pulse = 0,
+  beat_kick_amp = 0.01,
+  beat_kick_ms = 90,
 }
 
 local cfg = nil
@@ -35,6 +38,7 @@ local active = false
 local t = 0
 local dataAge = STALE_S + 1
 local bass, beat, bpm = 0, 0, 0
+local bassSmooth = 0        -- Фаза 11.3: EMA баса перед применением к рулю
 local night = false
 
 local prevBeat = 0
@@ -44,6 +48,8 @@ local pulseUntil = 0
 local baseLight = 0
 local lastPulseT = -1e9
 local lastSpeedKph = 0
+local kickActive = false    -- Фаза 11.3: затухающий импульс руля на beat
+local kickStart = -1e9
 
 local function toGE(level, msg)
   pcall(function()
@@ -85,6 +91,8 @@ local function loadConfig()
   c.vibration_hz = clamp(decoded.vibration_hz, 1, 30, c.vibration_hz)
   c.vibration_min_speed_kph = clamp(decoded.vibration_min_speed_kph, 0, 100, c.vibration_min_speed_kph)
   c.lights_pulse = clamp(decoded.lights_pulse, 0, 1, c.lights_pulse)
+  c.beat_kick_amp = clamp(decoded.beat_kick_amp, 0, 0.05, c.beat_kick_amp)
+  c.beat_kick_ms = clamp(decoded.beat_kick_ms, 20, 500, c.beat_kick_ms)
   return c, true
 end
 
@@ -153,6 +161,15 @@ local function pulseLights(speed)
   return true
 end
 
+-- Фаза 11.3: короткий затухающий толчок руля на фронт beat.
+-- Направление постоянное (+), амплитуда маленькая; затухание убирает
+-- ступеньку и не даёт накапливать смещение.
+local function triggerBeatKick()
+  if cfg == nil or cfg.beat_kick_amp <= 0 then return end
+  kickStart = t
+  kickActive = true
+end
+
 -- === Публичные команды (GE шлёт через queueLuaCommand) ===
 autopilotLiveMusicCmd = {}
 
@@ -163,16 +180,19 @@ local function startInternal(verbose)
   t = 0
   dataAge = STALE_S + 1
   bass, beat, bpm = 0, 0, 0
+  bassSmooth = 0
   night = false
   prevBeat = 0
   lightHeld = false
   pulseActive = false
   lastPulseT = -1e9
+  kickActive = false
+  kickStart = -1e9
   if verbose then
     print(string.format(
-      'aplMusic: ON — sway %.3f@%.2fГц, вибрация %.4f@%.0fГц, пульс фар %d мс (мин %.0f мс), lights=%d',
+      'aplMusic: ON — sway %.3f@%.2fГц, вибрация %.4f@%.0fГц, beat-kick %.3f/%dмс, lights=%d',
       cfg.sway_amp, cfg.sway_hz, cfg.vibration_amp, cfg.vibration_hz,
-      cfg.pulse_ms, cfg.blink_min_interval_ms, cfg.lights_pulse))
+      cfg.beat_kick_amp, cfg.beat_kick_ms, cfg.lights_pulse))
     toGE('INFO', 'music ON (' .. (cfgFromFile and 'конфиг из файла' or 'ДЕФОЛТЫ') .. ')')
   end
   return true
@@ -199,6 +219,8 @@ function autopilotLiveMusicCmd.stop()
   active = false
   releaseLights(true)
   bass, beat, bpm = 0, 0, 0
+  bassSmooth = 0
+  kickActive = false
   dataAge = STALE_S + 1
   print('aplMusic: OFF')
   toGE('INFO', 'music OFF')
@@ -211,7 +233,8 @@ function autopilotLiveMusicCmd.status()
     'active=' .. tostring(active) .. ' данные=' ..
       (dataAge <= STALE_S and 'свежие' or 'устарели') ..
       string.format(' (age %.2f с)', dataAge),
-    string.format('bass=%.2f beat=%d bpm=%.0f night=%s', bass, beat, bpm, tostring(night)),
+    string.format('bass=%.2f smooth=%.2f beat=%d bpm=%.0f night=%s kick=%s',
+      bass, bassSmooth, beat, bpm, tostring(night), tostring(kickActive)),
     string.format('speed=%.1f км/ч, свет=%d, musicHold=%s (base=%d, pulse=%s)',
       lastSpeedKph, curLights(), tostring(lightHeld), baseLight, tostring(pulseActive)),
     'конфиг: ' .. (cfg and (cfgFromFile and 'music.json' or 'ДЕФОЛТЫ') or 'не загружен'),
@@ -233,6 +256,9 @@ function M.updateGFX(dt)
     bass, beat, bpm = 0, 0, 0
   end
 
+  -- Фаза 11.3: сглаживание баса (EMA), чтобы удары не дёргали руль.
+  bassSmooth = bassSmooth + (bass - bassSmooth) * math.min(dt * 5.0, 1.0)
+
   lastSpeedKph = speedKph()
 
   -- Отпускаем свет, если уехали/стало устарело/ночь/фича выключена.
@@ -247,25 +273,38 @@ function M.updateGFX(dt)
 
   -- Фронт beat (данные приходят 20 Гц, beat держится 120 мс в Python).
   if beat == 1 and prevBeat == 0 then
-    pulseLights(lastSpeedKph)
+    triggerBeatKick()          -- Фаза 11.3: beat -> микро-толчок руля
+    pulseLights(lastSpeedKph)  -- lights_pulse=0 -> no-op (фары не трогаем)
   end
   prevBeat = beat
 end
 
 -- === Хуки для wheel: добавка ПОСЛЕ сглаживания ===
--- Стоянка: медленный качок, амплитуда ~ bass.
+-- Стоянка: медленный качок, амплитуда ~ bass_smooth.
 function autopilotLiveMusicGetParkOffset()
   if not musicReady() then return 0 end
   if cfg == nil or lastSpeedKph > cfg.stationary_speed_kph then return 0 end
   local phase = t * 2 * math.pi * cfg.sway_hz
-  return math.sin(phase) * cfg.sway_amp * bass
+  return math.sin(phase) * cfg.sway_amp * bassSmooth
 end
 
--- Движение: микро-вибрация 10 Гц, амплитуда 0.002*bass.
+-- Движение: мягкая микро-вибрация 6 Гц, амплитуда 0.001*bass_smooth.
 function autopilotLiveMusicGetDriveOffset()
   if not musicReady() then return 0 end
   if cfg == nil or lastSpeedKph < cfg.vibration_min_speed_kph then return 0 end
-  return math.sin(t * 2 * math.pi * cfg.vibration_hz) * cfg.vibration_amp * bass
+  return math.sin(t * 2 * math.pi * cfg.vibration_hz) * cfg.vibration_amp * bassSmooth
+end
+
+-- Фаза 11.3: затухающий толчок на beat (wheel добавляет его к pipe.out).
+function autopilotLiveMusicGetBeatKick()
+  if not musicReady() or not kickActive or cfg == nil then return 0 end
+  local dur = cfg.beat_kick_ms / 1000
+  local age = t - kickStart
+  if age < 0 or age >= dur then
+    kickActive = false
+    return 0
+  end
+  return cfg.beat_kick_amp * (1 - age / dur)
 end
 
 -- === Жизненный цикл ===
@@ -273,6 +312,8 @@ function M.onReset()
   releaseLights(true)
   dataAge = STALE_S + 1
   bass, beat, bpm = 0, 0, 0
+  bassSmooth = 0
+  kickActive = false
   prevBeat = 0
 end
 
@@ -280,6 +321,8 @@ function M.onVehicleDestroyed()
   releaseLights(true)
   active = false
   bass, beat, bpm = 0, 0, 0
+  bassSmooth = 0
+  kickActive = false
   dataAge = STALE_S + 1
 end
 
