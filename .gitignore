@@ -32,3 +32,5 @@ ai/notes/legacy/
 # (атомарно, temp+replace); в git не нужно.
 ai/music/current.json
 ai/music/*.tmp.*
+# Настройки UI (устройство захвата) — локальные для машины игрока.
+ai/music/config.json

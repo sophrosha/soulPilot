@@ -101,6 +101,11 @@ class Publisher:
 
     # -- публикация --------------------------------------------------------
 
+    @property
+    def seq(self) -> int:
+        """Номер последнего опубликованного кадра (для UI/диагностики)."""
+        return self._seq
+
     def publish(self, payload: dict[str, Any], timestamp_ms: Optional[int] = None) -> dict[str, Any]:
         """Добавляет seq/t, пишет файл и отправляет UDP. Возвращает документ."""
         with self._lock:

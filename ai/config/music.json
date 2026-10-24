@@ -1,0 +1,16 @@
+{
+  "_comment": "AutopilotLive Фаза 11.2: Spotify/Audio-Reactive. Реакции vehicle-слоя; данные (bass/beat/bpm) приходят из ai/music/current.json через GE раз в 50 мс. Включается ТОЛЬКО командой apl_music(\"on\").",
+
+  "_comment_motion": "Стоянка/прогрев (speed <= stationary_speed_kph): качок руля амплитудой sway_amp*bass на частоте sway_hz. Движение (speed >= vibration_min_speed_kph): микро-вибрация vibration_amp*bass на vibration_hz, добавляется ПОСЛЕ сглаживания wheel, НЕ трогает газ/тормоз/КПП.",
+  "stationary_speed_kph": 3.0,
+  "sway_amp": 0.02,
+  "sway_hz": 0.6,
+  "vibration_amp": 0.002,
+  "vibration_hz": 10.0,
+  "vibration_min_speed_kph": 5.0,
+
+  "_comment_lights": "Пульс фар на фронт beat: из 0 открыть 1, из 1 закрыть 0; lights_state=2 (дальний) не трогаем; ночью пульс запрещён. Минимальный интервал между пульсами — blink_min_interval_ms (не меньше 200). Пока музыка включена на стоянке, popup-модуль не моргает сам (musicHold).",
+  "lights_pulse": 1,
+  "pulse_ms": 120,
+  "blink_min_interval_ms": 200
+}

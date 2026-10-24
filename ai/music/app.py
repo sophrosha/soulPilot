@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """AutopilotLive: захват -> FFT -> бас/BPM -> current.json + UDP.
 
-Консольная сборка (GUI появится отдельно):
-
+По умолчанию открывается PySide6-окно (Фаза 11.2). Консольный режим:
+    ai\\venv\\Scripts\\python.exe ai\\music\\app.py --console
+    ai\\venv\\Scripts\\python.exe ai\\music\\app.py --console --device "CABLE Output"
     ai\\venv\\Scripts\\python.exe ai\\music\\app.py --list
-    ai\\venv\\Scripts\\python.exe ai\\music\\app.py --device "CABLE Output"
-    ai\\venv\\Scripts\\python.exe ai\\music\\app.py --device 3 --no-udp
 
 Файл по умолчанию: ai/music/current.json (рядом с этим скриптом), то есть
 для BeamNG — mods/unpacked/AutopilotLive/ai/music/current.json.
@@ -60,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-udp", action="store_true", help="не отправлять UDP")
     parser.add_argument("--udp-host", default="127.0.0.1", help="UDP host")
     parser.add_argument("--udp-port", type=int, default=7771, help="UDP port")
+    parser.add_argument("--console", action="store_true", help="консольный режим без PySide6")
     return parser
 
 
@@ -200,7 +200,19 @@ def run(args: argparse.Namespace) -> int:
 
 def main(argv=None) -> int:
     configure_stdout()
-    return run(build_parser().parse_args(argv))
+    args = build_parser().parse_args(argv)
+
+    # Консоль: явный флаг, список устройств или тестовый прогон по --seconds.
+    if args.console or args.list or args.seconds > 0:
+        return run(args)
+
+    try:
+        from ui import run_ui  # PySide6 импортируется только для GUI
+    except ImportError as exc:
+        print("PySide6 недоступен (" + str(exc) + ") — запуск в консольном режиме.")
+        return run(args)
+
+    return run_ui(args)
 
 
 if __name__ == "__main__":

@@ -2647,8 +2647,17 @@ function M.onConsoleExecuteCommand(context, cmd)
   end
 end
 
+-- Фаза 11.2: для music.lua — ночь по тем же правилам, что popup/Ф6.
+function M.isNightNow()
+  local ok, v = pcall(popupIsNightNow)
+  return ok and v == true
+end
+
 -- Фаза 10.2: встроенное радиальное меню (Quick Access)
 pcall(function() extensions.load('autopilotLive/quickAccessMenu') end)
+
+-- Фаза 11.2: Spotify/Audio-Reactive (чтение current.json + apl_music)
+pcall(function() extensions.load('autopilotLive/music') end)
 
 -- Фаза 10.6: ГАРАНТИРУЕМ глобальное имя для vehicle→GE коллбэков.
 -- extensions.load делает rawset(_G, extName, M), но в sandbox-контексте

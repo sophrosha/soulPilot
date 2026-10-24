@@ -30,6 +30,7 @@ local night = false
 local phase = 'sleep'
 local timer = 0
 local suppressHeld = false
+local musicHold = false     -- Фаза 11.2: музыка временно владеет светом
 local lastSeen = 0          -- ожидаемый/наблюдённый lights_state (след)
 local warmupHold = false    -- sleep() от прогрева (работает и без auto)
 local savedState = nil      -- состояние света до сна (для wake без auto)
@@ -141,8 +142,9 @@ local function blinkAllowed()
 end
 
 function M.updateGFX(dt)
-  if not active and not warmupHold then return end
   if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then return end
+  if musicHold then return end -- Фаза 11.2: светом управляет музыка
+  if not active and not warmupHold then return end
 
   if phase == 'sleep' then
     -- Сон (прогрев/старт): держим глаза закрытыми КАЖДЫЙ кадр, даже если
@@ -216,6 +218,28 @@ function M.updateGFX(dt)
 end
 
 autopilotLivePopupCmd = {}
+
+-- Фаза 11.2: музыка временно управляет светом (пульс в такт beat).
+-- Пока musicHold=true, обычная логика popup не трогает lights_state.
+function autopilotLivePopupCmd.musicOverride(state)
+  musicHold = true
+  setSuppress(true)
+  applyEyes((tonumber(state) or 0) >= 1 and EYES_OPEN or EYES_CLOSED)
+  return true
+end
+
+function autopilotLivePopupCmd.musicRelease()
+  if not musicHold then return false end
+  musicHold = false
+  -- Suppress возвращаем в состояние, нужное обычной логике: сон прогрева
+  -- или незавершённый мигок. Иначе Ф6-auto снова начнёт менять свет.
+  setSuppress(warmupHold or (active and phase == 'blink'))
+  return true
+end
+
+function autopilotLivePopupCmd.isMusicHold()
+  return musicHold
+end
 
 function autopilotLivePopupCmd.start(params)
   if active then return false end
@@ -322,6 +346,7 @@ function autopilotLivePopupCmd.setNight(v)
 end
 
 function autopilotLivePopupCmd.stop()
+  musicHold = false
   if not active and not warmupHold then return false end
   if phase == 'blink' and curState() == EYES_CLOSED then
     applyEyes(EYES_OPEN) -- не оставляем свет погашенным
@@ -360,6 +385,7 @@ function autopilotLivePopupCmd.status()
 end
 
 function M.onReset()
+  musicHold = false
   setSuppress(false)
   if active then
     phase = 'awake'
@@ -372,6 +398,7 @@ end
 function M.onVehicleDestroyed()
   active = false
   warmupHold = false
+  musicHold = false
   savedState = nil
   phase = 'sleep'
   setSuppress(false)

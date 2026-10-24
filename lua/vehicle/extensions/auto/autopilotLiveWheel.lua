@@ -200,15 +200,42 @@ local function aiDriving()
   return (ok and v) or false
 end
 
+-- === Музыка (Фаза 11.2): добавка ПОСЛЕ сглаживания ===
+-- Глобальные функции определены в autopilotLiveMusic.lua (загружается
+-- автоматически). pcall — музыка не должна ломать руль.
+local function musicOffset(fname)
+  local fn = _G[fname]
+  if type(fn) ~= 'function' then return 0 end
+  local ok, v = pcall(fn)
+  if not ok then return 0 end
+  v = tonumber(v)
+  if v == nil or v ~= v then return 0 end
+  return v
+end
+
+-- Стоянка/прогрев: добавляем качок к текущему steering_input (его мог
+-- записать warmup-sway; wheel идёт позже в порядке хуков).
+local function applyParkMusic()
+  local off = musicOffset('autopilotLiveMusicGetParkOffset')
+  if off == 0 then return end
+  local cur = tonumber(electrics.values.steering_input) or 0
+  electrics.values.steering_input = clampSym(cur + off)
+end
+
 -- === Кадровый цикл ===
 function M.updateGFX(dt)
-  if not active then return end
   if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then return end -- NaN/перерывы
+
+  if not active then
+    applyParkMusic()
+    return
+  end
 
   if not aiDriving() then
     -- Игрок/ничья: ПЕРЕСТАЁМ перезаписывать steering_input — движок сам затирает
     -- его каждый кадр (input.lua:678) ⇒ штатный ввод мгновенно возвращается.
     -- Nil-восстановление не нужно (нет персистентного Override, §4).
+    applyParkMusic() -- музыка на стоянке работает и без AI
     needInit = true -- при резюме AI — синхронизация без прыжка
     lastOut.engaged = false
     return
@@ -225,10 +252,14 @@ function M.updateGFX(dt)
 
   stepWheel(target, dt)
 
+  -- Микро-вибрация в движении — ПОСЛЕ сглаживания (Фаза 11.2).
+  local vibe = musicOffset('autopilotLiveMusicGetDriveOffset')
+  local outVal = clampSym(pipe.out + vibe)
+
   -- Перезапись steering_input — КАЖДЫЙ кадр при engaged (потребитель hydros,
   -- main.lua:91). Затираем движковое FILTER_AI-значение (main.lua:86 → :678).
-  electrics.values.steering_input = pipe.out
-  lastOut = { engaged = true, steer = pipe.out }
+  electrics.values.steering_input = outVal
+  lastOut = { engaged = true, steer = outVal }
 end
 
 -- === Публичные команды (GE шлёт через queueLuaCommand) ===
