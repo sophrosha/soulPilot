@@ -30,9 +30,9 @@ local FALLBACK_CONF = 'mods/unpacked/AutopilotLive/ai/config/wheel.json'
 -- Единицы: rate — нормированные [-1,1] единицы/сек (1.0 = полный упор);
 -- tau — секунды. steer_rise = от центра к упору, steer_fall = возврат в центр.
 local DEFAULTS = {
-  rate_limit = { steer_rise = 3.5, steer_fall = 4.0 },
-  ema_tau    = { steer = 0.05 },
-  lerp_tau   = { steer = 0.06 },
+  rate_limit = { steer_rise = 6.0, steer_fall = 8.0 },
+  ema_tau    = { steer = 0.10 },
+  lerp_tau   = { steer = 0.08 },
 }
 
 -- === Состояние ===
@@ -50,7 +50,7 @@ local lastRaw = 0               -- clipped-raw последнего кадра (
 local function toGE(level, msg)
   pcall(function()
     obj:queueGameEngineLua(string.format(
-      'if autopilotLive_main and autopilotLive_main.onVehicleLog then autopilotLive_main.onVehicleLog("%s", "%s") end',
+      'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehicleLog then extensions.autopilotLive_main.onVehicleLog("%s", "%s") end',
       level, tostring(msg):gsub('\\', '\\\\'):gsub('"', '\\"')))
   end)
 end
@@ -141,7 +141,7 @@ local function loadConfig(path)
   -- Строка верхнего уровня wheel.json; числа rate_limit/ema/lerp при этом
   -- заменяются пресетом (mode имеет приоритет).
   local PRESETS = {
-    comfort = { rise = 3.5, fall = 4.0, ema = 0.05, lerp = 0.06 },
+    comfort = { rise = 6.0, fall = 8.0, ema = 0.10, lerp = 0.08 },
     sport   = { rise = 6.0, fall = 7.0, ema = 0.04, lerp = 0.05 },
   }
   local mode = type(decoded.mode) == 'string' and decoded.mode:lower() or 'comfort'
@@ -285,6 +285,9 @@ function autopilotLiveWheelCmd.status()
       diagFmt(lastRaw), diagFmt(lastOut.steer)),
     string.format('pipe: rl %s ema %s out %s',
       diagFmt(pipe.rl), diagFmt(pipe.ema), diagFmt(pipe.out)),
+    string.format('raw=%s out=%s |delta|=%s (out должен плавно догонять raw; резкий скачок = кламп не работает)',
+      diagFmt(lastRaw), diagFmt(pipe.out),
+      diagFmt(math.abs((tonumber(lastRaw) or 0) - pipe.out))),
     string.format('rateScale=%s (Фаза 7: pet временно снижает rate)',
       string.format('%.2f', rateScale)),
   }

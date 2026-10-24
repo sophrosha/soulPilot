@@ -40,7 +40,7 @@ local lastNightCmd = '—'    -- последнее значение setNight о
 local function toGE(level, msg)
   pcall(function()
     obj:queueGameEngineLua(string.format(
-      'if autopilotLive_main and autopilotLive_main.onVehicleLog then autopilotLive_main.onVehicleLog("%s", "%s") end',
+      'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehicleLog then extensions.autopilotLive_main.onVehicleLog("%s", "%s") end',
       level, tostring(msg):gsub('\\', '\\\\'):gsub('"', '\\"')))
   end)
 end
@@ -48,7 +48,7 @@ end
 local function notifyGE(fname)
   pcall(function()
     obj:queueGameEngineLua(
-      'if autopilotLive_main and autopilotLive_main.' .. fname .. ' then autopilotLive_main.' .. fname .. '() end')
+      'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.' .. fname .. ' then extensions.autopilotLive_main.' .. fname .. '() end')
   end)
 end
 

@@ -7,8 +7,8 @@ local M = {}
 local registered = false
 
 function M.register()
-  if registered then return end
-  if not core_quickAccess or not core_quickAccess.addEntry then return end
+  if registered then return true end
+  if not core_quickAccess or not core_quickAccess.addEntry then return false end
 
   -- Категория (вкладка) рядом с «Ремонт» / «ИИ»
   core_quickAccess.addEntry({
@@ -53,10 +53,18 @@ function M.register()
 
   registered = true
   print('apl_quickAccess: вкладка AutopilotLive зарегистрирована (/root/sandbox/apl/)')
+  return true
 end
 
--- Хук ванили: quickAccess вызывает его при регистрации меню
+-- Глобальный доступ для main.lua (retry, если quickAccess ещё не готов)
+function aplQuickAccessRegister()
+  return M.register()
+end
+
+-- Хук ванили: вызывается ПОСЛЕ построения стандартных меню.
+-- Принудительно пере-регистрируем (uniqueID заменяет старые записи).
 function M.onRegisterQuickAccessMenus()
+  registered = false
   M.register()
 end
 

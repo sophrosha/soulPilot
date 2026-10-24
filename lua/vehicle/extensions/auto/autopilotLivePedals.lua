@@ -101,7 +101,7 @@ local lastRaw  = { throttle = 0, brake = 0, clutch = 0 }
 local function toGE(level, msg)
   pcall(function()
     obj:queueGameEngineLua(string.format(
-      'if autopilotLive_main and autopilotLive_main.onVehicleLog then autopilotLive_main.onVehicleLog("%s", "%s") end',
+      'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehicleLog then extensions.autopilotLive_main.onVehicleLog("%s", "%s") end',
       level, tostring(msg):gsub('\\', '\\\\'):gsub('"', '\\"')))
   end)
 end
@@ -452,19 +452,23 @@ function M.updateGFX(dt)
   local gear = tostring(electrics.values.gear or '')
 
   -- Детектор смены передачи (24.10): pipe НЕ сбрасываем. На 0.4 с (shift.hold_s)
-  -- цель газа не выше out на момент смены — сглаживает возврат тяги после
-  -- ванильного cut (automaticGearbox: M.throttle=0 на время смены).
+  -- цель газа не выше out на момент смены. Фаза 10.5: переходы через нейтраль
+  -- (2→0, 0→1) — это сброс газа/переключение, hold НЕ включаем и сбрасываем.
   if gear ~= lastGear then
     local prevGear = lastGear
     lastGear = gear
-    if prevGear ~= '' and (cfg.shift.hold_s or 0) > 0 then
+    local function isNeutral(g) return g == '0' or g == 'N' or g == '' end
+    if prevGear ~= '' and not isNeutral(prevGear) and not isNeutral(gear)
+        and (cfg.shift.hold_s or 0) > 0 then
       shiftHoldT = cfg.shift.hold_s
       shiftHoldVal = pipe.throttle.out
       print(string.format('aplPedals: SHIFT %s→%s out=%.3f raw=%.3f ctrlThr=%s rpm=%.0f hold=%.1fs',
         prevGear, gear, pipe.throttle.out, thrRaw,
         tostring(electrics.values.throttle), tonumber(electrics.values.rpm) or 0, shiftHoldT))
     elseif prevGear ~= '' then
-      print(string.format('aplPedals: SHIFT %s→%s out=%.3f raw=%.3f (hold выкл)',
+      -- нейтраль или hold выключен — старый hold не тянем
+      shiftHoldT = 0
+      print(string.format('aplPedals: SHIFT %s→%s out=%.3f raw=%.3f (нейтраль/без hold)',
         prevGear, gear, pipe.throttle.out, thrRaw))
     end
   end
@@ -725,8 +729,11 @@ function autopilotLivePedalsCmd.setRateScale(s, duration)
   duration = clampNum(duration, 0, 10, 3.0)
   rateScale = s
   rateScaleT = duration
-  print(string.format('aplPedals: режим овоща — throttle ×%.2f на %.1f с', s, duration))
-  toGE('INFO', string.format('pedals rateScale %.2f for %.1fs', s, duration))
+  print('=======================================')
+  print('РЕЖИМ ОВОЩА ВКЛЮЧЕН! СКОРОСТЬ ПЕДАЛИ: ' .. tostring(s) ..
+    ' на ' .. string.format('%.1f', duration) .. ' с')
+  print('=======================================')
+  toGE('INFO', string.format('pedals РЕЖИМ ОВОЩА: rateScale %.2f for %.1fs', s, duration))
   return true
 end
 
@@ -741,6 +748,10 @@ function autopilotLivePedalsCmd.status()
     string.format('active=%s engaged=%s aiDriving=%s конфиг=%s',
       tostring(active), tostring(lastOut.engaged), tostring(aiDriving),
       cfgFromFile and 'файл' or (cfg and 'ДЕФОЛТЫ' or 'не загружен')),
+    -- Фаза 10.4: режим овоща — видно, активен ли и сколько осталось
+    (rateScale < 1.0)
+      and string.format('mode: ОВОЩ (rateScale=%.2f, осталось %.1f сек)', rateScale, rateScaleT)
+      or 'mode: НОРМА (rateScale=1.00)',
     -- Все числовые поля через diagFmt/%s (фикс 2026-10-16: аномалия brake.out
     -- ~1e17 = артефакт %.3f в LuaJIT string.format при большом числе аргументов
     -- — доказано кадром: %.3f = 6.7e17 при DIAG exact = 0.0 и чистом lastOut).

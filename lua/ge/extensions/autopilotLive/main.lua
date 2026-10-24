@@ -1508,6 +1508,7 @@ local painAuto = false         -- включается ТОЛЬКО apl_pain("au
 local painDamageAcc = 0        -- аккумулятор отправки damageSum vehicle (2 с)
 local painDbgAcc = 0           -- печать raw damageSum в консоль (10 с)
 local painDamageSeq = 0        -- счётчик пакетов setDamage (диагностика моста)
+local painLastDamageSent = nil -- последнее отправленное значение (диагностика)
 local painVerifyT = 0          -- через сколько проверить, помог ли resetVehicle
 local painTpFrom = nil         -- позиция до телепорта (для проверки «переместилась ли»)
 local painTpT = 0              -- таймер проверки телепорта
@@ -1519,7 +1520,9 @@ local painLastTp = -1          -- последняя измеренная дел
 local masterState = 'off'      -- 'off' | 'waiting_warmup' | 'on'
 local masterPending = false
 local masterWaitT = 0
+local masterPollAcc = 0        -- Фаза 10.5: опрос состояния прогрева (2 с)
 local masterCfg = nil
+local qaRetryAcc = 0           -- Фаза 10.5: retry регистрации Quick Access
 local MASTER_DEFAULTS = {
   enable_wheel = 1, enable_pedals = 1, enable_lights = 1,
   enable_popup = 1, enable_pain = 1,
@@ -1551,7 +1554,9 @@ local function loadMasterConfig()
   return c
 end
 local PAIN_DEFAULTS = {
-  check_hz = 1, damage_threshold = 10000000,
+  check_hz = 1, damage_threshold = 50000,
+  damage_threshold_percent = 0.8,
+  damage_threshold_by_model = { us_semi = 10000000 },
   stuck_speed_kph = 5, stuck_time_s = 5, stuck_throttle_min = 0.5,
   flipped_up_dot = 0.3, flipped_time_s = 2, cooldown_s = 15,
   restore_ai = 1, warmup_after = 1, warmup_sway = 0,
@@ -1572,6 +1577,19 @@ local function loadPainConfig()
     end
     c.check_hz = num('check_hz', 0.1, 10, D.check_hz)
     c.damage_threshold = num('damage_threshold', 0, 1e9, D.damage_threshold)
+    c.damage_threshold_percent = num('damage_threshold_percent', 0, 1, D.damage_threshold_percent)
+    c.damage_threshold_by_model = {}
+    for mk, mv in pairs(D.damage_threshold_by_model) do
+      c.damage_threshold_by_model[mk] = mv
+    end
+    if type(decoded.damage_threshold_by_model) == 'table' then
+      for mk, mv in pairs(decoded.damage_threshold_by_model) do
+        local n = tonumber(mv)
+        if type(mk) == 'string' and n and n > 0 then
+          c.damage_threshold_by_model[mk:lower()] = n
+        end
+      end
+    end
     c.stuck_speed_kph = num('stuck_speed_kph', 0, 200, D.stuck_speed_kph)
     c.stuck_time_s = num('stuck_time_s', 1, 120, D.stuck_time_s)
     c.stuck_throttle_min = num('stuck_throttle_min', 0.1, 1, D.stuck_throttle_min)
@@ -1585,7 +1603,14 @@ local function loadPainConfig()
   return c
 end
 
--- Ближайшая точка дороги: позиция + кватернион по направлению ребра.
+-- Порог урона для конкретной машины (per-model override по JBeam)
+local function painThresholdFor(veh, cfg)
+  local jb = veh and playerJBeam and playerJBeam(veh) or nil
+  if jb and cfg.damage_threshold_by_model and cfg.damage_threshold_by_model[jb] then
+    return cfg.damage_threshold_by_model[jb], jb
+  end
+  return cfg.damage_threshold, jb
+end
 local function painRoadPose(veh)
   local m = (map and map.getMap) and map.getMap() or nil
   if not m or not m.nodes then return nil end
@@ -1627,8 +1652,8 @@ local function painRecover(veh, kind)
   -- Фаза 9.5: 3 с неуязвимости в vehicle-слое — падение после телепорта
   -- не должно снова запускать DAMAGE/STUCK/FLIPPED.
   sendToVehicle('autopilotLivePainCmd.ignoreDamage(3.0)')
-  -- Фаза 10.3: «режим овоща» — первые 3 с газ вдвое медленнее
-  sendToVehicle('autopilotLivePedalsCmd.setRateScale(0.5, 3.0)')
+  -- Фаза 10.3: «режим овоща» — первые 3 с газ в 5 раз медленнее (очень заметно)
+  sendToVehicle('autopilotLivePedalsCmd.setRateScale(0.2, 3.0)')
   print(string.format('aplPain: recover %s — resetVehicle=%s, setPosRot через 0.2 с (reset + ближайшая дорога)',
     tostring(kind), tostring(okR)))
 end
@@ -1816,6 +1841,8 @@ function apl_pain(mode)
       return false
     end
     local cfg = loadPainConfig()
+    local thrDmg, jb = painThresholdFor(veh, cfg)
+    cfg.damage_threshold = thrDmg
     painAuto = true
     painDamageAcc = 0
     sendToVehicle(string.format(
@@ -1824,9 +1851,9 @@ function apl_pain(mode)
       'flipped_up_dot=%.2f,flipped_time_s=%.1f,cooldown_s=%.1f})',
       cfg.check_hz, cfg.damage_threshold, cfg.stuck_speed_kph, cfg.stuck_time_s,
       cfg.stuck_throttle_min, cfg.flipped_up_dot, cfg.flipped_time_s, cfg.cooldown_s))
-    print(string.format('apl_pain: АВТО-ВОССТАНОВЛЕНИЕ ВКЛ — damage>=%.2f, stuck %.0f км/ч/%.0f с, ' ..
+    print(string.format('apl_pain: АВТО-ВОССТАНОВЛЕНИЕ ВКЛ — damage>=%.0f (модель %s), stuck %.0f км/ч/%.0f с, ' ..
       'flip up<%.2f, cooldown %.0f с, warmup_after=%d, restore_ai=%d',
-      cfg.damage_threshold, cfg.stuck_speed_kph, cfg.stuck_time_s,
+      cfg.damage_threshold, tostring(jb or '?'), cfg.stuck_speed_kph, cfg.stuck_time_s,
       cfg.flipped_up_dot, cfg.cooldown_s, cfg.warmup_after, cfg.restore_ai))
     logLine('INFO', 'pain auto ON')
     return true
@@ -1849,14 +1876,16 @@ function apl_pain(mode)
     local dmg = '?'
     if veh.getSectionDamageSum then
       local ok, v = pcall(function() return veh:getSectionDamageSum() end)
-      if ok and v ~= nil then dmg = string.format('%.3f', tonumber(v) or 0) end
+      if ok and v ~= nil then dmg = string.format('%.1f', tonumber(v) or 0) end
     end
+    local thrStatus, jbStatus = painThresholdFor(veh, cfg)
     print('--- apl_pain status ---')
     print('auto=' .. tostring(painAuto) .. ', damageSum(raw)=' .. tostring(dmg) ..
-      ', порог damage_threshold=' .. string.format('%.3f', cfg.damage_threshold))
-    print(string.format('пороги: damage>=%.2f, stuck<=%.0f км/ч %.0f с (газ>=%.2f), flip up<%.2f %.1f с, cooldown %.0f с',
-      cfg.damage_threshold, cfg.stuck_speed_kph, cfg.stuck_time_s, cfg.stuck_throttle_min,
-      cfg.flipped_up_dot, cfg.flipped_time_s, cfg.cooldown_s))
+      ', порог=' .. string.format('%.0f', thrStatus) ..
+      ' (модель ' .. tostring(jbStatus or '?') .. ')')
+    print(string.format('пороги: damage>=%.0f, stuck<=%.0f км/ч %.0f с (газ>=%.2f), flip |roll|>90/|pitch|>90 %.1f с, cooldown %.0f с',
+      thrStatus, cfg.stuck_speed_kph, cfg.stuck_time_s, cfg.stuck_throttle_min,
+      cfg.flipped_time_s, cfg.cooldown_s))
     print('после: warmup_after=' .. tostring(cfg.warmup_after) ..
       ' (sway=' .. tostring(cfg.warmup_sway) .. '), restore_ai=' .. tostring(cfg.restore_ai))
     print(string.format('последний телепорт: moved=%.1f м (%s)', painLastTp,
@@ -2277,10 +2306,37 @@ function M.onVehicleWarmupDone(vehId, elapsed, tempC, autoEngage, timedOut)
   if masterPending then masterFinish() end
 end
 
+-- GE: vehicle раз в 2 с просит урон (не зависит от onUpdate!)
+function M.onVehiclePainDamageRequest()
+  local veh = getVehicle() or (getPlayerVehicle and getPlayerVehicle(0))
+  if not veh or not veh.getSectionDamageSum then
+    print('PAIN: request — veh/getSectionDamageSum недоступны')
+    return
+  end
+  local ok, v = pcall(function() return veh:getSectionDamageSum() end)
+  local d = ok and tonumber(v) or nil
+  if d == nil then
+    print('PAIN: request — getSectionDamageSum nil/error')
+    return
+  end
+  painDamageSeq = painDamageSeq + 1
+  local cmd = string.format('autopilotLivePainCmd.setDamage(%.6f, %d)', d, painDamageSeq)
+  local okq = false
+  pcall(function()
+    veh:queueLuaCommand(cmd)
+    okq = true
+  end)
+  print(string.format('PAIN SEND (request) #%d damageSum=%.1f → queueLuaCommand=%s',
+    painDamageSeq, d, tostring(okq)))
+  painLastDamageSent = d
+end
+
 -- Фаза 10.1-fix: fallback — vehicle раз в секунду шлёт состояние прогрева.
 -- Если onVehicleWarmupDone потерялся, мастер всё равно финализируется.
 function M.onVehicleWarmupState(st)
   st = tostring(st or '')
+  print('MASTER: onVehicleWarmupState=' .. st ..
+    ' (pending=' .. tostring(masterPending) .. ', state=' .. tostring(masterState) .. ')')
   if masterPending and st == 'done' then
     print('MASTER: fallback warmup state=' .. st .. ' → masterFinish')
     logLine('INFO', 'master fallback: warmup state=' .. st)
@@ -2366,7 +2422,7 @@ function M.onUpdate(dtReal)
         local ok, v = pcall(function() return veh:getSectionDamageSum() end)
         if ok and v then dmg = tonumber(v) or 0 end
       end
-      local thrDmg = loadPainConfig().damage_threshold
+      local thrDmg = painThresholdFor(veh, loadPainConfig())
       if dmg >= thrDmg then
         print(string.format('aplPain: resetVehicle НЕ вылечил (damageSum=%.1f >= %.0f) → teleportToLastRoad',
           dmg, thrDmg))
@@ -2419,12 +2475,32 @@ function M.onUpdate(dtReal)
   -- Фаза 10.1: таймаут ожидания прогрева (мастер)
   if masterPending then
     masterWaitT = masterWaitT + dtReal
+    -- Фаза 10.5: раз в 2 с просим vehicle прислать состояние прогрева
+    masterPollAcc = masterPollAcc + dtReal
+    if masterPollAcc >= 2 then
+      masterPollAcc = 0
+      local veh = getVehicle()
+      if veh and veh.queueLuaCommand then
+        pcall(function()
+          veh:queueLuaCommand('if autopilotLiveWarmupCmd and autopilotLiveWarmupCmd.pushState then autopilotLiveWarmupCmd.pushState() end')
+        end)
+        print('MASTER: запрос состояния прогрева (fallback, state=' .. tostring(masterState) .. ')')
+      end
+    end
     if masterWaitT > 60 then
       masterPending = false
       masterState = 'off'
       print('apl_autopilot: WARN таймаут ожидания прогрева 60 с — мастер отменён')
       logLine('WARN', 'master timeout waiting warmup')
     end
+  end
+  -- Фаза 10.5: принудительная регистрация Quick Access (хук мог не сработать)
+  qaRetryAcc = qaRetryAcc + dtReal
+  if qaRetryAcc >= 2 then
+    qaRetryAcc = 0
+    pcall(function()
+      if aplQuickAccessRegister then aplQuickAccessRegister() end
+    end)
   end
   -- === Фаза 8: ночь popup (влияет на интервал следующего моргания) ===
   -- Опрос раз в ~2 с: считываем ночь по окну (как Ф6) и шлём vehicle ТОЛЬКО
@@ -2539,6 +2615,7 @@ function M.onClientPostStartMission()
   masterState = 'off' -- Фаза 10.1: мастер не переживает смену миссии
   masterPending = false
   masterWaitT = 0
+  masterPollAcc = 0
   petActive = false
   petSoundStop() -- Фаза 7б: луп не переживает смену миссии
   petSoundEvent = '' -- звук мурчания — только по явному on
@@ -2572,5 +2649,11 @@ end
 
 -- Фаза 10.2: встроенное радиальное меню (Quick Access)
 pcall(function() extensions.load('autopilotLive/quickAccessMenu') end)
+
+-- Фаза 10.6: ГАРАНТИРУЕМ глобальное имя для vehicle→GE коллбэков.
+-- extensions.load делает rawset(_G, extName, M), но в sandbox-контексте
+-- (queueGameEngineLua из vehicle) имя может быть не видно. Явно закрепляем.
+_G.autopilotLive_main = M
+extensions.autopilotLive_main = M
 
 return M

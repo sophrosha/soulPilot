@@ -7,7 +7,7 @@ local M = {}
 
 local DEFAULTS = {
   check_hz = 1.0,
-  damage_threshold = 10000000.0,
+  damage_threshold = 50000.0,
   stuck_speed_kph = 5.0,
   stuck_time_s = 5.0,
   stuck_throttle_min = 0.5,
@@ -24,12 +24,13 @@ local flippedT = 0
 local cooldownT = 0
 local damage = 0        -- приходит из GE (setDamage)
 local ignoreT = 0       -- сек «неуязвимости» после ремонта/телепорта (Фаза 9.5)
+local dmgReqT = 0       -- Фаза 10.5: раз в 2 с просим урон у GE (без onUpdate)
 local lastKind = '—'
 
 local function toGE(level, msg)
   pcall(function()
     obj:queueGameEngineLua(string.format(
-      'if autopilotLive_main and autopilotLive_main.onVehicleLog then autopilotLive_main.onVehicleLog("%s", "%s") end',
+      'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehicleLog then extensions.autopilotLive_main.onVehicleLog("%s", "%s") end',
       level, tostring(msg):gsub('\\', '\\\\'):gsub('"', '\\"')))
   end)
 end
@@ -37,7 +38,7 @@ end
 local function notifyGE(kind, info)
   pcall(function()
     obj:queueGameEngineLua(string.format(
-      'if autopilotLive_main and autopilotLive_main.onVehiclePain then autopilotLive_main.onVehiclePain("%s", "%s") end',
+      'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehiclePain then extensions.autopilotLive_main.onVehiclePain("%s", "%s") end',
       tostring(kind):gsub('"', ''), tostring(info or ''):gsub('\\', '\\\\'):gsub('"', '\\"')))
   end)
 end
@@ -132,6 +133,16 @@ end
 function M.updateGFX(dt)
   if not active or cfg == nil then return end
   if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then return end
+
+  -- Фаза 10.5: раз в 2 с ПРОСИМ урон у GE (не зависим от GE onUpdate)
+  dmgReqT = dmgReqT + dt
+  if dmgReqT >= 2 then
+    dmgReqT = 0
+    pcall(function()
+      obj:queueGameEngineLua(
+        'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehiclePainDamageRequest then extensions.autopilotLive_main.onVehiclePainDamageRequest() end')
+    end)
+  end
   if cooldownT > 0 then
     cooldownT = math.max(0, cooldownT - dt)
   end
@@ -215,6 +226,7 @@ function autopilotLivePainCmd.start(params)
   checkT, stuckT, flippedT, cooldownT = 0, 0, 0, 0
   damage = 0
   ignoreT = 0
+  dmgReqT = 0
   lastKind = '—'
   print(string.format('aplPain: АВТО-ВОССТАНОВЛЕНИЕ ВКЛ (damage>=%.2f, stuck %.0f км/ч %.0f с, flip |roll|>90 или |pitch|>90)',
     cfg.damage_threshold, cfg.stuck_speed_kph, cfg.stuck_time_s))
@@ -245,8 +257,9 @@ function autopilotLivePainCmd.setDamage(v, seq)
   local n = tonumber(v)
   if n == nil or n ~= n then n = 0 end
   damage = clampNum(n, 0, 1e9, 0)
-  print(string.format('aplPain: RECV setDamage #%s = %s → damage=%.1f (порог %.1f)',
-    tostring(seq or '?'), tostring(v), damage, active and cfg and cfg.damage_threshold or -1))
+  print('PAIN RECV: ' .. tostring(v) .. ' (seq ' .. tostring(seq or '?') .. ') → damage=' ..
+    string.format('%.1f', damage) .. ' (порог ' ..
+    string.format('%.1f', active and cfg and cfg.damage_threshold or -1) .. ')')
   return true
 end
 

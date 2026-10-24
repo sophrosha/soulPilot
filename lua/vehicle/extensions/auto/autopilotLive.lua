@@ -52,7 +52,7 @@ local function toGE(level, msg)
   -- pcall обязателен: ошибка здесь не должна ронять фрейм-цикл машины
   pcall(function()
     obj:queueGameEngineLua(string.format(
-      'if autopilotLive_main and autopilotLive_main.onVehicleLog then autopilotLive_main.onVehicleLog("%s", "%s") end',
+      'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehicleLog then extensions.autopilotLive_main.onVehicleLog("%s", "%s") end',
       level, tostring(msg):gsub('\\', '\\\\'):gsub('"', '\\"')))
   end)
 end
@@ -242,7 +242,7 @@ function M.onInit()
   thermalsWarned = false
   pcall(function()
     obj:queueGameEngineLua(
-      'if autopilotLive_main and autopilotLive_main.onVehicleReady then autopilotLive_main.onVehicleReady(' ..
+      'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehicleReady then extensions.autopilotLive_main.onVehicleReady(' ..
       tostring(obj and obj:getID() or -1) .. ') end')
   end)
 end

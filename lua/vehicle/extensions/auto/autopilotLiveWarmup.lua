@@ -82,7 +82,7 @@ local aiCheckMode = ''          -- режим, который запросили
 local function toGE(level, msg)
   pcall(function()
     obj:queueGameEngineLua(string.format(
-      'if autopilotLive_main and autopilotLive_main.onVehicleLog then autopilotLive_main.onVehicleLog("%s", "%s") end',
+      'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehicleLog then extensions.autopilotLive_main.onVehicleLog("%s", "%s") end',
       level, tostring(msg):gsub('\\', '\\\\'):gsub('"', '\\"')))
   end)
 end
@@ -271,11 +271,17 @@ end
 local function notifyDone(timedOut)
   pcall(function()
     obj:queueGameEngineLua(string.format(
-      'if autopilotLive_main and autopilotLive_main.onVehicleWarmupDone then autopilotLive_main.onVehicleWarmupDone(%s, %s, %s, %s, %s) end',
+      'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehicleWarmupDone then extensions.autopilotLive_main.onVehicleWarmupDone(%s, %s, %s, %s, %s) end',
       tostring(obj and obj:getId() or -1), fmt(elapsed),
       lastCoolant and fmt(lastCoolant) or '-1',
       tostring(cfg.finish.auto_engage_after_warmup > 0),
       tostring(timedOut)))
+  end)
+  -- Фаза 10.5: дублируем состояние отдельным каналом (fallback мастера),
+  -- даже если onVehicleWarmupDone потерялся.
+  pcall(function()
+    obj:queueGameEngineLua(
+      'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehicleWarmupState then extensions.autopilotLive_main.onVehicleWarmupState("done") end')
   end)
 end
 
@@ -426,7 +432,7 @@ function M.updateGFX(dt)
     statePushT = 0
     pcall(function()
       obj:queueGameEngineLua(string.format(
-        'if autopilotLive_main and autopilotLive_main.onVehicleWarmupState then autopilotLive_main.onVehicleWarmupState("%s") end',
+        'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehicleWarmupState then extensions.autopilotLive_main.onVehicleWarmupState("%s") end',
         tostring(state)))
     end)
   end -- NaN/перерывы
@@ -583,7 +589,23 @@ function autopilotLiveWarmupCmd.off()
 end
 
 function autopilotLiveWarmupCmd.getState()
+  -- Фаза 10.5: заодно пушим состояние в GE (надёжный канал без onUpdate)
+  pcall(function()
+    obj:queueGameEngineLua(string.format(
+      'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehicleWarmupState then extensions.autopilotLive_main.onVehicleWarmupState("%s") end',
+      tostring(state)))
+  end)
   return state -- 'off'|'starting_engine'|'warming_up'|'done' (для pain/pet)
+end
+
+-- Фаза 10.5: GE может попросить прислать состояние (fallback мастера)
+function autopilotLiveWarmupCmd.pushState()
+  pcall(function()
+    obj:queueGameEngineLua(string.format(
+      'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehicleWarmupState then extensions.autopilotLive_main.onVehicleWarmupState("%s") end',
+      tostring(state)))
+  end)
+  return state
 end
 
 function autopilotLiveWarmupCmd.status()

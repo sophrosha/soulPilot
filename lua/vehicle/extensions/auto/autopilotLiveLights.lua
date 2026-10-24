@@ -32,7 +32,7 @@ local suppress = false    -- Фаза 8: popup моргает — авто-ло�
 local function toGE(level, msg)
   pcall(function()
     obj:queueGameEngineLua(string.format(
-      'if autopilotLive_main and autopilotLive_main.onVehicleLog then autopilotLive_main.onVehicleLog("%s", "%s") end',
+      'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehicleLog then extensions.autopilotLive_main.onVehicleLog("%s", "%s") end',
       level, tostring(msg):gsub('\\', '\\\\'):gsub('"', '\\"')))
   end)
 end
@@ -67,7 +67,7 @@ end
 local function notifyManualOverride()
   pcall(function()
     obj:queueGameEngineLua(
-      'if autopilotLive_main and autopilotLive_main.onVehicleLightsAutoOff then autopilotLive_main.onVehicleLightsAutoOff() end')
+      'if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehicleLightsAutoOff then extensions.autopilotLive_main.onVehicleLightsAutoOff() end')
   end)
 end
 
