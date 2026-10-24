@@ -85,6 +85,12 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - **Wheel (финальный комфорт):** `"mode": "comfort"`, пресет comfort = rise/fall **6.0/8.0** (быстрый трекинг raw, без PIO), `ema_tau 0.10`, `lerp_tau 0.08`; DEFAULTS и числа JSON синхронизированы. Виляние ушло ещё на 6/8 + малых tau; 0.10/0.08 убирают остаточную резкость.
 - Диагностика после полного перезапуска: `extensions.isExtensionLoaded('autopilotLive/main')`, `extensions.autopilotLive_main ~= nil`, vehicle→GE `GE_EXT=true`.
 
+**ФАЗА 11.4 (2026-10-25): мягкий beat без «кочки».** Игрок: при ударе бита руль резко «подбивался», как на кочке. Причина — мгновенный импульс 0.01 на фронте beat.
+- `ai/config/music.json`: вместо `beat_kick_amp/beat_kick_ms` — `beat_amp=0.01`, `beat_decay_s=0.2` (attack фиксирован 0.05 с в коде).
+- Vehicle `autopilotLiveMusic.lua`: `beatEnv` плавно растёт `dt/0.05` до 1 и спадает `dt/beat_decay_s` до 0; к рулю добавляется `beatEnv*beat_amp` через `autopilotLiveMusicGetBeatKick()` (имя сохранено, wheel не меняется по логике). Никаких ступенек: первый кадр даёт ~0.0032 вместо 0.01.
+- Wheel: по-прежнему `clampSym(pipe.out + drive + beatEnv*amp)` после сглаживания; park-ветка добавляет то же к `steering_input`.
+- Проверки в LuaJIT-моке: rise 0.0032→0.0064→0.0096→0.01 за 4 кадра; fall до 0 за ~0.2 с; lights_calls пуст.
+
 **ФАЗА 11.3 (2026-10-25): реакции музыки — beat в руль, мягче бас.** По фидбеку игрока (амбиент даёт слишком сильную дрожь; фары не нужны):
 - `ai/config/music.json`: `lights_pulse=0` (фары от музыки отключены по умолчанию; старый код пульса сохранён, включается обратно флагом), `sway_amp=0.005`, `vibration_amp=0.001`, `vibration_hz=6.0`; новые `beat_kick_amp=0.01`, `beat_kick_ms=90`.
 - Vehicle `autopilotLiveMusic.lua`: `bass_smooth` EMA (`bassSmooth += (bass-bassSmooth)*min(dt*5,1)`) используется для качка/вибрации; на фронт beat — затухающий импульс `beat_kick_amp*(1-age/dur)` через `autopilotLiveMusicGetBeatKick()`. Фары не трогаются при `lights_pulse=0` (popup не блокируется).

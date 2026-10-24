@@ -203,7 +203,7 @@ end
 -- === Музыка (Фаза 11.3): добавка ПОСЛЕ сглаживания ===
 -- Глобальные функции определены в autopilotLiveMusic.lua (загружается
 -- автоматически). pcall — музыка не должна ломать руль.
--- park = качок+beat-kick на стоянке; drive = вибрация+beat-kick в движении.
+-- park = качок+beat-envelope на стоянке; drive = вибрация+beat-envelope.
 local function musicOffset(fname)
   local fn = _G[fname]
   if type(fn) ~= 'function' then return 0 end
