@@ -39,6 +39,7 @@ local DEFAULTS = {
 local cfg = nil
 local cfgFromFile = false
 local active = false            -- apl_wheel("on") включён
+local activeConfPath = nil      -- путь конфига активного wheel (для идемпотентного on)
 local rateScale = 1.0           -- множитель rate_limit (Фаза 7: pet временно
                                 -- ставит 0.5 — «руль плавнее»; возврат в 1.0)
 local needInit = true           -- синхронизировать конвейер с raw на первом кадре
@@ -269,10 +270,31 @@ end
 autopilotLiveWheelCmd = {}
 
 function autopilotLiveWheelCmd.on(confPath)
-  cfg, cfgFromFile = loadConfig(type(confPath) == 'string' and confPath or FALLBACK_CONF)
+  local path = type(confPath) == 'string' and confPath or FALLBACK_CONF
+
+  -- Warmup auto-engage и GE могут вызвать on() почти одновременно.
+  -- Повторный on не должен сбрасывать needInit и дергать руль.
+  if active and activeConfPath == path then
+    aplPrint('aplWheel: ON уже активен — повторный вызов проигнорирован')
+    return true
+  end
+
+  local wasActive = active
+  cfg, cfgFromFile = loadConfig(path)
   active = true
-  needInit = true
-  rateScale = 1.0 -- защита от «залипшего» pet-масштаба после перезапуска wheel
+  activeConfPath = path
+  if not wasActive then
+    needInit = true
+    rateScale = 1.0 -- защита от «залипшего» pet-масштаба после перезапуска wheel
+  else
+    aplPrint('aplWheel: ON уже активен — конфиг перечитан, needInit сохранён')
+  end
+
+  -- Сообщаем GE, что wheel уже включён (важно для auto-engage warmup).
+  pcall(function()
+    obj:queueGameEngineLua('if extensions and extensions.autopilotLive_main and extensions.autopilotLive_main.onVehicleWheelOn then extensions.autopilotLive_main.onVehicleWheelOn() end')
+  end)
+
   local r = cfg.rate_limit
   aplPrint('aplWheel: ON — mode=' .. tostring(cfg.mode or 'custom') ..
     ', rate ' .. tostring(r.steer_rise) .. '/' .. tostring(r.steer_fall) ..
@@ -287,6 +309,7 @@ end
 function autopilotLiveWheelCmd.off()
   if not active then return false end
   active = false
+  activeConfPath = nil
   rateScale = 1.0
   -- steering_input НЕ трогаем: движок затрёт его сам на следующем кадре
   -- (input.lua:678). Nil-восстановление не нужно (§4).
@@ -351,6 +374,7 @@ end
 
 function M.onVehicleDestroyed()
   active = false
+  activeConfPath = nil
   lastOut.engaged = false
 end
 

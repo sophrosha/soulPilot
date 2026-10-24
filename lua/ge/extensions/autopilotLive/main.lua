@@ -2315,6 +2315,12 @@ end
 -- Фаза 5 (шаг 5.4): vehicle сообщает завершение прогрева. GE печатает
 -- сообщение игроку и при auto_engage_after_warmup=true включает wheel/pedals
 -- (только если они ещё не включены — warmup не мешает уже работающим модулям).
+-- vehicle сообщает, что wheel реально включён (в т.ч. auto-engage из warmup).
+-- Без этого GE не знает о прямом on() и отправляет второй on(), сбрасывая needInit.
+function M.onVehicleWheelOn()
+  wheelRequested = true
+end
+
 function M.onVehicleWarmupDone(vehId, elapsed, tempC, autoEngage, timedOut)
   print('MASTER: onVehicleWarmupDone получен (pending=' .. tostring(masterPending) ..
     ', state=' .. tostring(masterState) .. ')')

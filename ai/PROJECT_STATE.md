@@ -93,6 +93,13 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - Бинд `apl_ui_toggle` (Ctrl+Shift+U): открывает `pause.hudApps.selector` с поиском «AutopilotLive» (fallback — Quick Access). Первый раз приложение добавляется в HUD-раскладку через каталог, дальше доступно как HUD-app.
 - Проверки: app.vue компилируется через `@vue/compiler-sfc`; JSON/Lua (luaparser) OK; uiConfig в LuaJIT-моке читает/пишет конфиги и вызывает модули.
 
+**ФАЗА 12.3.6 (2026-10-25): wheel double-on, parking 999999, release tooling.**
+- Wheel: `on()` идемпотентен; повторный вызов с тем же конфигом не сбрасывает `needInit`; vehicle сообщает GE `onVehicleWheelOn`, чтобы warmup auto-engage не дублировал on. `activeConfPath` сбрасывается в off/destroy.
+- `uiConfig.FILES` без `parking`; parking остаётся активным ассистентом Quick Access.
+- `parking.json`/DEFAULTS: `search_radius_m=999999.0` (вся карта).
+- `wheel.json`: удалён устаревший верхний комментарий (значения comfort 6.0/8.0, ema 0.10, lerp 0.08 сохранены).
+- Добавлены `README.md` и `build_release.py` (чистый zip без venv/notes/csv/logs/road/кэшей; README внутри).
+
 **ФАЗА 12.3.5 (2026-10-25): Parking вне UI; поиск по всей карте.**
 - `app.vue`: удалён пункт Parking из навигации, тумблер из Normal, вся parking-секция и expert.parking; parking остаётся активным ассистентом через `apl_park`/Quick Access.
 - `uiConfig.lua`: `enable_parking` убран из `stateTable` и `MODULE_FLAGS`.

@@ -18,7 +18,7 @@ local CONF_MOD = 'mods/unpacked/AutopilotLive/ai/config/parking.json'
 
 local DEFAULTS = {
   poll_hz = 5.0,
-  search_radius_m = 10000.0,
+  search_radius_m = 999999.0,
   min_spot_radius_m = 5.0,
   max_spot_road_dist_m = 35.0,
   arrival_radius_m = 14.0,

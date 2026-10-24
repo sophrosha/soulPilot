@@ -24,7 +24,6 @@ local FILES = {
   pain    = 'pain.json',
   pedals  = 'pedals.json',
   warmup  = 'warmup.json',
-  parking = 'parking.json',
   debug   = 'debug.json',
   ui      = 'ui.json',
 }
