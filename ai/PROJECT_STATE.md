@@ -93,6 +93,13 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - Бинд `apl_ui_toggle` (Ctrl+Shift+U): открывает `pause.hudApps.selector` с поиском «AutopilotLive» (fallback — Quick Access). Первый раз приложение добавляется в HUD-раскладку через каталог, дальше доступно как HUD-app.
 - Проверки: app.vue компилируется через `@vue/compiler-sfc`; JSON/Lua (luaparser) OK; uiConfig в LuaJIT-моке читает/пишет конфиги и вызывает модули.
 
+**ФАЗА 12.3.5 (2026-10-25): Parking вне UI; поиск по всей карте.**
+- `app.vue`: удалён пункт Parking из навигации, тумблер из Normal, вся parking-секция и expert.parking; parking остаётся активным ассистентом через `apl_park`/Quick Access.
+- `uiConfig.lua`: `enable_parking` убран из `stateTable` и `MODULE_FLAGS`.
+- `master.json`: `enable_parking` удалён; в `masterFinish()` автоматического `apl_park` не было.
+- `parking.json`/`parking.lua`: радиус 10 000 м; при пустом результате повторный поиск с 999 999 м (вся карта). Если мест нет совсем — fallback: `beginStop` на текущей позиции (обочина), без ошибки.
+- Parking-настройки (route_speed/arrival/stop) теперь не в UI; правятся через parking.json.
+
 **ФАЗА 12.3.4 (2026-10-25): SVG-иконки About + аварийный выход паркинга.**
 - About: белые кружки GH/WEB заменены на `github.svg` и `bio.svg` (32×32, object-fit contain); для bio применён `filter: brightness(0) invert(1)`.
 - `autopilotLivePark.lua`: таймер reverse-stuck — gearIndex < 0 / gear `R`/`-1` и speed < 0.5 км/ч дольше 3 с → `print("aplPark: застрял на задней передаче, аварийное завершение")` → `finishPark()` (ручник, зажигание 0).

@@ -117,19 +117,6 @@
                 </button>
               </div>
 
-              <div class="apl-row">
-                <div class="apl-row-label">
-                  <span>{{ t("apl.modules.parking") }}</span>
-                  <small>{{ t("apl.modules.parking.desc") }}</small>
-                </div>
-                <button
-                  class="apl-toggle"
-                  :class="{ on: moduleState.parking }"
-                  @click="toggleModule('parking')"
-                >
-                  <span class="apl-toggle-knob"></span>
-                </button>
-              </div>
             </div>
           </section>
 
@@ -201,53 +188,6 @@
                   <div class="apl-row-label">
                     <span>{{ t(f.label) }}</span>
                     <small>{{ f.hint ? t(f.hint) : "" }}</small>
-                  </div>
-                  <div class="apl-slider-cell">
-                    <input
-                      class="apl-range"
-                      type="range"
-                      :min="f.min"
-                      :max="f.max"
-                      :step="f.step"
-                      :value="getVal(f.file, f.path)"
-                      @input="setVal(f.file, f.path, $event.target.value)"
-                    />
-                    <input
-                      class="apl-number"
-                      type="number"
-                      :min="f.min"
-                      :max="f.max"
-                      :step="f.step"
-                      :value="getVal(f.file, f.path)"
-                      @change="setVal(f.file, f.path, $event.target.value)"
-                    />
-                  </div>
-                </div>
-              </template>
-            </div>
-          </section>
-
-          <section id="parking" class="apl-group">
-            <h2 class="apl-group-title">{{ t("apl.ui.parking") }}</h2>
-            <div class="apl-group-frame">
-              <div class="apl-row">
-                <div class="apl-row-label">
-                  <span>{{ t("apl.modules.parking") }}</span>
-                  <small>{{ t("apl.modules.parking.desc") }}</small>
-                </div>
-                <button
-                  class="apl-toggle"
-                  :class="{ on: moduleState.parking }"
-                  @click="toggleModule('parking')"
-                >
-                  <span class="apl-toggle-knob"></span>
-                </button>
-              </div>
-
-              <template v-if="mode === 'expert'">
-                <div v-for="f in expert.parking" :key="f.path" class="apl-row">
-                  <div class="apl-row-label">
-                    <span>{{ t(f.label) }}</span>
                   </div>
                   <div class="apl-slider-cell">
                     <input
@@ -683,7 +623,6 @@ const nav = [
   { id: "general", label: "apl.ui.general", icon: "cogOutline" },
   { id: "steering", label: "apl.ui.steering", icon: "steeringWheelSporty" },
   { id: "music", label: "apl.ui.music", icon: "music" },
-  { id: "parking", label: "apl.ui.parking", icon: "parking" },
   { id: "debug", label: "apl.ui.debug", icon: "bug" },
   { id: "about", label: "apl.ui.about", icon: "info" },
 ]
@@ -698,7 +637,6 @@ const moduleState = reactive({
   master: false,
   lights: false,
   music: false,
-  parking: false,
 })
 
 const profileLabels = {
@@ -723,11 +661,6 @@ const expert = {
     { file: "music", path: "beat_decay_s", label: "apl.fields.beat_decay_s", min: 0.02, max: 1, step: 0.01 },
     { file: "music", path: "vibration_hz", label: "apl.fields.vibration_hz", min: 1, max: 15, step: 0.5 },
   ],
-  parking: [
-    { file: "parking", path: "route_speed_mps", label: "apl.fields.route_speed", min: 1, max: 20, step: 0.5 },
-    { file: "parking", path: "arrival_radius_m", label: "apl.fields.arrival_radius", min: 3, max: 50, step: 1 },
-    { file: "parking", path: "stop_speed_mps", label: "apl.fields.stop_speed", min: 0.1, max: 2, step: 0.05 },
-  ],
 }
 
 function applyStatus(status) {
@@ -735,7 +668,6 @@ function applyStatus(status) {
   moduleState.master = status.master === true || status.master === 1 || status.master === "on"
   moduleState.lights = status.lights === true
   moduleState.music = status.music === true
-  moduleState.parking = status.parking === true
   debugEnabled.value = status.debug === true
   if (status.language) lang.value = normalizeLang(status.language)
 }

@@ -6,7 +6,7 @@
 -- UI вызывает:
 --   extensions.autopilotLive_uiConfig.getConfig()
 --   extensions.autopilotLive_uiConfig.setConfig({files={music={...}, wheel={...}}})
---   extensions.autopilotLive_uiConfig.setModule("master"|"lights"|"music"|"parking", true|false)
+--   extensions.autopilotLive_uiConfig.setModule("master"|"lights"|"music", true|false)
 --   extensions.autopilotLive_uiConfig.setDebug(true|false)
 
 local M = {}
@@ -171,7 +171,6 @@ local function stateTable()
     language = uiLanguage(),
     lights = flag('enable_lights'),
     music = flag('enable_music'),
-    parking = flag('enable_parking'),
     wheel = flag('enable_wheel'),
     popup = flag('enable_popup'),
     debug = (tonumber(debug.enabled) or 0) ~= 0,
@@ -253,7 +252,6 @@ local MODULE_FLAGS = {
   master = 'enable_master',
   lights = 'enable_lights',
   music = 'enable_music',
-  parking = 'enable_parking',
   wheel = 'enable_wheel',
   popup = 'enable_popup',
 }

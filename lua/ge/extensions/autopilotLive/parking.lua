@@ -18,7 +18,7 @@ local CONF_MOD = 'mods/unpacked/AutopilotLive/ai/config/parking.json'
 
 local DEFAULTS = {
   poll_hz = 5.0,
-  search_radius_m = 200.0,
+  search_radius_m = 10000.0,
   min_spot_radius_m = 5.0,
   max_spot_road_dist_m = 35.0,
   arrival_radius_m = 14.0,
@@ -36,6 +36,9 @@ local DEFAULTS = {
   quit_game = 0,
   quit_delay_s = 5.0,
 }
+
+-- Если рядом с машиной мест нет — ищем по всей карте.
+local MAP_WIDE_RADIUS_M = 999999.0
 
 local cfg = nil
 local cfgFromFile = false
@@ -102,7 +105,7 @@ local function loadConfig()
     return c, false
   end
   c.poll_hz = clampNum(decoded.poll_hz, 1, 20, c.poll_hz)
-  c.search_radius_m = clampNum(decoded.search_radius_m, 10, 1000, c.search_radius_m)
+  c.search_radius_m = clampNum(decoded.search_radius_m, 10, 999999, c.search_radius_m)
   c.min_spot_radius_m = clampNum(decoded.min_spot_radius_m, 0, 100, c.min_spot_radius_m)
   c.max_spot_road_dist_m = clampNum(decoded.max_spot_road_dist_m, 2, 100, c.max_spot_road_dist_m)
   c.arrival_radius_m = clampNum(decoded.arrival_radius_m, 3, 100, c.arrival_radius_m)
@@ -171,23 +174,12 @@ local function vehiclePos(veh)
 end
 
 -- === Поиск парковочного места ===
-local function findSpot(veh)
-  local pp = extensions and extensions.gameplay_parking
-  if not pp then return nil, 'gameplay_parking не загружен' end
-  if not pp.findParkingSpots then return nil, 'gameplay_parking.findParkingSpots недоступен' end
-
-  local pos = vehiclePos(veh)
-  if not pos then return nil, 'нет позиции машины' end
-
-  -- getParkingSpots() лениво вызывает loadSites(); без этого findParkingSpots пуст.
-  pcall(function() if pp.getParkingSpots then pp.getParkingSpots() end end)
-
+local function querySpots(pp, pos, radius)
+  if not pp or not pp.findParkingSpots then return {} end
   local ok, list = pcall(function()
-    return pp.findParkingSpots(pos, cfg.min_spot_radius_m, cfg.search_radius_m)
+    return pp.findParkingSpots(pos, cfg.min_spot_radius_m, radius)
   end)
-  if not ok or type(list) ~= 'table' or #list == 0 then
-    return nil, 'рядом нет parking spots (sites не загружены или карта без них)'
-  end
+  if not ok or type(list) ~= 'table' then return {} end
 
   if pp.filterParkingSpots then
     local okF, filtered = pcall(function()
@@ -199,8 +191,32 @@ local function findSpot(veh)
     end)
     if okF and type(filtered) == 'table' then list = filtered end
   end
+  return list
+end
 
-  local nodes = map and map.getMap and map.getMap().nodes or nil
+local function findSpot(veh)
+  local pp = extensions and extensions.gameplay_parking
+  if not pp then return nil, 'gameplay_parking не загружен' end
+  if not pp.findParkingSpots then return nil, 'gameplay_parking.findParkingSpots недоступен' end
+
+  local pos = vehiclePos(veh)
+  if not pos then return nil, 'нет позиции машины' end
+
+  -- getParkingSpots() лениво вызывает loadSites(); без этого findParkingSpots пуст.
+  pcall(function() if pp.getParkingSpots then pp.getParkingSpots() end end)
+
+  local list = querySpots(pp, pos, cfg.search_radius_m)
+  if #list == 0 and cfg.search_radius_m < MAP_WIDE_RADIUS_M then
+    note('INFO', 'в радиусе ' .. tostring(cfg.search_radius_m) ..
+      ' м мест нет — ищу по всей карте')
+    list = querySpots(pp, pos, MAP_WIDE_RADIUS_M)
+  end
+  if #list == 0 then
+    return nil, 'на карте нет parking spots (sites не загружены или карта без них)'
+  end
+
+  local mapData = map and map.getMap and map.getMap() or nil
+  local nodes = mapData and mapData.nodes or nil
   local myId = nil
   pcall(function() myId = veh:getID() end)
 
@@ -351,6 +367,8 @@ local function routeCommand(targetNode)
 end
 
 -- === Запуск auto ===
+local requestStop
+
 local function startAuto()
   local veh = playerVehicle()
   if not veh then
@@ -372,8 +390,19 @@ local function startAuto()
 
   local ps, err, n1, n2 = findSpot(veh)
   if not ps then
-    fail(err)
-    return false
+    local pos = vehiclePos(veh)
+    if not pos then
+      fail(err)
+      return false
+    end
+    -- На карте нет парковок: не ошибка, а fallback — стоим у обочины.
+    note('WARN', 'парковка не найдена (' .. tostring(err) ..
+      ') — fallback: остановка у обочины')
+    targetSpot, targetSpotId = nil, 'roadside'
+    targetPos = pos
+    targetNode, targetNodePos, routePath = nil, nil, nil
+    requestStop()
+    return true
   end
 
   targetSpot = ps
@@ -412,7 +441,7 @@ local function startAuto()
   return true
 end
 
-local function requestStop()
+requestStop = function()
   local opts = {
     stop_speed_mps = cfg.stop_speed_mps,
     stop_hold_s = cfg.stop_hold_s,
