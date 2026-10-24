@@ -1,0 +1,30 @@
+{
+  "apl_toggle_autopilot": {
+    "title": "soulPilot: Автопилот ВКЛ/ВЫКЛ",
+    "desc": "Прогрев -> wheel/pedals/lights/popup/pain -> AI traffic (мастер-переключатель)",
+    "onDown": "if apl_autopilot then apl_autopilot('toggle') end",
+    "category": "soulPilot",
+    "ctx": "tlua"
+  },
+  "apl_pet_toggle": {
+    "title": "soulPilot: Погладить",
+    "desc": "Поглаживание: звук + мягкий руль + ручник (на стоянке)",
+    "onDown": "if apl_pet then apl_pet('on') end",
+    "category": "soulPilot",
+    "ctx": "tlua"
+  },
+  "apl_warmup_toggle": {
+    "title": "soulPilot: Прогрев",
+    "desc": "Запустить прогрев (повторное нажатие — off)",
+    "onDown": "if apl_warmup then apl_warmup('start') end",
+    "category": "soulPilot",
+    "ctx": "tlua"
+  },
+  "apl_ui_toggle": {
+    "title": "soulPilot: Настройки",
+    "desc": "Открыть каталог HUD-приложений (soulPilot) в паузе",
+    "onDown": "if extensions and extensions.ui_router then pcall(function() if extensions.ui_appSelector_general and extensions.ui_appSelector_general.setSearchText then extensions.ui_appSelector_general.setSearchText('soulPilot') end end); extensions.ui_router.navigate('pause.hudApps.selector') elseif core_quickAccess then core_quickAccess.toggle('/root/sandbox/apl/') end",
+    "category": "soulPilot",
+    "ctx": "tlua"
+  }
+}

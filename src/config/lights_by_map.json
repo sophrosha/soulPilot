@@ -1,0 +1,16 @@
+{
+  "maps": {
+    "east_coast_usa": {
+      "night_window": {
+        "start": "18:40",
+        "end": "07:00"
+      }
+    },
+    "italy": {
+      "night_window": {
+        "start": "18:20",
+        "end": "07:00"
+      }
+    }
+  }
+}

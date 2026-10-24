@@ -1,0 +1,39 @@
+{
+  "rate_limit": {
+    "throttle_rise": 0.8,
+    "throttle_fall": 1.5,
+    "brake_rise": 1.7,
+    "brake_fall": 2.5
+  },
+  "ema_tau": {
+    "throttle": 0.1,
+    "brake": 0.08
+  },
+  "lerp_tau": {
+    "throttle": 0.15,
+    "brake": 0.12
+  },
+  "arbitration": {
+    "brake_start": 0.1,
+    "brake_full": 0.5
+  },
+  "neutral": {
+    "speed_max_mps": 0.5,
+    "throttle_min": 0.05,
+    "brake": 0.3
+  },
+  "smooth_start": {
+    "time_s": 3.0,
+    "speed_mps": 5.0,
+    "throttle_cap": 0.45
+  },
+  "predictive": {
+    "brake_threshold": 0.55,
+    "lead": 0.25,
+    "release_hyst": 0.35,
+    "min_speed_mps": 1.5
+  },
+  "shift": {
+    "hold_s": 0.4
+  }
+}

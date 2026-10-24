@@ -37,3 +37,8 @@ ai/music/current.json
 ai/music/*.tmp.*
 # Настройки UI (устройство захвата) — локальные для машины игрока.
 ai/music/config.json
+
+# soulPilot dev/release artifacts
+/ai/
+venv/
+*.zip

@@ -1,0 +1,25 @@
+{
+  "domElement": "<autopilot-live></autopilot-live>",
+  "name": "ui.apps.apl.name",
+  "description": "ui.apps.apl.description",
+  "types": [
+    "ui.apps.categories.vehicle_control",
+    "ui.apps.categories.utility"
+  ],
+  "css": {
+    "left": "120px",
+    "top": "80px",
+    "width": "980px",
+    "height": "640px",
+    "min-width": "720px",
+    "min-height": "480px"
+  },
+  "author": "soulPilot",
+  "version": "1.0",
+  "directive": "soulPilot",
+  "appName": "soulPilot",
+  "vue": true,
+  "category": "Gameplay",
+  "isAuxiliary": false,
+  "interactive": "required"
+}

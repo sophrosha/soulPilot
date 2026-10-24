@@ -1,11 +1,11 @@
--- AutopilotLive — штатная точка входа мода (точка входа GE-слоя)
+-- soulPilot — штатная точка входа мода (точка входа GE-слоя)
 -- Исполняется core/modmanager.lua при старте игры:
 --   modmanager ищет 'scripts/modScript.lua' по всему VFS (включая unpacked-моды)
 --   и запускает через pcall(dofile, ...). См. modmanager.lua:704.
 -- Пока исполняются modScript'ы, extensions.load сам ставит unloadMode="manual"
 -- (modmanager.lua:697-702), так что расширение переживёт смену карты.
 
-extensions.load('autopilotLive/main')
+extensions.load('soulPilot/main')
 
 -- Фаза 10.2: бинды по умолчанию (Ctrl+Shift+A/P/W/U).
 -- Пишем ОТДЕЛЬНЫЙ файл keyboard_apl.diff (не трогаем keyboard.diff пользователя):
@@ -24,9 +24,9 @@ local function ensureDefaultBinds()
   if f then
     f:write(json)
     f:close()
-    print('[AutopilotLive] Бинды по умолчанию записаны: Ctrl+Shift+A/P/W/U (settings/inputmaps/keyboard_apl.diff)')
+    print('[soulPilot] Бинды по умолчанию записаны: Ctrl+Shift+A/P/W/U (settings/inputmaps/keyboard_apl.diff)')
   else
-    print('[AutopilotLive] WARN не удалось записать settings/inputmaps/keyboard_apl.diff — назначьте клавиши в Options > Controls')
+    print('[soulPilot] WARN не удалось записать settings/inputmaps/keyboard_apl.diff — назначьте клавиши в Options > Controls')
   end
 end
 pcall(ensureDefaultBinds)

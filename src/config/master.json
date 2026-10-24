@@ -1,0 +1,11 @@
+{
+  "enable_wheel": 1,
+  "enable_pedals": 1,
+  "enable_lights": 1,
+  "enable_popup": 1,
+  "enable_pain": 1,
+  "enable_music": 0,
+  "enable_master": 0,
+  "ai_mode": "traffic",
+  "skip_warmup_if_warm": 1
+}
