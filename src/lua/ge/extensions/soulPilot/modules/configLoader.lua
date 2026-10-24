@@ -47,7 +47,7 @@ M.PET_DEFAULTS = {
 }
 
 M.POPUP_DEFAULTS = {
-  models = { "bolide", "wigeon" },
+  models = { "bolide", "wigeon", "200bx" },
   day_min_s = 120,
   day_max_s = 180,
   night_min_s = 180,

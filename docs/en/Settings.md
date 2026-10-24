@@ -67,7 +67,7 @@ Keep `sway.amplitude` at or below `0.035`. On finish the sway is reset and the s
 
 ```json
 {
-  "models": ["bolide", "wigeon"],
+  "models": ["bolide", "wigeon", "200bx"],
   "day_min_s": 120,
   "day_max_s": 180,
   "night_min_s": 180,
@@ -95,7 +95,7 @@ The current custom tuning is intentionally:
 }
 ```
 
-`mode: comfort/sport` replaces the rates with a preset; `custom` uses the explicit values.
+`mode: comfort/sport` replaces the rates with a preset; `custom` uses the explicit values. Comfort is tuned to rise/fall `3.5/5.0`, EMA `0.12`, lerp `0.10`.
 
 ## Pet
 

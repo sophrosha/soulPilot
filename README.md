@@ -13,7 +13,7 @@ The project is a clean, modular continuation of AutopilotLive. The GE and vehicl
 - **Steering pipeline** — `rate limit -> EMA -> lerp`, music offsets and safe re-seeding after warm-up.
 - **Pedals** — smooth throttle/brake arbitration, predictive braking and shift handling.
 - **Lights** — automatic day/night headlights with per-map windows.
-- **Popup eyes** — Bolide/Wigeon eye animation with day/night intervals and a debug blink mode.
+- **Popup eyes** — Bolide/Wigeon/200BX eye animation with day/night intervals and a debug blink mode.
 - **Pet** — short petting interaction with purring audio and a cooldown.
 - **Pain/recovery** — damage detection, reset/teleport recovery and optional AI restore.
 - **Music** — optional Spotify/VB-Cable bass analysis feeding the steering layer.
