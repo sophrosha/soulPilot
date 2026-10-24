@@ -93,6 +93,11 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - Бинд `apl_ui_toggle` (Ctrl+Shift+U): открывает `pause.hudApps.selector` с поиском «AutopilotLive» (fallback — Quick Access). Первый раз приложение добавляется в HUD-раскладку через каталог, дальше доступно как HUD-app.
 - Проверки: app.vue компилируется через `@vue/compiler-sfc`; JSON/Lua (luaparser) OK; uiConfig в LuaJIT-моке читает/пишет конфиги и вызывает модули.
 
+**ФАЗА 12.3.4 (2026-10-25): SVG-иконки About + аварийный выход паркинга.**
+- About: белые кружки GH/WEB заменены на `github.svg` и `bio.svg` (32×32, object-fit contain); для bio применён `filter: brightness(0) invert(1)`.
+- `autopilotLivePark.lua`: таймер reverse-stuck — gearIndex < 0 / gear `R`/`-1` и speed < 0.5 км/ч дольше 3 с → `print("aplPark: застрял на задней передаче, аварийное завершение")` → `finishPark()` (ручник, зажигание 0).
+- Обычный stop-hold в R не завершает раньше аварийного таймера; таймер сбрасывается в beginStop/cancel/reset/destroy/finish.
+
 **ФАЗА 12.3.3 (2026-10-25): Языковой dropdown + блок LivingAutopilot.**
 - Язык: вместо 4 кнопок — одна кнопка с текущим кодом и выпадающим меню вверх; `langOpen`/`currentLanguage`, закрытие по клику вне; смена языка мгновенная, сохранение в `ui.json`.
 - About: белая заглушка `apl_preview_ui.png` удалена; добавлены LivingAutopilot, версия, описание, источники, автор/лицензия и две ссылки с белыми кружками GH/WEB.

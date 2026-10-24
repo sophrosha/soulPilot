@@ -21,11 +21,16 @@ local DEFAULTS = {
   engine_off = 1,
 }
 
+-- Аварийный выход: AI выбрал R, но машина не может сдвинуться.
+local REVERSE_STUCK_TIME_S = 3.0
+local REVERSE_STUCK_SPEED_MPS = 0.5 / 3.6 -- 0.5 км/ч
+
 -- phase: idle | stopping | parked | failed
 local phase = 'idle'
 local opts = nil
 local elapsed = 0
 local holdT = 0
+local reverseStuckT = 0
 
 local function clampNum(v, lo, hi, dflt)
   v = tonumber(v)
@@ -64,6 +69,19 @@ local function speedMps()
   return v
 end
 
+-- Поддержка разных КПП: gearIndex < 0, gear == -1/"-1"/"R".
+local function isReverseGear()
+  local gear, gearIndex
+  pcall(function()
+    gear = electrics.values.gear
+    gearIndex = electrics.values.gearIndex
+  end)
+  local index = tonumber(gearIndex)
+  if index ~= nil and index < 0 then return true end
+  local value = tostring(gear or ''):upper()
+  return value == 'R' or value == '-1' or value == 'REVERSE'
+end
+
 local function finishPark()
   local pbOk, pbErr = pcall(function()
     controller.mainController.smartParkingBrake(1, FILTER_DIRECT, true)
@@ -83,6 +101,8 @@ local function finishPark()
   end
 
   phase = 'parked'
+  reverseStuckT = 0
+  holdT = 0
   local id = 0
   pcall(function() id = obj:getID() end)
   local info = string.format('brake=%s,ignition=%s,speed=%.3f',
@@ -114,6 +134,7 @@ function autopilotLiveParkCmd.beginStop(newOpts)
   phase = 'stopping'
   elapsed = 0
   holdT = 0
+  reverseStuckT = 0
   pcall(function() ai.setMode('stop') end)
   aplPrint(string.format(
     'aplPark(vehicle): STOP — ждём %.2f м/с %.1f с (timeout %.0f с), brake=%d, engine_off=%d',
@@ -131,6 +152,7 @@ function autopilotLiveParkCmd.cancel()
   phase = 'idle'
   elapsed = 0
   holdT = 0
+  reverseStuckT = 0
   pcall(function() ai.setMode('stop') end)
   aplPrint('aplPark(vehicle): отменено (ручник/зажигание не трогаем)')
   return true
@@ -155,6 +177,21 @@ function M.updateGFX(dt)
 
   elapsed = elapsed + dt
   local speed = speedMps()
+  local reversing = isReverseGear()
+
+  -- AI включил заднюю, но машина стоит: на мосту/в узком месте
+  -- заезд невозможен. Через 3 с просто паркуемся на месте.
+  if reversing and speed < REVERSE_STUCK_SPEED_MPS then
+    reverseStuckT = reverseStuckT + dt
+  else
+    reverseStuckT = 0
+  end
+
+  if reverseStuckT >= REVERSE_STUCK_TIME_S then
+    print("aplPark: застрял на задней передаче, аварийное завершение")
+    finishPark()
+    return
+  end
 
   if speed <= opts.stop_speed_mps then
     holdT = holdT + dt
@@ -162,7 +199,10 @@ function M.updateGFX(dt)
     holdT = 0
   end
 
-  if holdT >= opts.stop_hold_s then
+  -- В режиме R не завершаем по обычному hold: даём шанс выйти
+  -- из застревания, затем сработает аварийный таймер выше.
+  if holdT >= opts.stop_hold_s
+    and not (reversing and speed < REVERSE_STUCK_SPEED_MPS) then
     finishPark()
     return
   end
@@ -178,6 +218,7 @@ function M.onReset()
     phase = 'idle'
     elapsed = 0
     holdT = 0
+    reverseStuckT = 0
   end
 end
 
@@ -185,6 +226,7 @@ function M.onVehicleDestroyed()
   phase = 'idle'
   elapsed = 0
   holdT = 0
+  reverseStuckT = 0
   opts = nil
 end
 

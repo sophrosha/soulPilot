@@ -326,7 +326,11 @@
                     target="_blank"
                     rel="noopener"
                   >
-                    <span class="about-circle">GH</span>
+                    <img
+                      class="about-icon"
+                      src="/ui/modules/apps/AutopilotLive/github.svg"
+                      alt="GitHub"
+                    />
                     <span class="about-link-text">
                       {{ t("apl.about.github") }}
                       <small>github.com/sophrosha</small>
@@ -338,7 +342,11 @@
                     target="_blank"
                     rel="noopener"
                   >
-                    <span class="about-circle">WEB</span>
+                    <img
+                      class="about-icon about-icon-site"
+                      src="/ui/modules/apps/AutopilotLive/bio.svg"
+                      alt="Website"
+                    />
                     <span class="about-link-text">
                       {{ t("apl.about.website") }}
                       <small>sophron.ru</small>
@@ -1401,18 +1409,17 @@ onBeforeUnmount(() => {
   }
 }
 
-.about-circle {
-  display: grid;
-  place-items: center;
+.about-icon {
+  display: block;
   flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: #fff;
-  color: #111;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0.2px;
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  object-position: center;
+}
+
+.about-icon-site {
+  filter: brightness(0) invert(1);
 }
 
 .about-link-text {
