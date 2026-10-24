@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AutopilotLive: захват аудио и анализ баса (кроссплатформенно).
+"""soulPilot: захват аудио и анализ баса (кроссплатформенно).
 
 Windows: soundcard -> WASAPI loopback. Для Spotify используйте VB-Audio
          Virtual Cable: вывод Spotify = "CABLE Input", захват = "CABLE Output".
@@ -12,7 +12,7 @@ Linux:   soundcard -> PulseAudio/PipeWire. Захватывается monitor-и
     python capture.py --device 3 --bass-low 40 --bass-high 150
 
 Скрипт ничего не пишет на диск и не отправляет UDP — только консоль.
-Для записи current.json и UDP используйте app.py.
+Для записи current.json и UDP используйте main.py.
 """
 from __future__ import annotations
 
@@ -65,8 +65,8 @@ def require_backend() -> None:
         raise SystemExit(
             "Не найден пакет 'soundcard'.\n"
             "Установите зависимости:\n"
-            "  ai/venv/Scripts/python.exe -m pip install -r ai/music/requirements.txt\n"
-            "  (Linux: ai/venv/bin/python -m pip install -r ai/music/requirements.txt)"
+            "  ai/venv/Scripts/python.exe -m pip install -r src_music/requirements.txt\n"
+            "  (Linux: ai/venv/bin/python -m pip install -r src_music/requirements.txt)"
         )
 
 
@@ -377,7 +377,7 @@ def format_state(state: dict) -> str:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="AutopilotLive: захват аудио и анализ баса (консоль)."
+        description="soulPilot: захват аудио и анализ баса (консоль)."
     )
     parser.add_argument("--list", action="store_true", help="показать устройства и выйти")
     parser.add_argument(

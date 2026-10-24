@@ -174,7 +174,7 @@ function apl_music(mode)
     print('apl_music: ON — читаю ' .. FILE .. ' каждые ' ..
       string.format('%.0f', POLL_DT * 1000) .. ' мс; vehicle start=' .. tostring(sent))
     if readState() == nil then
-      print('apl_music: файла пока нет/не читается — запустите src_music/app.py')
+      print('apl_music: файла пока нет/не читается — запустите src_music/main.py')
     end
     return true
   end
@@ -207,7 +207,7 @@ function apl_music(mode)
       last.bass, last.beat, last.bpm,
       (staleT > STALE_S) and ' (ДАННЫЕ УСТАРЕЛИ)' or ''))
     if doc == nil then
-      print('подсказка: запустите src_music/app.py и нажмите Start')
+      print('подсказка: запустите src_music/main.py и нажмите Start')
     end
     send('soulPilotMusicCmd.status()')
     return true

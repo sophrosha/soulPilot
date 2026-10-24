@@ -1,4 +1,4 @@
-# AutopilotLive / LivingAutopilot
+# soulPilot
 
 Мод для **BeamNG.drive 0.39.4**, который делает AI-автопилот живее: плавный руль,
 прогрев автомобиля, автоматические фары, звуковые реакции, мурчание, parking-ассистент
@@ -38,7 +38,7 @@
 Для разработки мод можно держать распакованным в:
 
 ```text
-...\BeamNG.drive\current\mods\unpacked\AutopilotLive\
+...\BeamNG.drive\current\mods\unpacked\soulPilot\
 ```
 
 После изменения GE-расширений нужен полный перезапуск игры. Vehicle-модули
@@ -52,9 +52,9 @@
 | Погладить / мурчание | `Ctrl+Shift+P` |
 | Прогрев | `Ctrl+Shift+W` |
 | Открыть каталог HUD-приложений | `Ctrl+Shift+U` |
-| Мастер | Quick Access → AutopilotLive → Мастер |
-| Pet | Quick Access → AutopilotLive → Погладить |
-| Parking | Quick Access → AutopilotLive → Парковка |
+| Мастер | Quick Access → soulPilot → Мастер |
+| Pet | Quick Access → soulPilot → Погладить |
+| Parking | Quick Access → soulPilot → Парковка |
 
 Консольные команды:
 
@@ -84,7 +84,7 @@ apl_debug_set(true)
 Дефолтные конфиги лежат в:
 
 ```text
-ai/config/*.json
+src/config/*.json
 ```
 
 Пользовательские настройки и настройки UI всегда пишутся в userPath:
@@ -108,7 +108,7 @@ ai/config/*.json
 | `debug.json` | debug-логирование |
 | `ui.json` | язык интерфейса |
 
-Файл в `settings/autopilotLive` имеет приоритет над `ai/config`.
+Файл в `settings/mod_settings/soulPilot` имеет приоритет над `src/config`.
 
 ## Python и Audio-Reactive
 
@@ -121,7 +121,7 @@ Windows:
 ```bat
 py -3 -m venv ai\venv
 ai\venv\Scripts\python.exe -m pip install --upgrade pip
-ai\venv\Scripts\python.exe -m pip install -r ai\music\requirements.txt
+ai\venv\Scripts\python.exe -m pip install -r src_music\requirements.txt
 ```
 
 Linux:
@@ -129,7 +129,7 @@ Linux:
 ```bash
 python3 -m venv ai/venv
 ai/venv/bin/python -m pip install --upgrade pip
-ai/venv/bin/python -m pip install -r ai/music/requirements.txt
+ai/venv/bin/python -m pip install -r src_music/requirements.txt
 ```
 
 `ai/venv` не входит в релизный zip — его нужно создать локально.
@@ -153,19 +153,19 @@ Linux (PipeWire/PulseAudio):
 С GUI:
 
 ```bat
-ai\venv\Scripts\python.exe ai\music\app.py
+ai\venv\Scripts\python.exe src_music\app.py
 ```
 
 Консольный режим:
 
 ```bat
-ai\venv\Scripts\python.exe ai\music\app.py --console
-ai\venv\Scripts\python.exe ai\music\app.py --console --list
-ai\venv\Scripts\python.exe ai\music\app.py --console --device "CABLE Output"
+ai\venv\Scripts\python.exe src_music\app.py --console
+ai\venv\Scripts\python.exe src_music\app.py --console --list
+ai\venv\Scripts\python.exe src_music\app.py --console --device "CABLE Output"
 ```
 
 В окне приложения выберите устройство и нажмите **Start**. Приложение пишет
-`ai/music/current.json` примерно 50 раз в секунду. GE-модуль читает этот файл;
+`src_music/current.json` примерно 50 раз в секунду. GE-модуль читает этот файл;
 если данные старше ~300 мс, музыкальная отдача сбрасывается в ноль.
 
 ### 4. Включение музыки в игре
@@ -206,7 +206,7 @@ python build_release.py
 Результат:
 
 ```text
-dist/AutopilotLive-<version>.zip
+dist/soulPilot-<version>.zip
 ```
 
 Полезные опции:
@@ -221,7 +221,7 @@ python build_release.py --version 0.1.0
 
 - `ai/venv`, `ai/notes`, `ai/csv`, `ai/logs`, `ai/road`;
 - `__pycache__`, `.pyc`, `.tmp`;
-- `ai/music/config.json`, `ai/music/current.json`;
+- `src_music/config.json`, `src_music/current.json`;
 - старые звуки, тестовые отчёты, staging-иконки и dev-скрипты.
 
 ## Диагностика
@@ -240,8 +240,8 @@ GE/vehicle; обычный режим оставляет только WARN/ERROR
 Логи:
 
 ```text
-autopilotLive_logs/logs/
-autopilotLive_logs/csv/
+soulPilot_logs/logs/
+soulPilot_logs/csv/
 ```
 
 ## Ограничения

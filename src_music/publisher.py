@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AutopilotLive: публикация аудио-состояния для BeamNG.
+"""soulPilot: публикация аудио-состояния для BeamNG.
 
 Пишет JSON атомарно (temp + os.replace) и, опционально, отправляет тот же
 JSON по UDP. Не зависит от ОС и от аудио-библиотек.
