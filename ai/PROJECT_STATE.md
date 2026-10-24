@@ -85,6 +85,14 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - **Wheel (финальный комфорт):** `"mode": "comfort"`, пресет comfort = rise/fall **6.0/8.0** (быстрый трекинг raw, без PIO), `ema_tau 0.10`, `lerp_tau 0.08`; DEFAULTS и числа JSON синхронизированы. Виляние ушло ещё на 6/8 + малых tau; 0.10/0.08 убирают остаточную резкость.
 - Диагностика после полного перезапуска: `extensions.isExtensionLoaded('autopilotLive/main')`, `extensions.autopilotLive_main ~= nil`, vehicle→GE `GE_EXT=true`.
 
+**ФАЗА 12.1 (2026-10-25): Parking Mode P1 — поиск, маршрут, остановка.** Без quit (P3).
+- `ai/config/parking.json`: радиусы поиска/дороги, arrival, route speed, stop/hold, ручник/зажигание, таймауты; `quit_game` зарезервирован.
+- GE `autopilotLive/parking.lua`: `apl_park("auto"|"cancel"|"status")`. Поиск через `extensions.gameplay_parking` (`getParkingSpots`→`findParkingSpots`→`filterParkingSpots{standardSize,checkVehicles,useProbability=false}`), проверка `ps.vehicleFits` и расстояния до навграфа (`map.findClosestRoad`). Маршрут: `map.getPointNodePath`/`getPath`, отправка `ai.driveUsingPath({wpTargetList=..., routeSpeedMode="limit", avoidCars="on", driveInLane="on"})`. Тик 5 Гц: approach → `beginStop`; таймауты маршрута/остановки, stuck-детектор; `fail` = AI stop без глушения.
+- Vehicle `autopilotLivePark.lua`: `beginStop` → `ai.setMode("stop")`, ожидание speed ≤ stop_speed в течение hold_s, затем `smartParkingBrake(1, FILTER_DIRECT, true)` + `electrics.setIgnitionLevel(0)` (автомат P/N), callbacks `onVehicleParked/onVehicleParkFailed` в GE (через `extensions.autopilotLive_parking`). Cancel не снимает ручник.
+- `main.lua`: загрузка `autopilotLive/parking`.
+- Ограничение P1: AI останавливается у ближайшей дорожной точки к parking spot; точный заезд/задний ход — P2. Если sites нет — `apl_park` возвращает ошибку, без имитации парковки.
+- Проверки: LuaJIT-моки — поиск/маршрут/arrival/callback, ручник/зажигание, timeout; luaparser/JSON OK.
+
 **ФАЗА 11.4 (2026-10-25): мягкий beat без «кочки».** Игрок: при ударе бита руль резко «подбивался», как на кочке. Причина — мгновенный импульс 0.01 на фронте beat.
 - `ai/config/music.json`: вместо `beat_kick_amp/beat_kick_ms` — `beat_amp=0.01`, `beat_decay_s=0.2` (attack фиксирован 0.05 с в коде).
 - Vehicle `autopilotLiveMusic.lua`: `beatEnv` плавно растёт `dt/0.05` до 1 и спадает `dt/beat_decay_s` до 0; к рулю добавляется `beatEnv*beat_amp` через `autopilotLiveMusicGetBeatKick()` (имя сохранено, wheel не меняется по логике). Никаких ступенек: первый кадр даёт ~0.0032 вместо 0.01.
