@@ -19,11 +19,16 @@ Usage:
     python build_release.py --dry-run
     python build_release.py --output-dir C:\\Temp\\soulPilot-release
     python build_release.py --version 0.1.0
+
+By default the archive is written to a sibling folder outside the mod's
+runtime tree (../soulPilot-dist relative to the mod folder). This keeps
+BeamNG from discovering collected zips inside the unpacked mod.
 """
 
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 import zipfile
@@ -32,7 +37,11 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "src"
 MOD_INFO = SRC / "mod_info" / "soulPilot" / "mod_info.ini"
-DEFAULT_OUTPUT_DIR = ROOT / "dist"
+# Keep release output outside mods/unpacked; otherwise BeamNG may scan the
+# collected zips as additional mods.
+DEFAULT_OUTPUT_DIR = Path(
+    os.environ.get("SOULPILOT_DIST_DIR", str(ROOT.parent.parent / "soulPilot-dist"))
+)
 DEFAULT_VERSION = "dev"
 
 SOURCE_ROOTS = (
@@ -184,6 +193,17 @@ def main(argv: list[str] | None = None) -> int:
 
     version = args.version or read_version()
     output_dir = args.output_dir.expanduser().resolve()
+    try:
+        output_dir.relative_to(ROOT.resolve())
+    except ValueError:
+        pass
+    else:
+        print(
+            "ERROR: output directory must be outside the mod folder; "
+            f"choose a path outside {ROOT}",
+            file=sys.stderr,
+        )
+        return 2
     return build_zip(output_dir, version, args.dry_run)
 
 

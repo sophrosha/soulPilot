@@ -44,7 +44,7 @@
 Перед запуском игры разложите runtime-файлы из `src/` в корень мода:
 
 ```text
-python deploy_dev.py
+python dev_mode.py
 ```
 
 После изменения GE-расширений нужен полный перезапуск игры. Vehicle-модули
@@ -55,6 +55,9 @@ python deploy_dev.py
 ```text
 python build_release.py
 ```
+
+По умолчанию архив пишется в `../soulPilot-dist` **вне** `mods/unpacked`,
+чтобы BeamNG не принимал папку с zip за отдельный мод.
 
 ## Управление
 
