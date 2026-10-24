@@ -21,9 +21,9 @@
     "ctx": "tlua"
   },
   "apl_ui_toggle": {
-    "title": "AutopilotLive: Меню",
-    "desc": "Показать/скрыть панель AutopilotLive",
-    "onDown": "if core_quickAccess then core_quickAccess.toggle('/root/sandbox/apl/') end",
+    "title": "AutopilotLive: Настройки",
+    "desc": "Открыть каталог HUD-приложений (AutopilotLive) в паузе",
+    "onDown": "if extensions and extensions.ui_router then pcall(function() if extensions.ui_appSelector_general and extensions.ui_appSelector_general.setSearchText then extensions.ui_appSelector_general.setSearchText('AutopilotLive') end end); extensions.ui_router.navigate('pause.hudApps.selector') elseif core_quickAccess then core_quickAccess.toggle('/root/sandbox/apl/') end",
     "category": "autopilotLive",
     "ctx": "tlua"
   }

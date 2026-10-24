@@ -2662,6 +2662,9 @@ pcall(function() extensions.load('autopilotLive/music') end)
 -- Фаза 12.1: Parking Mode (P1): apl_park + gameplay_parking
 pcall(function() extensions.load('autopilotLive/parking') end)
 
+-- Фаза 12.2: Vue settings bridge (getConfig/setConfig/setModule)
+pcall(function() extensions.load('autopilotLive/uiConfig') end)
+
 -- Фаза 10.6: ГАРАНТИРУЕМ глобальное имя для vehicle→GE коллбэков.
 -- extensions.load делает rawset(_G, extName, M), но в sandbox-контексте
 -- (queueGameEngineLua из vehicle) имя может быть не видно. Явно закрепляем.

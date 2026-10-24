@@ -85,6 +85,14 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - **Wheel (финальный комфорт):** `"mode": "comfort"`, пресет comfort = rise/fall **6.0/8.0** (быстрый трекинг raw, без PIO), `ema_tau 0.10`, `lerp_tau 0.08`; DEFAULTS и числа JSON синхронизированы. Виляние ушло ещё на 6/8 + малых tau; 0.10/0.08 убирают остаточную резкость.
 - Диагностика после полного перезапуска: `extensions.isExtensionLoaded('autopilotLive/main')`, `extensions.autopilotLive_main ~= nil`, vehicle→GE `GE_EXT=true`.
 
+**ФАЗА 12.2 (2026-10-25): Vue-UI + локализация (каркас).**
+- `ui/modules/apps/AutopilotLive/`: `app.json` (`domElement`, `directive=autopilotLive`, `vue=true`, interactive), `app.vue`, `app.png`. Приложение автоматически попадает в каталог HUD Apps (`ui_apps.getAvailableAppList`).
+- `app.vue`: вкладки Overview/Music/Steering/Parking/About, переключатель Normal/Expert. Normal — BngSwitch для Master/Lights/Music/Parking (Parking = apl_park auto/cancel), Expert — BngSlider для `sway_amp`, `vibration_amp`, `beat_amp`, `beat_decay_s`, `steer_rise/fall`, `ema_tau`, `lerp_tau`, скорости/радиусы паркинга. Save шлёт `{files={...}}` в GE.
+- `lua/ge/extensions/autopilotLive/uiConfig.lua`: `getConfig()` (значения master/wheel/music/lights/popup/pet/pain/pedals/warmup/parking + состояние), `setConfig()` (deep-merge, sanitize, запись в ai/config), `setModule()` (вызовы apl_autopilot/apl_lights/apl_music/apl_park/apl_wheel/apl_popup), `getState()`. Загружается из main.lua.
+- Локализация: `locales/translations/{en-US,ru_RU,uk_UA,be_BY}/autopilotLive.translation.json`, ключи `apl.ui.*`, `apl.modules.*`, `apl.fields.*`, `ui.apps.apl.*`; fallback en-US. Для uk/by используются канонические папки `uk_UA`/`be_BY`.
+- Бинд `apl_ui_toggle` (Ctrl+Shift+U): открывает `pause.hudApps.selector` с поиском «AutopilotLive» (fallback — Quick Access). Первый раз приложение добавляется в HUD-раскладку через каталог, дальше доступно как HUD-app.
+- Проверки: app.vue компилируется через `@vue/compiler-sfc`; JSON/Lua (luaparser) OK; uiConfig в LuaJIT-моке читает/пишет конфиги и вызывает модули.
+
 **ФАЗА 12.1.1 (2026-10-25): Parking audit — маршрут только по связному навграфу.** По тесту: AI чуть не врезался в столб, поехал через лес и остановился посреди дороги.
 - Причина: `wpTargetList` — список **последовательных целей**, а не готовый маршрут; при неполном/пустом `getPointNodePath` и fallback `map.getPath` можно было отправить одну/несвязанные точки → AI ехал напрямик. Плюс не был включён traffic-режим до маршрута.
 - `parking.lua`: убран fallback `map.getPath`; только `map.getPointNodePath(pos,node,0,1e4,nil,nil,4)`.
