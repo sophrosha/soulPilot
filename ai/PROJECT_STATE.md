@@ -85,6 +85,13 @@ clutch) и сглаживает их (lerp + ema + rate limit), чтобы ма�
 - **Wheel (финальный комфорт):** `"mode": "comfort"`, пресет comfort = rise/fall **6.0/8.0** (быстрый трекинг raw, без PIO), `ema_tau 0.10`, `lerp_tau 0.08`; DEFAULTS и числа JSON синхронизированы. Виляние ушло ещё на 6/8 + малых tau; 0.10/0.08 убирают остаточную резкость.
 - Диагностика после полного перезапуска: `extensions.isExtensionLoaded('autopilotLive/main')`, `extensions.autopilotLive_main ~= nil`, vehicle→GE `GE_EXT=true`.
 
+**ФАЗА 12.1.1 (2026-10-25): Parking audit — маршрут только по связному навграфу.** По тесту: AI чуть не врезался в столб, поехал через лес и остановился посреди дороги.
+- Причина: `wpTargetList` — список **последовательных целей**, а не готовый маршрут; при неполном/пустом `getPointNodePath` и fallback `map.getPath` можно было отправить одну/несвязанные точки → AI ехал напрямик. Плюс не был включён traffic-режим до маршрута.
+- `parking.lua`: убран fallback `map.getPath`; только `map.getPointNodePath(pos,node,0,1e4,nil,nil,4)`.
+- Строгая валидация: `#path >= 2`; все узлы есть в `map.nodes`; каждое ребро подтверждено `links` в одну из сторон; машина не дальше 15 м от дороги; первый узел ≤80 м от машины; последний узел ≤ `max_spot_road_dist_m+arrival_radius_m` от spot. Иначе `failed_route`, маршрут не отправляется.
+- Перед маршрутом: `ai.setMode("traffic")`, `ai.setPullOver(false)`, `ai.setSpeedMode("limit")`; в `ai.driveUsingPath` передаётся **одна достижимая цель** `{targetNode}` с `driveInLane="on"`, `avoidCars="on"`, `routeSpeedMode="limit"`.
+- Диагностика: `apl_park("route")` печатает длину `routePath`, `targetNode`, координаты target/spot, каждый узел и наличие связи с предыдущим.
+
 **ФАЗА 12.1 (2026-10-25): Parking Mode P1 — поиск, маршрут, остановка.** Без quit (P3).
 - `ai/config/parking.json`: радиусы поиска/дороги, arrival, route speed, stop/hold, ручник/зажигание, таймауты; `quit_game` зарезервирован.
 - GE `autopilotLive/parking.lua`: `apl_park("auto"|"cancel"|"status")`. Поиск через `extensions.gameplay_parking` (`getParkingSpots`→`findParkingSpots`→`filterParkingSpots{standardSize,checkVehicles,useProbability=false}`), проверка `ps.vehicleFits` и расстояния до навграфа (`map.findClosestRoad`). Маршрут: `map.getPointNodePath`/`getPath`, отправка `ai.driveUsingPath({wpTargetList=..., routeSpeedMode="limit", avoidCars="on", driveInLane="on"})`. Тик 5 Гц: approach → `beginStop`; таймауты маршрута/остановки, stuck-детектор; `fail` = AI stop без глушения.

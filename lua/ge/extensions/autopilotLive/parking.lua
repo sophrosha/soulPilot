@@ -71,6 +71,15 @@ local function clampNum(v, lo, hi, dflt)
   return v
 end
 
+local function fmtVec(v)
+  if v == nil then return 'nil' end
+  local ok, x, y, z = pcall(function() return v.x, v.y, v.z end)
+  if ok and x ~= nil and y ~= nil and z ~= nil then
+    return string.format('(%.1f, %.1f, %.1f)', x, y, z)
+  end
+  return tostring(v)
+end
+
 local function loadConfig()
   local c = {}
   for k, v in pairs(DEFAULTS) do c[k] = v end
@@ -221,7 +230,8 @@ end
 
 -- === Маршрут ===
 local function closerNode(pos, n1, n2)
-  local nodes = map.getMap().nodes
+  local mapData = map and map.getMap and map.getMap()
+  local nodes = mapData and mapData.nodes
   if not nodes then return n1 end
   if not nodes[n1] then return n2 end
   if not n2 or not nodes[n2] then return n1 end
@@ -230,48 +240,101 @@ local function closerNode(pos, n1, n2)
   return (d2 < d1) and n2 or n1
 end
 
-local function buildRoute(veh, ps)
-  if not map or not map.getMap then return nil, 'map недоступен' end
-  local pos = vehiclePos(veh)
-  if not pos then return nil, 'нет позиции машины' end
-
-  local n1, n2 = map.findClosestRoad(ps.pos, cfg.max_spot_road_dist_m + 20)
-  if not n1 then return nil, 'не найдена дорога у parking spot' end
-  local node = closerNode(ps.pos, n1, n2)
-  local nodes = map.getMap().nodes
-  if not nodes or not nodes[node] then return nil, 'нет узла навграфа у parking spot' end
-
-  local path = nil
-  if map.getPointNodePath then
-    local okP, p = pcall(function()
-      return map.getPointNodePath(pos, node, 1, 1e4)
-    end)
-    if okP and type(p) == 'table' and #p > 0 then path = p end
+-- Строгая проверка: все узлы существуют, соединены ребром, маршрут
+-- начинается рядом с машиной и заканчивается рядом с parking spot.
+local function validateRoute(path, nodes, vehPos, spotPos)
+  if type(path) ~= 'table' or #path < 2 then
+    return false, 'failed_route: getPointNodePath вернул ' ..
+      tostring(type(path) == 'table' and #path or 0) .. ' узлов (<2)'
   end
 
-  if not path then
-    local s1 = map.findClosestRoad(pos)
-    if s1 and map.getPath then
-      local okP, p = pcall(function()
-        return map.getPath(s1, node, 1, 1e4)
-      end)
-      if okP and type(p) == 'table' and #p > 0 then path = p end
+  local clean = {}
+  for _, id in ipairs(path) do
+    if nodes[id] == nil then
+      return false, 'failed_route: узел ' .. tostring(id) .. ' отсутствует в map.nodes'
+    end
+    if clean[#clean] ~= id then table.insert(clean, id) end
+  end
+  if #clean < 2 then
+    return false, 'failed_route: после удаления дублей осталось <2 узлов'
+  end
+
+  for i = 1, #clean - 1 do
+    local a, b = clean[i], clean[i + 1]
+    local na, nb = nodes[a], nodes[b]
+    local linked = (na.links and na.links[b] ~= nil)
+      or (nb.links and nb.links[a] ~= nil)
+    if not linked then
+      return false, 'failed_route: нет связи ' .. tostring(a) .. ' -> ' .. tostring(b)
     end
   end
 
-  if not path or #path == 0 then
-    return nil, 'маршрут к parking spot не построен'
+  -- Машина должна стоять на дороге/у дороги; иначе getPointNodePath
+  -- рисует виртуальное ребро через лес до первого узла.
+  local vn1, _, vDist = nil, nil, nil
+  if map and map.findClosestRoad then
+    local okV, a, b, d = pcall(map.findClosestRoad, vehPos, 50)
+    if okV then vn1, _, vDist = a, b, d end
   end
-  -- Не добавляем targetNode в конец, если путь уже закончился соседним узлом:
-  -- иначе AI развернётся и поедет назад. Цель — последний узел маршрута.
-  local finalNode = path[#path]
-  local finalPos = (nodes[finalNode] and nodes[finalNode].pos) or nodes[node].pos
-  return path, nil, finalNode, finalPos
+  if not vn1 or (vDist and vDist > 15) then
+    return false, 'failed_route: машина слишком далеко от дороги (' ..
+      string.format('%.1f', tonumber(vDist) or -1) .. ' м)'
+  end
+
+  local firstDist = nodes[clean[1]].pos:distance(vehPos)
+  if firstDist > 80 then
+    return false, 'failed_route: первый узел слишком далеко от машины (' ..
+      string.format('%.1f', firstDist) .. ' м)'
+  end
+
+  local lastDist = nodes[clean[#clean]].pos:distance(spotPos)
+  local maxLast = cfg.max_spot_road_dist_m + cfg.arrival_radius_m
+  if lastDist > maxLast then
+    return false, 'failed_route: конец маршрута далеко от spot (' ..
+      string.format('%.1f', lastDist) .. ' м > ' .. string.format('%.1f', maxLast) .. ' м)'
+  end
+
+  return true, clean
 end
 
-local function routeCommand(path)
+local function buildRoute(veh, ps)
+  if not map or not map.getMap or not map.getPointNodePath then
+    return nil, 'failed_route: map API недоступен'
+  end
+  local pos = vehiclePos(veh)
+  if not pos then return nil, 'failed_route: нет позиции машины' end
+
+  local mapData = map.getMap()
+  local nodes = mapData and mapData.nodes
+  if not nodes then return nil, 'failed_route: map.nodes недоступен' end
+
+  local n1, n2 = map.findClosestRoad(ps.pos, cfg.max_spot_road_dist_m + 20)
+  if not n1 then return nil, 'failed_route: нет дороги у parking spot' end
+  local node = closerNode(ps.pos, n1, n2)
+  if not nodes[node] then
+    return nil, 'failed_route: целевой узел отсутствует в map.nodes'
+  end
+
+  -- Только getPointNodePath. Никаких fallback-ов через map.getPath:
+  -- иначе можно получить несвязанный/пустой путь и поехать напрямик.
+  local okP, path = pcall(map.getPointNodePath, pos, node, 0, 1e4, nil, nil, 4)
+  if not okP then
+    return nil, 'failed_route: getPointNodePath error: ' .. tostring(path)
+  end
+
+  local okValidate, validated = validateRoute(path, nodes, pos, ps.pos)
+  if not okValidate then return nil, validated end
+  path = validated
+  node = path[#path]
+
+  return path, nil, node, nodes[node].pos
+end
+
+-- wpTargetList — это СПИСОК ЦЕЛЕЙ, а не готовый маршрут. Даём одну
+-- достижимую цель; сам AI построит путь от текущей позиции по навграфу.
+local function routeCommand(targetNode)
   local route = {
-    wpTargetList = path,
+    wpTargetList = { targetNode },
     noOfLaps = 1,
     avoidCars = (cfg.avoid_cars > 0) and 'on' or 'off',
     driveInLane = (cfg.drive_in_lane > 0) and 'on' or 'off',
@@ -322,13 +385,23 @@ local function startAuto()
   targetNode = node
   targetNodePos = nodePos
 
-  if not send(routeCommand(path)) then
-    fail('не удалось отправить ai.driveUsingPath')
+  -- ВАЖНО: сначала traffic-режим (инициализирует mapmgr/маршрутизацию),
+  -- потом уже маршрут. wpTargetList — одна достижимая цель, не список
+  -- всех узлов (иначе AI может трактовать их как отдельные цели).
+  if not send('ai.setMode("traffic")') then
+    fail('failed_route: не удалось включить ai.setMode("traffic")')
+    return false
+  end
+  send('ai.setPullOver(false)')
+  send('ai.setSpeedMode("limit")')
+
+  if not send(routeCommand(node)) then
+    fail('failed_route: не удалось отправить ai.driveUsingPath')
     return false
   end
   send('ai.setAvoidCars("' .. ((cfg.avoid_cars > 0) and 'on' or 'off') .. '")')
   setState('routing', 'едем к parking spot')
-  note('INFO', 'маршрут отправлен: ' .. #path .. ' узлов, targetNode=' .. tostring(node) ..
+  note('INFO', 'маршрут отправлен: проверено ' .. #path .. ' узлов, targetNode=' .. tostring(node) ..
     ', speed=' .. tostring(cfg.route_speed_mps) .. ' м/с')
   return true
 end
@@ -421,6 +494,45 @@ function M.onVehicleParkFailed(reason)
 end
 
 -- === Команда apl_park ===
+local function routeDiag()
+  if not cfg then cfg = loadConfig() end
+  print('--- apl_park route diag ---')
+  print('state=' .. state .. ' (' .. tostring(message) .. ')')
+  print('routeNodes=' .. tostring(routePath and #routePath or 0) ..
+    ', targetNode=' .. tostring(targetNode))
+  print('targetNodePos=' .. fmtVec(targetNodePos) ..
+    ', targetPos=' .. fmtVec(targetPos))
+  local nodes = nil
+  if map and map.getMap then
+    local ok, mapData = pcall(map.getMap)
+    if ok and mapData then nodes = mapData.nodes end
+  end
+  if routePath and nodes then
+    local prev = nil
+    for i, id in ipairs(routePath) do
+      local n = nodes[id]
+      local linked = 'linkPrev=n/a'
+      if prev and n and nodes[prev] then
+        linked = 'linkPrev=' .. tostring(
+          (nodes[prev].links and nodes[prev].links[id] ~= nil)
+          or (n.links and n.links[prev] ~= nil))
+      end
+      print(string.format('[%d] id=%s pos=%s %s', i, tostring(id),
+        n and fmtVec(n.pos) or 'NIL', linked))
+      prev = id
+    end
+  end
+  if targetSpot and targetPos then
+    print('spot=' .. tostring(targetSpotId) .. ' name=' .. tostring(targetSpot.name) ..
+      ' pos=' .. fmtVec(targetPos))
+  end
+  local veh = playerVehicle()
+  if veh and targetPos then
+    local p = vehiclePos(veh)
+    if p then print(string.format('vehDistToSpot=%.1f м', p:distance(targetPos))) end
+  end
+end
+
 local function status()
   if not cfg then cfg = loadConfig() end
   print('--- apl_park status ---')
@@ -430,13 +542,13 @@ local function status()
     ' м, arrival=' .. tostring(cfg.arrival_radius_m) .. ' м')
   if targetSpot then
     print('spot: id=' .. tostring(targetSpotId) .. ' name=' .. tostring(targetSpot.name) ..
-      ' pos=' .. tostring(targetSpot.pos))
+      ' pos=' .. fmtVec(targetSpot.pos))
   else
     print('spot: нет')
   end
   if targetNode then
-    print('targetNode=' .. tostring(targetNode) .. ' pathNodes=' ..
-      tostring(routePath and #routePath or 0))
+    print('targetNode=' .. tostring(targetNode) .. ' pos=' .. fmtVec(targetNodePos) ..
+      ' pathNodes=' .. tostring(routePath and #routePath or 0))
   end
   local veh = playerVehicle()
   if veh then
@@ -474,11 +586,15 @@ function apl_park(mode)
     note('INFO', 'CANCEL: маршрут/остановка отменены, AI stop')
     return true
   end
+  if mode == 'route' or mode == 'diag' then
+    routeDiag()
+    return true
+  end
   if mode == 'status' then
     status()
     return true
   end
-  print('Использование: apl_park("auto"|"cancel"|"status")')
+  print('Использование: apl_park("auto"|"cancel"|"status"|"route")')
   return false
 end
 
