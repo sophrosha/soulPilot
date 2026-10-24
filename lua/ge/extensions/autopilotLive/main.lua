@@ -1596,7 +1596,7 @@ local function painRoadPose(veh)
       qx, qy, qz, qw = q.x, q.y, q.z, q.w
     end
   end
-  return n1.pos.x, n1.pos.y, n1.pos.z + 1.5, qx, qy, qz, qw
+  return n1.pos.x, n1.pos.y, n1.pos.z + 0.2, qx, qy, qz, qw
 end
 
 -- Принудительный телепорт: гасим скорости (вода/пляж), setPosRot, снова гасим.
@@ -1618,6 +1618,9 @@ local function painRecover(veh, kind)
   local okR = pcall(function() be:resetVehicle(0) end)
   painTpPending = true
   painTpDelayT = 0.2
+  -- Фаза 9.5: 3 с неуязвимости в vehicle-слое — падение после телепорта
+  -- не должно снова запускать DAMAGE/STUCK/FLIPPED.
+  sendToVehicle('autopilotLivePainCmd.ignoreDamage(3.0)')
   print(string.format('aplPain: recover %s — resetVehicle=%s, setPosRot через 0.2 с (reset + ближайшая дорога)',
     tostring(kind), tostring(okR)))
 end

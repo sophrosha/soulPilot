@@ -23,6 +23,7 @@ local stuckT = 0
 local flippedT = 0
 local cooldownT = 0
 local damage = 0        -- приходит из GE (setDamage)
+local ignoreT = 0       -- сек «неуязвимости» после ремонта/телепорта (Фаза 9.5)
 local lastKind = '—'
 
 local function toGE(level, msg)
@@ -125,6 +126,14 @@ function M.updateGFX(dt)
   local step = checkT
   checkT = 0
 
+  -- Фаза 9.5: неуязвимость после телепорта/ремонта — детекторы молчат
+  if ignoreT > 0 then
+    ignoreT = math.max(0, ignoreT - dt)
+    stuckT = 0
+    flippedT = 0
+    return
+  end
+
   -- Не мешаем прогреву/поглаживанию — таймеры сбрасываем
   if warmupBusy() or petBusy() then
     stuckT = 0
@@ -190,6 +199,7 @@ function autopilotLivePainCmd.start(params)
   active = true
   checkT, stuckT, flippedT, cooldownT = 0, 0, 0, 0
   damage = 0
+  ignoreT = 0
   lastKind = '—'
   print(string.format('aplPain: АВТО-ВОССТАНОВЛЕНИЕ ВКЛ (damage>=%.2f, stuck %.0f км/ч %.0f с, flip up<%.2f)',
     cfg.damage_threshold, cfg.stuck_speed_kph, cfg.stuck_time_s, cfg.flipped_up_dot))
@@ -203,6 +213,14 @@ function autopilotLivePainCmd.stop()
   cfg = nil
   print('aplPain: ВЫКЛ')
   toGE('INFO', 'pain auto OFF')
+  return true
+end
+
+-- GE: после ремонта/телепорта — «неуязвимость» N секунд (детекторы молчат)
+function autopilotLivePainCmd.ignoreDamage(seconds)
+  ignoreT = clampNum(seconds, 0, 30, 3.0)
+  stuckT, flippedT = 0, 0
+  print('aplPain: ignoreDamage=' .. string.format('%.1f', ignoreT) .. ' с')
   return true
 end
 
@@ -228,7 +246,7 @@ function autopilotLivePainCmd.status()
     cfg and string.format('пороги: damage>=%.2f stuck<=%.0fкм/ч/%.0fс flip up<%.2f/%.1fс',
       cfg.damage_threshold, cfg.stuck_speed_kph, cfg.stuck_time_s,
       cfg.flipped_up_dot, cfg.flipped_time_s) or nil,
-    string.format('таймеры: stuck=%.1f flipped=%.1f', stuckT, flippedT),
+    string.format('таймеры: stuck=%.1f flipped=%.1f ignore=%.1f', stuckT, flippedT, ignoreT),
   }
   for _, l in ipairs(lines) do if l then print('aplPain: ' .. l) end end
   return true
