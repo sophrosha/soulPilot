@@ -103,6 +103,10 @@ soulPilot/
 │  └─ tests/                    # golden/behavior tests (не в релизном zip)
 ├─ src_music/                   # Python из старого ai/music, разбитый на модули
 ├─ docs/
+│  ├─ ai/                       # Dev-заметки: PROJECT_STATE.md, ARCHITECTURE.md, AGENTS.md
+│  ├─ lang/
+│  │  ├─ gelua/                 # Описание функций, переменных и алгоритмов GE-слоя
+│  │  └─ vlua/                  # Описание функций, переменных и алгоритмов Vehicle-слоя
 │  ├─ ru/
 │  │  ├─ FAQ.md
 │  │  ├─ Installing.md
@@ -122,6 +126,7 @@ soulPilot/
 ├─ README.md
 ├─ .gitignore                   # ai/, venv/, __pycache__, dist/, *.zip
 ├─ LICENSE
+├─ migrate_structure.py        # one-time migration tool (Step 2)
 └─ ROADMAP_REFACTOR.md
 ```
 
@@ -279,13 +284,29 @@ python -m unittest discover -s src/tests -v
 
 ### ШАГ 2 — Каркас новой структуры
 
-- Создать `src/`, `src_music/`, `docs/`, `assets/`.
-- Перенести файлы без изменения поведения.
+- Создать `src/`, `src/config/`, `src_music/`, `docs/ai/`,
+  `docs/lang/gelua/`, `docs/lang/vlua/`, `docs/ru/`, `docs/en/`, `assets/`.
+- Перенести `lua/`, `ui/`, `art/`, `mod_info/` в `src/`.
+- Перенести `ai/music/` в `src_music/`, `ai/notes/` — в `docs/ai/`.
+- Перенести `ai/config/` в `src/config/`.
+- Переименовать `autopilotLive` → `soulPilot` в `src/lua/` и `src/ui/`
+  (имена файлов, папок и текст `.lua`/`.json`/`.vue`).
 - Обновить пути конфигов:
   - default: `src/config`;
   - user: `settings/mod_settings/soulPilot`.
-- Обновить `.gitignore`.
+- Обновить `.gitignore` (`ai/`, `venv/`, `__pycache__/`, `dist/`, `*.zip`).
 - Golden-тесты должны пройти без изменения ожидаемых чисел.
+- Миграция выполняется один раз:
+
+```bash
+python migrate_structure.py
+```
+
+- Проверка после миграции:
+
+```bash
+python -m unittest discover -s src/tests -v
+```
 
 ### ШАГ 3 — Ребрендинг
 
