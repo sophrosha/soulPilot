@@ -27,3 +27,8 @@ ai/road/warnings.txt
 
 # Фаза 8 (24.10): старые копии модулей (не грузятся игрой, только для истории)
 ai/notes/legacy/
+
+# Фаза 11 (25.10): Spotify/Audio-Reactive — рабочее состояние пишет Python
+# (атомарно, temp+replace); в git не нужно.
+ai/music/current.json
+ai/music/*.tmp.*

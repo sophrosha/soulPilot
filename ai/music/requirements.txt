@@ -1,0 +1,12 @@
+# AutopilotLive / Spotify Audio-Reactive: Python-часть.
+# Установка (из корня мода):
+#   ai\venv\Scripts\python.exe -m pip install -r ai\music\requirements.txt
+#   (Linux/Arch: ai/venv/bin/python -m pip install -r ai/music/requirements.txt)
+#
+# soundcard — кроссплатформенный захват: WASAPI loopback (Windows),
+#             PulseAudio/PipeWire (Linux, monitor-источники).
+# numpy     — FFT, энергия полос, BPM.
+# PySide6   — GUI (Фаза 11.2; консольным скриптам не нужен).
+soundcard>=0.4.6
+numpy>=1.26
+PySide6>=6.8
