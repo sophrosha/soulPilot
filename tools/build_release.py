@@ -51,6 +51,7 @@ SOURCE_ROOTS = (
     ("mod_info", SRC / "mod_info"),
     ("art", SRC / "art"),
     ("config", SRC / "config"),
+    ("vehicles", SRC / "vehicles"),
 )
 
 EXTRA_ROOTS = (

@@ -1,0 +1,206 @@
+{
+"bolide_headlight_b_R": {
+    "information":{
+        "authors":"BeamNG",
+        "name": {
+            "txt":"ui.vehicleconfig.information.name.BRAND Right Headlight",
+            "ctx":{
+                "brand1":"ui.vehicleconfig.brand.GTT"
+            }
+        },
+        "value":1100,
+    },
+    "slotType" : "bolide_headlight_b_R",
+    "slots2": [
+        ["name", "allowTypes", "denyTypes", "default", "description"],
+        ["bolide_headlight_b_R_low_bulb", ["headlightBulb_halogen_55W_combined"], [], "headlightBulb_halogen_55W_combined", "Low Beam",
+        {
+        "coreSlot":true,
+        "variables":{
+          "$electric": "lowbeam_filament",
+          "$lightPattern": "LHD",
+          "$nodeRef":"fe1r", "$nodeX":"fe5r", "$nodeY":"fe2r",
+          "$deformGroup":"headlightglass_R_break",
+          "$posX":-0.620, "$posY":-1.725, "$posZ":0.619,
+          "$rotX":-0.57, "$rotY":0, "$rotZ":180
+        }
+        }],
+        ["bolide_headlight_b_R_high_bulb", ["headlightBulb_halogen_60W_combined"], [], "headlightBulb_halogen_60W_combined", "High Beam",
+        {
+        "coreSlot":true,
+        "variables":{
+          "$electric": "highbeam_filament",
+          "$lightPattern": "LHD",
+          "$nodeRef":"fe1r", "$nodeX":"fe5r", "$nodeY":"fe2r",
+          "$deformGroup":"headlightglass_R_break",
+          "$posX":-0.620, "$posY":-1.725, "$posZ":0.619,
+          "$rotX":0, "$rotY":0, "$rotZ":180
+        }
+        }]
+    ],
+    "flexbodies": [
+         ["mesh", "[group]:", "nonFlexMaterials"],
+         {"deformGroup":"headlightglass_R_break", "deformMaterialBase":"bolide_lights", "deformMaterialDamaged":"bolide_lights"},
+         ["bolide_headlightframe_b_R", ["bolide_fender_R"]],
+         ["bolide_headlight_b_R", ["bolide_fender_R"]],
+         {"deformGroup":"headlightglass_R_break", "deformMaterialBase":"sealedbeam", "deformMaterialDamaged":"sealedbeam"},
+         ["bolide_headlight_lens_b_R", ["bolide_fender_R"]],
+         {"deformGroup":"headlightglass_R_break", "deformMaterialBase":"bolide_lightglass", "deformMaterialDamaged":"bolide_lightglass_dmg"},
+         ["bolide_headlightglass_b_R", ["bolide_fender_R"],[]{"deformSound":"event:>Destruction>Vehicle>Glass>extglassbreaksound3", "deformVolume":0.5}],
+         {"deformGroup":""},
+    ],
+},
+"bolide_headlight_b_L": {
+    "information":{
+        "authors":"BeamNG",
+        "name": {
+            "txt":"ui.vehicleconfig.information.name.BRAND Left Headlight",
+            "ctx":{
+                "brand1":"ui.vehicleconfig.brand.GTT"
+            }
+        },
+        "value":1100,
+    },
+    "slotType" : "bolide_headlight_b_L",
+    "slots2": [
+        ["name", "allowTypes", "denyTypes", "default", "description"],
+        ["bolide_headlight_b_L_low_bulb", ["headlightBulb_halogen_55W_combined"], [], "headlightBulb_halogen_55W_combined", "Low Beam",
+        {
+        "coreSlot":true,
+        "variables":{
+          "$electric": "lowbeam_filament",
+          "$lightPattern": "LHD",
+          "$nodeRef":"fe1l", "$nodeX":"fe5l", "$nodeY":"fe2l",
+          "$deformGroup":"headlightglass_L_break",
+          "$posX":0.620, "$posY":-1.725, "$posZ":0.619,
+          "$rotX":-0.57, "$rotY":0, "$rotZ":180
+        }
+        }],
+        ["bolide_headlight_b_L_high_bulb", ["headlightBulb_halogen_60W_combined"], [], "headlightBulb_halogen_60W_combined", "High Beam",
+        {
+        "coreSlot":true,
+        "variables":{
+          "$electric": "highbeam_filament",
+          "$lightPattern": "LHD",
+          "$nodeRef":"fe1l", "$nodeX":"fe5l", "$nodeY":"fe2l",
+          "$deformGroup":"headlightglass_L_break",
+          "$posX":0.620, "$posY":-1.725, "$posZ":0.619,
+          "$rotX":0, "$rotY":0, "$rotZ":180
+        }
+        }]
+    ],
+    "flexbodies": [
+         ["mesh", "[group]:", "nonFlexMaterials"],
+         {"deformGroup":"headlightglass_L_break", "deformMaterialBase":"bolide_lights", "deformMaterialDamaged":"bolide_lights"},
+         ["bolide_headlightframe_b_L", ["bolide_fender_L"]],
+         ["bolide_headlight_b_L", ["bolide_fender_L"]],
+         {"deformGroup":"headlightglass_L_break", "deformMaterialBase":"sealedbeam", "deformMaterialDamaged":"sealedbeam"},
+         ["bolide_headlight_lens_b_L", ["bolide_fender_L"]],
+         {"deformGroup":"headlightglass_L_break", "deformMaterialBase":"bolide_lightglass", "deformMaterialDamaged":"bolide_lightglass_dmg"},
+         ["bolide_headlightglass_b_L", ["bolide_fender_L"],[]{"deformSound":"event:>Destruction>Vehicle>Glass>extglassbreaksound4", "deformVolume":0.5}],
+         {"deformGroup":""},
+    ],
+},
+"bolide_headlight_b_R_us": {
+    "information":{
+        "authors":"BeamNG",
+        "name": {
+            "txt":"ui.vehicleconfig.information.name.BRAND Right Headlight (US)",
+            "ctx":{
+                "brand1":"ui.vehicleconfig.brand.GTT"
+            }
+        },
+        "value":1100,
+    },
+    "slotType" : "bolide_headlight_b_R",
+    "slots2": [
+        ["name", "allowTypes", "denyTypes", "default", "description"],
+        ["bolide_headlight_b_R_us_low_bulb", ["sealedBeam_halogen_55W"], [], "sealedBeam_halogen_55W", "Low Beam",
+        {
+        "coreSlot":true,
+        "variables":{
+          "$electric": "lowbeam_filament",
+          "$lightPattern": "US",
+          "$nodeRef":"fe1r", "$nodeX":"fe5r", "$nodeY":"fe2r",
+          "$deformGroup":"headlightglass_R_break",
+          "$posX":-0.620, "$posY":-1.725, "$posZ":0.619,
+          "$rotX":-0.57, "$rotY":0, "$rotZ":180
+        }
+        }],
+        ["bolide_headlight_b_R_us_high_bulb", ["sealedBeam_halogen_65W"], [], "sealedBeam_halogen_65W", "High Beam",
+        {
+        "coreSlot":true,
+        "variables":{
+          "$electric": "highbeam_filament",
+          "$lightPattern": "US",
+          "$nodeRef":"fe1r", "$nodeX":"fe5r", "$nodeY":"fe2r",
+          "$deformGroup":"headlightglass_R_break",
+          "$posX":-0.620, "$posY":-1.725, "$posZ":0.619,
+          "$rotX":0, "$rotY":0, "$rotZ":180
+        }
+        }]
+    ],
+    "flexbodies": [
+         ["mesh", "[group]:", "nonFlexMaterials"],
+         {"deformGroup":"headlightglass_R_break", "deformMaterialBase":"bolide_lights", "deformMaterialDamaged":"bolide_lights"},
+         ["bolide_headlightframe_b_R", ["bolide_fender_R"]],
+         ["bolide_headlight_b_R", ["bolide_fender_R"]],
+         {"deformGroup":"headlightglass_R_break", "deformMaterialBase":"sealedbeam", "deformMaterialDamaged":"sealedbeam"},
+         ["bolide_headlight_lens_b_R", ["bolide_fender_R"]],
+         {"deformGroup":"headlightglass_R_break", "deformMaterialBase":"bolide_lightglass", "deformMaterialDamaged":"bolide_lightglass_dmg"},
+         ["bolide_headlightglass_b_R", ["bolide_fender_R"],[]{"deformSound":"event:>Destruction>Vehicle>Glass>extglassbreaksound3", "deformVolume":0.5}],
+         {"deformGroup":""},
+    ],
+},
+"bolide_headlight_b_L_us": {
+    "information":{
+        "authors":"BeamNG",
+        "name": {
+            "txt":"ui.vehicleconfig.information.name.BRAND Left Headlight (US)",
+            "ctx":{
+                "brand1":"ui.vehicleconfig.brand.GTT"
+            }
+        },
+        "value":1100,
+    },
+    "slotType" : "bolide_headlight_b_L",
+    "slots2": [
+        ["name", "allowTypes", "denyTypes", "default", "description"],
+        ["bolide_headlight_b_L_us_low_bulb", ["sealedBeam_halogen_55W"], [], "sealedBeam_halogen_55W", "Low Beam",
+        {
+        "coreSlot":true,
+        "variables":{
+          "$electric": "lowbeam_filament",
+          "$lightPattern": "US",
+          "$nodeRef":"fe1l", "$nodeX":"fe5l", "$nodeY":"fe2l",
+          "$deformGroup":"headlightglass_L_break",
+          "$posX":0.620, "$posY":-1.725, "$posZ":0.619,
+          "$rotX":-0.57, "$rotY":0, "$rotZ":180
+        }
+        }],
+        ["bolide_headlight_b_L_us_high_bulb", ["sealedBeam_halogen_65W"], [], "sealedBeam_halogen_65W", "High Beam",
+        {
+        "coreSlot":true,
+        "variables":{
+          "$electric": "highbeam_filament",
+          "$lightPattern": "US",
+          "$nodeRef":"fe1l", "$nodeX":"fe5l", "$nodeY":"fe2l",
+          "$deformGroup":"headlightglass_L_break",
+          "$posX":0.620, "$posY":-1.725, "$posZ":0.619,
+          "$rotX":0, "$rotY":0, "$rotZ":180
+        }
+        }]
+    ],
+    "flexbodies": [
+         ["mesh", "[group]:", "nonFlexMaterials"],
+         {"deformGroup":"headlightglass_L_break", "deformMaterialBase":"bolide_lights", "deformMaterialDamaged":"bolide_lights"},
+         ["bolide_headlightframe_b_L", ["bolide_fender_L"]],
+         ["bolide_headlight_b_L", ["bolide_fender_L"]],
+         {"deformGroup":"headlightglass_L_break", "deformMaterialBase":"sealedbeam", "deformMaterialDamaged":"sealedbeam"},
+         ["bolide_headlight_lens_b_L", ["bolide_fender_L"]],
+         {"deformGroup":"headlightglass_L_break", "deformMaterialBase":"bolide_lightglass", "deformMaterialDamaged":"bolide_lightglass_dmg"},
+         ["bolide_headlightglass_b_L", ["bolide_fender_L"],[]{"deformSound":"event:>Destruction>Vehicle>Glass>extglassbreaksound4", "deformVolume":0.5}],
+         {"deformGroup":""},
+    ],
+},
+}

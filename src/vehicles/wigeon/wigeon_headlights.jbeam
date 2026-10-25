@@ -1,0 +1,332 @@
+{
+"wigeon_headlight_R": {
+    "information":{
+        "authors":"BeamNG",
+        "name":"Right Headlight",
+        "value":150,
+    },
+    "slotType" : "wigeon_headlight_R",
+    "flexbodies": [
+         ["mesh", "[group]:", "nonFlexMaterials"],
+         ["wigeon_headlightframe_R", ["wigeon_headlight_R"]],
+         {"deformGroup":"headlightglass_R_break", "deformMaterialBase":"wigeon_lights", "deformMaterialDamaged":"wigeon_lights"},
+         ["wigeon_headlight_R", ["wigeon_headlight_R"]],
+         {"deformGroup":"headlightglass_R_break", "deformMaterialBase":"wigeon_glass", "deformMaterialDamaged":"wigeon_glass_dmg"},
+         ["wigeon_headlightglass_R", ["wigeon_headlight_R"],[]{"deformSound":"event:>Destruction>Vehicle>Glass>extglassbreaksound3", "deformVolume":0.5}],
+         {"deformGroup":""},
+    ],
+    "slots2": [
+        ["name", "allowTypes", "denyTypes", "default", "description"],
+        ["wigeon_headlight_R_lowbeam_bulb", ["headlightBulb_halogen_55W_combined"], [], "headlightBulb_halogen_55W_combined", "Right low beam bulb",
+        {
+        "coreSlot":true,
+        "variables":{
+          "$electric":"lowbeam_filament",
+          "$lightPattern":"RHD",
+          "$nodeRef":"he2r", "$nodeX":"he2rr", "$nodeY":"he1r",
+          "$posX":-0.4, "$posY":-1.37, "$posZ":0.565,
+          // Popup headlight opens about 20.84 degrees, so pre-compensate from the folded spawn pose.
+          "$rotX":-21.41, "$rotY":0, "$rotZ":180,
+          "$deformGroup":"headlightglass_R_break"
+          //"$lightRange":50,
+          //"$lightBrightness":0.3,
+          //"$lightOuterAngle":75,
+          //"$flareScale":0.06
+        }
+        }],
+        ["wigeon_headlight_R_highbeam_bulb", ["headlightBulb_halogen_60W_combined"], [], "headlightBulb_halogen_60W_combined", "Right high beam bulb",
+        {
+        "coreSlot":true,
+        "variables":{
+          "$electric":"highbeam_filament",
+          "$lightPattern":"RHD",
+          "$nodeRef":"he2r", "$nodeX":"he2rr", "$nodeY":"he1r",
+          "$posX":-0.4, "$posY":-1.37, "$posZ":0.565,
+          "$rotX":-20.84, "$rotY":0, "$rotZ":180,
+          "$deformGroup":"headlightglass_R_break"
+          //"$lightOuterAngle":85,
+          //"$flareScale":0.08
+        }
+        }]
+    ],
+    "nodes": [
+         ["id",    "posX", "posY", "posZ"],
+         //--HEADLIGHTS--
+         {"frictionCoef":0.5},
+         {"nodeMaterial":"|NM_METAL"},
+         {"selfCollision":true},
+         {"collision":true},
+
+         {"group":"wigeon_headlight_R"},
+         {"nodeWeight":0.2},
+         ["he1rr",-0.5,   -1.4,    0.65],
+         ["he1r", -0.3,   -1.4,    0.65],
+         ["he2rr",-0.5,   -1.34,   0.48],
+         ["he2r", -0.3,   -1.34,   0.48],
+         ["he3rr",-0.5,   -1.18,   0.63],
+         ["he3r", -0.3,   -1.18,   0.63],
+         {"group":""},
+    ],
+    "beams": [
+          ["id1:",  "id2:"],
+
+          //--HEADLIGHTS--
+          {"beamType":"|NORMAL", "beamPrecompression":1, "beamLongBound":1.0, "beamShortBound":1.0},
+
+          //headlight main shape
+          {"beamSpring":251000,"beamDamp":20},
+          {"beamDeform":5000,"beamStrength":100000}
+          {"deformLimitExpansion":1.2},
+          {"deformGroup":"headlightglass_R_break", "deformationTriggerRatio":0.01},
+          ["he1rr", "he1r"],
+          ["he2rr", "he2r"],
+          ["he3rr", "he3r"],
+          ["he1rr", "he2rr"],
+          ["he1r",  "he2r"],
+          ["he1rr", "he3rr"],
+          ["he1r",  "he3r"],
+          ["he2rr", "he3rr"],
+          ["he2r",  "he3r"],
+
+          //cross
+          {"deformLimitExpansion":""},
+          ["he1rr", "he2r"],
+          ["he1rr", "he3r"],
+          ["he2rr", "he1r"],
+          ["he2rr", "he3r"],
+          ["he3rr", "he1r"],
+          ["he3rr", "he2r"],
+          {"deformGroup":"", "deformationTriggerRatio":""},
+
+          //hinge
+          {"beamSpring":151000,"beamDamp":20},
+          {"beamDeform":3000,"beamStrength":5000},
+          {"breakGroup":"headlight_R"},
+          ["he3rr", "fe3rr"],
+          ["he3rr", "fe3r"],
+          ["he3rr", "fe1rr"],
+          ["he3rr", "fe5rr"],
+          ["he3r",  "fe3r"],
+          ["he3r",  "fe3rr"],
+          ["he3r",  "fe5rr"],
+          ["he3r",  "fe1r"],
+
+          //damp
+          {"beamSpring":0,"beamDamp":2}
+          ["he1rr", "fe2rr"],
+          ["he1r",  "fe2rr"],
+          {"breakGroup":"headlight_R_supportBeams"},
+
+          //headlight support beams
+          {"beamPrecompression":1,"beamType":"|SUPPORT","beamLongBound":4},
+          {"beamSpring":151000,"beamDamp":20},
+          {"beamDeform":3000,"beamStrength":100000},
+          ["he1r",  "fe2r"],
+          ["he1rr", "fe2rr"],
+          ["he3rr", "fe5rr"],
+          ["he3r",  "fe5rr"],
+          ["he3r",  "fe2r"],
+          ["he3rr", "fe3r"],
+          ["he3r",  "fe3rr"],
+          ["he1rr", "fe1r"],
+          ["he1r",  "fe1rr"],
+          ["he3rr", "b6rr"],
+          ["he3r",  "b6r"],
+          {"breakGroup":""},
+          {"beamPrecompression":1, "beamType":"|NORMAL", "beamLongBound":1.0, "beamShortBound":1.0},
+          {"deformLimitExpansion":1.1},
+    ],
+    "hydros": [
+            ["id1:","id2:"],
+            {"beamDeform":3000,"beamStrength":5000},
+            {"beamSpring":101000,"beamDamp":50},
+            {"breakGroupType":1},
+            {"breakGroup":"headlight_R"},
+            {"deformGroup":"headlightglass_R_break"},
+            ["he1r", "fe2r", {"inputSource":"soulPilotPopupFloat","inLimit":0,"outLimit":1.3, "inRate":1,"outRate":1,"inputFactor":1}],
+            {"breakGroupType":0},
+            {"breakGroup":""},
+    ],
+    "triangles": [
+            ["id1:",  "id2:",  "id3:"],
+            //right headlight
+            {"groundModel":"metal"},
+            {"group":"wigeon_headlight_R"},
+            {"dragCoef":6},
+            ["he1r",  "he1rr", "he2rr"],
+            ["he1r",  "he2rr", "he2r"],
+            ["he1r",  "he2r",  "he3r"],
+            ["he3rr", "he2rr", "he1rr"],
+            ["he3rr", "he1rr", "he3r"],
+            ["he3r",  "he1rr", "he1r"],
+            ["he2rr", "he3rr", "he2r"],
+            ["he2r",  "he3rr", "he3r"],
+            {"group":""},
+    ],
+},
+"wigeon_headlight_L": {
+    "information":{
+        "authors":"BeamNG",
+        "name":"Left Headlight",
+        "value":150,
+    },
+    "slotType" : "wigeon_headlight_L",
+    "flexbodies": [
+         ["mesh", "[group]:", "nonFlexMaterials"],
+         ["wigeon_headlightframe_L", ["wigeon_headlight_L"]],
+         {"deformGroup":"headlightglass_L_break", "deformMaterialBase":"wigeon_lights", "deformMaterialDamaged":"wigeon_lights"},
+         ["wigeon_headlight_L", ["wigeon_headlight_L"]],
+         {"deformGroup":"headlightglass_L_break", "deformMaterialBase":"wigeon_glass", "deformMaterialDamaged":"wigeon_glass_dmg"},
+         ["wigeon_headlightglass_L", ["wigeon_headlight_L"],[]{"deformSound":"event:>Destruction>Vehicle>Glass>extglassbreaksound3", "deformVolume":0.5}],
+         {"deformGroup":""},
+    ],
+    "slots2": [
+        ["name", "allowTypes", "denyTypes", "default", "description"],
+        ["wigeon_headlight_L_lowbeam_bulb", ["headlightBulb_halogen_55W_combined"], [], "headlightBulb_halogen_55W_combined", "Left low beam bulb",
+        {
+        "coreSlot":true,
+        "variables":{
+          "$electric":"lowbeam_filament",
+          "$lightPattern":"RHD",
+          "$nodeRef":"he2l", "$nodeX":"he2ll", "$nodeY":"he1l",
+          "$posX":0.4, "$posY":-1.37, "$posZ":0.565,
+          // Popup headlight opens about 20.84 degrees, so pre-compensate from the folded spawn pose.
+          "$rotX":-21.41, "$rotY":0, "$rotZ":180,
+          "$deformGroup":"headlightglass_L_break"
+          //"$lightRange":50,
+          //"$lightBrightness":0.3,
+          //"$lightOuterAngle":75,
+          //"$flareScale":0.06
+        }
+        }],
+        ["wigeon_headlight_L_highbeam_bulb", ["headlightBulb_halogen_60W_combined"], [], "headlightBulb_halogen_60W_combined", "Left high beam bulb",
+        {
+        "coreSlot":true,
+        "variables":{
+          "$electric":"highbeam_filament",
+          "$lightPattern":"RHD",
+          "$nodeRef":"he2l", "$nodeX":"he2ll", "$nodeY":"he1l",
+          "$posX":0.4, "$posY":-1.37, "$posZ":0.565,
+          "$rotX":-20.84, "$rotY":0, "$rotZ":180,
+          "$deformGroup":"headlightglass_L_break"
+          //"$lightOuterAngle":85,
+          //"$flareScale":0.08
+        }
+        }]
+    ],
+    "nodes": [
+         ["id",    "posX", "posY", "posZ"],
+         //--HEADLIGHTS--
+         {"frictionCoef":0.5},
+         {"nodeMaterial":"|NM_METAL"},
+         {"selfCollision":true},
+         {"collision":true},
+
+         {"group":"wigeon_headlight_L"},
+         {"nodeWeight":0.2},
+         ["he1ll", 0.5,   -1.4,    0.65],
+         ["he1l",  0.3,   -1.4,    0.65],
+         ["he2ll", 0.5,   -1.34,   0.48],
+         ["he2l",  0.3,   -1.34,   0.48],
+         ["he3ll", 0.5,   -1.18,   0.63],
+         ["he3l",  0.3,   -1.18,   0.63],
+         {"group":""},
+    ],
+    "beams": [
+          ["id1:",  "id2:"],
+
+          //--HEADLIGHTS--
+          {"beamType":"|NORMAL", "beamPrecompression":1, "beamLongBound":1.0, "beamShortBound":1.0},
+
+          //headlight main shape
+          {"beamSpring":251000,"beamDamp":20},
+          {"beamDeform":5000,"beamStrength":100000}
+          {"deformLimitExpansion":1.2},
+          {"deformGroup":"headlightglass_L_break", "deformationTriggerRatio":0.01},
+          ["he1ll", "he1l"],
+          ["he2ll", "he2l"],
+          ["he3ll", "he3l"],
+          ["he1ll", "he2ll"],
+          ["he1l",  "he2l"],
+          ["he1ll", "he3ll"],
+          ["he1l",  "he3l"],
+          ["he2ll", "he3ll"],
+          ["he2l",  "he3l"],
+
+          //cross
+          {"deformLimitExpansion":""},
+          ["he1ll", "he2l"],
+          ["he1ll", "he3l"],
+          ["he2ll", "he1l"],
+          ["he2ll", "he3l"],
+          ["he3ll", "he1l"],
+          ["he3ll", "he2l"],
+          {"deformGroup":"", "deformationTriggerRatio":""},
+
+          //hinge
+          {"beamSpring":151000,"beamDamp":20},
+          {"beamDeform":3000,"beamStrength":5000},
+          {"breakGroup":"headlight_L"},
+          ["he3ll", "fe3ll"],
+          ["he3ll", "fe3l"],
+          ["he3ll", "fe1ll"],
+          ["he3ll", "fe5ll"],
+          ["he3l",  "fe3l"],
+          ["he3l",  "fe3ll"],
+          ["he3l",  "fe5ll"],
+          ["he3l",  "fe1l"],
+
+          //damp
+          {"beamSpring":0,"beamDamp":2}
+          ["he1ll", "fe2ll"],
+          ["he1l",  "fe2ll"],
+          {"breakGroup":"headlight_L_supportBeams"},
+
+          //headlight support beams
+          {"beamPrecompression":1,"beamType":"|SUPPORT","beamLongBound":4},
+          {"beamSpring":151000,"beamDamp":20},
+          {"beamDeform":3000,"beamStrength":100000},
+          ["he1l",  "fe2l"],
+          ["he1ll", "fe2ll"],
+          ["he3ll", "fe5ll"],
+          ["he3l",  "fe5ll"],
+          ["he3l",  "fe2l"],
+          ["he3ll", "fe3l"],
+          ["he3l",  "fe3ll"],
+          ["he1ll", "fe1l"],
+          ["he1l",  "fe1ll"],
+          ["he3ll", "b6ll"],
+          ["he3l",  "b6l"],
+          {"breakGroup":""},
+          {"beamPrecompression":1, "beamType":"|NORMAL", "beamLongBound":1.0, "beamShortBound":1.0},
+          {"deformLimitExpansion":1.1},
+    ],
+    "hydros": [
+            ["id1:","id2:"],
+            {"beamDeform":3000,"beamStrength":5000},
+            {"beamSpring":101000,"beamDamp":50},
+            {"breakGroupType":1},
+            {"breakGroup":"headlight_L"},
+            {"deformGroup":"headlightglass_L_break"},
+            ["he1l", "fe2l", {"inputSource":"soulPilotPopupFloat","inLimit":0,"outLimit":1.3, "inRate":1,"outRate":1,"inputFactor":1}],
+            {"breakGroupType":0},
+            {"breakGroup":""},
+    ],
+    "triangles": [
+            ["id1:",  "id2:",  "id3:"],
+            //right headlight
+            {"groundModel":"metal"},
+            {"group":"wigeon_headlight_L"},
+            {"dragCoef":6},
+            ["he1ll", "he1l",  "he2ll"],
+            ["he2ll", "he1l",  "he2l"],
+            ["he2l",  "he1l",  "he3l"],
+            ["he2ll", "he3ll", "he1ll"],
+            ["he1ll", "he3ll", "he3l"],
+            ["he1ll", "he3l",  "he1l"],
+            ["he3ll", "he2ll", "he2l"],
+            ["he3ll", "he2l",  "he3l"],
+            {"group":""},
+    ],
+},
+}

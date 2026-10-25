@@ -1,0 +1,507 @@
+{
+"barstow_grille_alt": {
+    "information":{
+        "authors":"BeamNG",
+        "name":"Concealed Headlights Grille",
+        "value":3250,
+    },
+    "slotType" : "barstow_grille",
+     "slots2": [
+        ["name", "allowTypes", "denyTypes", "default", "description"],
+        ["barstow_stealth_R_lowbeam_bulb", ["sealedBeam_tungsten_40W"], [], "sealedBeam_tungsten_40W", "Right concealed low beam bulb",
+        {
+        "coreSlot":true,
+        "variables":{
+          "$electric":"lowbeam_filament",
+          "$lightPattern":"LHD",
+          "$nodeRef":"he5rr", "$nodeX":"he5r", "$nodeY":"he4rr",
+          "$posX":-0.74, "$posY":-1.95, "$posZ":0.65,
+          // Concealed lamps rotate 180 degrees around X when opened, so pre-flip the usual aim.
+          "$rotX":179.43, "$rotY":0, "$rotZ":180,
+          "$deformGroup":"headlightglass_R_break"
+          //"$lightOuterAngle":80,
+          //"$flareScale":0.06,
+          //"$lightBrightness":0.35
+        }
+        }],
+        ["barstow_stealth_L_lowbeam_bulb", ["sealedBeam_tungsten_40W"], [], "sealedBeam_tungsten_40W", "Left concealed low beam bulb",
+        {
+        "coreSlot":true,
+        "variables":{
+          "$electric":"lowbeam_filament",
+          "$lightPattern":"LHD",
+          "$nodeRef":"he5ll", "$nodeX":"he5l", "$nodeY":"he4ll",
+          "$posX":0.74, "$posY":-1.95, "$posZ":0.65,
+          // Concealed lamps rotate 180 degrees around X when opened, so pre-flip the usual aim.
+          "$rotX":179.43, "$rotY":0, "$rotZ":180,
+          "$deformGroup":"headlightglass_L_break"
+          //"$lightOuterAngle":80,
+          //"$flareScale":0.06,
+          //"$lightBrightness":0.35
+        }
+        }],
+        ["barstow_stealth_R_highbeam_bulb", ["sealedBeam_tungsten_50W"], [], "sealedBeam_tungsten_50W", "Right concealed high beam bulb",
+        {
+        "coreSlot":true,
+        "variables":{
+          "$electric":"highbeam_filament",
+          "$lightPattern":"LHD",
+          "$nodeRef":"he5rr", "$nodeX":"he5r", "$nodeY":"he4rr",
+          "$posX":-0.565, "$posY":-1.94, "$posZ":0.65,
+          "$rotX":180, "$rotY":0, "$rotZ":180,
+          "$deformGroup":"headlightglass_R_break"
+          //"$lightOuterAngle":80,
+          //"$flareScale":0.09
+        }
+        }],
+        ["barstow_stealth_L_highbeam_bulb", ["sealedBeam_tungsten_50W"], [], "sealedBeam_tungsten_50W", "Left concealed high beam bulb",
+        {
+        "coreSlot":true,
+        "variables":{
+          "$electric":"highbeam_filament",
+          "$lightPattern":"LHD",
+          "$nodeRef":"he5ll", "$nodeX":"he5l", "$nodeY":"he4ll",
+          "$posX":0.565, "$posY":-1.94, "$posZ":0.65,
+          "$rotX":180, "$rotY":0, "$rotZ":180,
+          "$deformGroup":"headlightglass_L_break"
+          //"$lightOuterAngle":80,
+          //"$flareScale":0.09
+        }
+        }]
+     ],
+     "flexbodies": [
+         ["mesh", "[group]:", "nonFlexMaterials"],
+         ["barstow_grille_stealth", ["barstow_grille"]],
+         ["barstow_lamp_stealth_R", ["barstow_headlight_R"]],
+         ["barstow_lamp_stealth_L", ["barstow_headlight_L"]],
+         {"deformGroup":"headlightglass_R_break", "deformMaterialBase":"sealedbeam", "deformMaterialDamaged":"sealedbeam"},
+         ["barstow_headlight_stealth_R", ["barstow_headlight_R"],[]{"deformSound":"event:>Destruction>Vehicle>Glass>glassbreaksound3", "deformVolume":0.5}],
+         {"deformGroup":"headlightglass_L_break", "deformMaterialBase":"sealedbeam", "deformMaterialDamaged":"sealedbeam"},
+         ["barstow_headlight_stealth_L", ["barstow_headlight_L"],[]{"deformSound":"event:>Destruction>Vehicle>Glass>glassbreaksound4", "deformVolume":0.5}],
+
+
+         {"deformGroup":"headlightglass_R_break", "deformMaterialBase":"sealedbeam_glass", "deformMaterialDamaged":"sealedbeam_glass_dmg"},
+         ["barstow_headlightglass_stealth_R", ["barstow_headlight_R"]],
+         {"deformGroup":"headlightglass_L_break", "deformMaterialBase":"sealedbeam_glass", "deformMaterialDamaged":"sealedbeam_glass_dmg"},
+         ["barstow_headlightglass_stealth_L", ["barstow_headlight_L"]],
+         {"deformGroup":""},
+     ],
+     "nodes": [
+         ["id",    "posX", "posY", "posZ"],
+         {"collision":true},
+         {"nodeWeight":1.07},
+         {"frictionCoef":0.5},
+         {"nodeMaterial":"|NM_METAL"},
+         //grille
+         {"selfCollision":true},
+         {"group":"barstow_grille"},
+         ["g1rr", -0.79,  -2.09,   0.75],
+         ["g1r",  -0.45,  -2.09,   0.76],
+         ["g1",    0.0,   -2.11,   0.76],
+         ["g1l",   0.45,  -2.09,   0.76],
+         ["g1ll",  0.79,  -2.09,   0.75],
+
+         ["g2rr", -0.82,  -2.06,   0.56],
+         ["g2r",  -0.45,  -2.09,   0.56],
+         ["g2",    0.0,   -2.11,   0.55],
+         ["g2l",   0.45,  -2.09,   0.56],
+         ["g2ll",  0.82,  -2.06,   0.56],
+
+         //rigidifier
+         ["g3",    0.0,   -1.96,   0.65,   {"collision":false,"selfCollision":false}],
+
+         //headlights
+         {"selfCollision":false},
+         {"group":"barstow_headlight_R"},
+         ["he1r", -0.45,  -2.10,   0.73],
+         ["he1rr",-0.82,  -2.07,   0.73],
+         ["he2r", -0.45,  -2.10,   0.56],
+         ["he2rr",-0.82,  -2.07,   0.56],
+         ["he4r", -0.45,  -1.95,   0.73],
+         ["he4rr",-0.82,  -1.98,   0.73],
+         ["he5r", -0.45,  -1.95,   0.56],
+         ["he5rr",-0.82,  -1.98,   0.56],
+
+         {"group":"barstow_headlight_L"},
+         ["he1l",  0.45,  -2.10,   0.73],
+         ["he1ll", 0.82,  -2.07,   0.73],
+         ["he2l",  0.45,  -2.10,   0.56],
+         ["he2ll", 0.82,  -2.07,   0.56],
+         ["he4l",  0.45,  -1.95,   0.73],
+         ["he4ll", 0.82,  -1.98,   0.73],
+         ["he5l",  0.45,  -1.95,   0.56],
+         ["he5ll", 0.82,  -1.98,   0.56],
+
+         //headlight hinge nodes
+         {"collision":false},
+         {"selfCollision":false},
+         {"group":""},
+         ["he3rr",-0.80,  -2.017,  0.646],
+         ["he3r", -0.52,  -2.017,  0.646],
+         ["he3l",  0.52,  -2.017,  0.646],
+         ["he3ll", 0.80,  -2.017,  0.646],
+
+         //hydro lever
+         //["he6r",-0.72, -1.95, 0.45],
+         //["he6l", 0.72, -1.95, 0.45],
+         //["he7r",-0.72, -2.10, 0.45],
+         //["he7l", 0.72, -2.10, 0.45],
+    ],
+    "beams": [
+          ["id1:",  "id2:"],
+          {"breakGroupType":0},
+          {"beamPrecompression":1, "beamType":"|NORMAL", "beamLongBound":1, "beamShortBound":1},
+          {"beamDeform":26250,"beamStrength":148750},
+          {"beamSpring":801000,"beamDamp":60},
+          //main shape
+          {"deformLimitExpansion":1.1},
+          {"deformGroup":"headlightglass_R_break","deformationTriggerRatio":0.03},
+          ["he1rr", "he1r"],
+          ["he2rr", "he2r"],
+
+          ["he4rr", "he4r"],
+          ["he5rr", "he5r"],
+
+          ["he1rr", "he4rr"],
+          ["he1r",  "he4r"],
+          ["he2rr", "he5rr"],
+          ["he2r",  "he5r"],
+
+          {"deformGroup":"headlightglass_L_break"},
+          ["he1ll", "he1l"],
+          ["he2ll", "he2l"],
+
+          ["he4ll", "he4l"],
+          ["he5ll", "he5l"],
+
+          ["he1ll", "he4ll"],
+          ["he1l",  "he4l"],
+          ["he2ll", "he5ll"],
+          ["he2l",  "he5l"],
+          {"deformGroup":""},
+
+          {"beamDeform":21250,"beamStrength":148750},
+          ["g1rr",  "g1r"],
+          ["g2rr",  "g2r"],
+          ["g1ll",  "g1l"],
+          ["g2ll",  "g2l"],
+          ["g1r",   "g1"],
+          ["g2r",   "g2"],
+          ["g1l",   "g1"],
+          ["g2l",   "g2"],
+
+          //vert
+          {"beamDeform":26250,"beamStrength":297500},
+          {"deformGroup":"headlightglass_R_break","deformationTriggerRatio":0.03},
+          ["he1rr", "he2rr"],
+          ["he1r",  "he2r"],
+          ["he4rr", "he5rr"],
+          ["he4r",  "he5r"],
+          {"deformGroup":"headlightglass_L_break"},
+          ["he1ll", "he2ll"],
+          ["he1l",  "he2l"],
+          ["he4ll", "he5ll"],
+          ["he4l",  "he5l"],
+          {"deformGroup":"", "deformationTriggerRatio":""},
+
+          {"beamDeform":21250,"beamStrength":148750},
+          ["g1ll",  "g2ll"],
+          ["g1l",   "g2l"],
+          ["g1rr",  "g2rr"],
+          ["g1r",   "g2r"],
+          ["g1",    "g2"],
+
+          {"deformLimitExpansion":""},
+          //surficial crossing
+          {"beamDeform":15050,"beamStrength":148750},
+          {"deformGroup":"headlightglass_R_break","deformationTriggerRatio":0.03},
+          ["he1rr", "he2r"],
+          ["he1r",  "he2rr"],
+
+          ["he4rr", "he5r"],
+          ["he4r",  "he5rr"],
+
+          ["he2r",  "he4r"],
+          ["he2rr", "he4rr"],
+          ["he1r",  "he5r"],
+          ["he1rr", "he5rr"],
+
+          {"deformGroup":"headlightglass_L_break"},
+          ["he1ll", "he2l"],
+          ["he1l",  "he2ll"],
+
+          ["he4ll", "he5l"],
+          ["he4l",  "he5ll"],
+
+          ["he2l",  "he4l"],
+          ["he2ll", "he4ll"],
+          ["he1l",  "he5l"],
+          ["he1ll", "he5ll"],
+          {"deformGroup":"", "deformationTriggerRatio":""},
+
+          {"beamDeform":11050,"beamStrength":148750},
+          ["g1ll",  "g2l"],
+          ["g1l",   "g2ll"],
+          ["g1rr",  "g2r"],
+          ["g1r",   "g2rr"],
+          ["g1",    "g2r"],
+          ["g1",    "g2l"],
+          ["g2",    "g1r"],
+          ["g2",    "g1l"],
+
+          //rigids
+          {"beamSpring":701000,"beamDamp":60},
+          {"beamDeform":3750,"beamStrength":148750},
+          ["g1rr",  "g1"],
+          ["g1ll",  "g1"],
+          ["g2rr",  "g1"],
+          ["g2ll",  "g1"],
+          ["g2r",   "g2l"],
+          ["g1r",   "g1l"],
+
+          //rigidifier
+          {"beamSpring":801000,"beamDamp":60},
+          {"beamDeform":3100,"beamStrength":148750},
+          ["g1rr",  "g3"],
+          ["g1r",   "g3"],
+          ["g1",    "g3"],
+          ["g1l",   "g3"],
+          ["g1ll",  "g3"],
+
+          ["g2rr",  "g3"],
+          ["g2r",   "g3"],
+          ["g2",    "g3"],
+          ["g2l",   "g3"],
+          ["g2ll",  "g3"],
+
+          //headlight rigidifier
+          {"beamDeform":9050,"beamStrength":148750},
+          {"deformGroup":"headlightglass_R_break","deformationTriggerRatio":0.03},
+          ["he1rr", "he3r"],
+          ["he1r",  "he3r"],
+          ["he2rr", "he3r"],
+          ["he2r",  "he3r"],
+          ["he1rr", "he3rr"],
+          ["he1r",  "he3rr"],
+          ["he2rr", "he3rr"],
+          ["he2r",  "he3rr"],
+
+          ["he4rr", "he3r"],
+          ["he4r",  "he3r"],
+          ["he5rr", "he3r"],
+          ["he5r",  "he3r"],
+          ["he4rr", "he3rr"],
+          ["he4r",  "he3rr"],
+          ["he5rr", "he3rr"],
+          ["he5r",  "he3rr"],
+
+          ["he3r",  "he3rr", {"breakGroup":"headlightmotor_R", "disableMeshBreaking":true}],
+          ["he3r",  "s3rrr", {"breakGroup":"headlightmotor_R", "beamPrecompression":0.8, "beamType":"|SUPPORT", "beamLongBound":0.7 "beamSpring":1000}],
+
+          //
+          //["he3rr","he6r"],
+          //["he3r","he6r"],
+          //
+          //["he1rr","he7r"],
+          //["he1r","he7r"],
+          //["he2rr","he7r"],
+          //["he2r","he7r"],
+          //["he3rr","he7r"],
+          //["he3r","he7r"],
+          //["he4rr","he7r"],
+          //["he4r","he7r"],
+          //["he5rr","he7r"],
+          //["he5r","he7r"],
+
+          {"deformGroup":"headlightglass_L_break"},
+          ["he1ll", "he3l"],
+          ["he1l",  "he3l"],
+          ["he2ll", "he3l"],
+          ["he2l",  "he3l"],
+          ["he1ll", "he3ll"],
+          ["he1l",  "he3ll"],
+          ["he2ll", "he3ll"],
+          ["he2l",  "he3ll"],
+
+          ["he4ll", "he3l"],
+          ["he4l",  "he3l"],
+          ["he5ll", "he3l"],
+          ["he5l",  "he3l"],
+          ["he4ll", "he3ll"],
+          ["he4l",  "he3ll"],
+          ["he5ll", "he3ll"],
+          ["he5l",  "he3ll"],
+
+          ["he3l",  "he3ll", {"breakGroup":"headlightmotor_L", "disableMeshBreaking":true}],
+          ["he3l",  "s3lll", {"breakGroup":"headlightmotor_L", "beamPrecompression":0.8, "beamType":"|SUPPORT", "beamLongBound":0.7 "beamSpring":1000}],
+
+          //
+          //["he3ll","he6l"],
+          //["he3l","he6l"],
+          //
+          //["he1ll","he7l"],
+          //["he1l","he7l"],
+          //["he2ll","he7l"],
+          //["he2l","he7l"],
+          //["he3ll","he7l"],
+          //["he3l","he7l"],
+          //["he4ll","he7l"],
+          //["he4l","he7l"],
+          //["he5ll","he7l"],
+          //["he5l","he7l"],
+          {"deformGroup":"", "deformationTriggerRatio":""},
+
+          //headlight hinge
+          {"beamDeform":24050,"beamStrength":48750},
+          {"breakGroup":"headlighthinge_R"},
+          ["he3r",  "g1r"],
+          ["he3r",  "g1rr"],
+          ["he3r",  "g2r"],
+          ["he3r",  "g2rr"],
+          ["he3rr", "g1r"],
+          ["he3rr", "g1rr"],
+          ["he3rr", "g2r"],
+          ["he3rr", "g2rr"],
+
+          ["he3r",  "g1"],
+          ["he3r",  "g2"],
+          ["he3rr", "g1"],
+          ["he3rr", "g2"],
+
+          {"breakGroup":"headlighthinge_L"},
+          ["he3l",  "g1l"],
+          ["he3l",  "g1ll"],
+          ["he3l",  "g2l"],
+          ["he3l",  "g2ll"],
+          ["he3ll", "g1l"],
+          ["he3ll", "g1ll"],
+          ["he3ll", "g2l"],
+          ["he3ll", "g2ll"],
+
+          ["he3l",  "g1"],
+          ["he3l",  "g2"],
+          ["he3ll", "g1"],
+          ["he3ll", "g2"],
+
+          //damp
+          {"beamSpring":0,"beamDamp":250,"beamDeform":21250,"beamStrength":595000},
+          {"breakGroup":"headlighthinge_R"},
+          ["he1rr", "g2rr"],
+          ["he2rr", "g1rr"],
+          ["he1r",  "g2r"],
+          ["he2r",  "g1r"],
+          {"breakGroup":"headlighthinge_L"},
+          ["he1ll", "g2ll"],
+          ["he2ll", "g1ll"],
+          ["he1l",  "g2l"],
+          ["he2l",  "g1l"],
+          {"breakGroup":""},
+
+          //attach
+          {"beamPrecompression":1, "beamType":"|NORMAL", "beamLongBound":1, "beamShortBound":1},
+          {"beamSpring":501000,"beamDamp":100},
+          {"beamDeform":5500,"beamStrength":18700},
+          {"breakGroup":"grille_a_R"},
+          {"deformGroup":"headlightglass_R_break"},
+          {"disableTriangleBreaking":true},
+          ["g1r",   "ra1"],
+          ["g1r",   "ra1r"],
+          ["g2r",   "ra1"],
+          ["g2r",   "ra1r"],
+          ["g1r",   "ra7r"],
+          ["g1rr",  "ra3r"],
+          ["g2rr",  "ra3r"],
+          ["g1r",   "ra3r"],
+          ["g2r",   "ra3r"],
+
+          ["g2rr",  "ra3rr"],
+          ["g2rr",  "ra1rr"],
+          ["g1rr",  "ra3rr"],
+          ["g1rr",  "ra1rr"],
+
+          ["g1rr",  "ra5r",  {"beamSpring":0,"beamDamp":750}],
+          ["g2rr",  "ra7r",  {"beamSpring":0,"beamDamp":750}],
+
+
+          {"deformGroup":"headlightglass_L_break"},
+          {"breakGroup":"grille_a_L"},
+          ["g1l",   "ra1"],
+          ["g1l",   "ra1l"],
+          ["g2l",   "ra1"],
+          ["g2l",   "ra1l"],
+          ["g1l",   "ra7l"],
+          ["g1ll",  "ra3l"],
+          ["g2ll",  "ra3l"],
+          ["g1l",   "ra3l"],
+          ["g2l",   "ra3l"],
+
+          ["g2ll",  "ra3ll"],
+          ["g2ll",  "ra1ll"],
+          ["g1ll",  "ra3ll"],
+          ["g1ll",  "ra1ll"],
+
+          ["g1ll",  "ra5l",  {"beamSpring":0,"beamDamp":750}],
+          ["g2ll",  "ra7l",  {"beamSpring":0,"beamDamp":750}],
+          {"deformGroup":""},
+
+          //inter part triangle breaking triggers
+          {"beamType":"|SUPPORT", "beamLongBound":4},
+          {"beamSpring":0,"beamDamp":0},
+          {"beamDeform":850,"beamStrength":850},
+          {"breakGroup":"grille_radsupport"},
+          ["g1rr",  "ra3rr"],
+          ["g2rr",  "ra1rr"],
+          ["g1ll",  "ra3ll"],
+          ["g2ll",  "ra1ll"],
+          {"breakGroup":""},
+          {"disableTriangleBreaking":false},
+          {"beamPrecompression":1, "beamType":"|NORMAL", "beamLongBound":1.0, "beamShortBound":1.0},
+    ],
+//    "hydros": [
+//            ["id1:","id2:"],
+//            {"beamDeform":21250,"beamStrength":63750},
+//            {"beamLimitSpring":501000,"beamLimitDamp":250},
+//            {"beamSpring":501000,"beamDamp":250},
+//            {"breakGroupType":1},
+//            {"breakGroup":"headlighthinge_R"},
+//            {"deformGroup":"headlightglass_R_break"}
+//            ["ra4rr","he6r", {"inputSource":"soulPilotPopupFloat","inLimit":0,"outLimit":2.625,"inRate":1.2,"outRate":1.2,"inputFactor":1}],
+//            ["he7r","he6r", {"inputSource":"soulPilotPopupFloat","inLimit":0,"outLimit":2.625,"inRate":1.2,"outRate":1.2,"inputFactor":1}],
+//            {"breakGroup":"headlighthinge_L"},
+//         barstow_lightsdeformGroup":"headlightglass_L_break"}
+//            ["ra4ll","he6l", {"inputSource":"soulPilotPopupFloat","inLimit":0,"outLimit":2.625,"inRate":1.2,"outRate":1.2,"inputFactor":1}],
+//            ["he7l","he6l", {"inputSource":"soulPilotPopupFloat","inLimit":0,"outLimit":2.625,"inRate":1.2,"outRate":1.2,"inputFactor":1}],
+//            {"breakGroupType":0},
+//            {"breakGroup":""},
+//    ],
+    "torsionHydros": [
+        ["id1:","id2:","id3:","id4:"],
+        {"spring":10000, "damp":0, "deform":15000, "strength":20000},
+        ["he2r","he3r","he3rr","g1rr", {"factor":-3.145,"inRate":2.5,"outRate":2.5,"inputSource":"soulPilotPopupFloat"}],
+        ["he2l","he3l","he3ll","g1ll", {"factor":3.145,"inRate":2.5,"outRate":2.5,"inputSource":"soulPilotPopupFloat"}],
+    ],
+    "triangles": [
+            ["id1:", "id2:", "id3:"],
+            {"group":"barstow_grille"},
+            {"dragCoef":5.6},
+            ["g1rr", "g2rr", "g2r"],
+            ["g1rr", "g2r",  "g1r"],
+            ["g1r",  "g2r",  "g2"],
+            ["g1r",  "g2",   "g1"],
+            ["g2ll", "g1ll", "g2l"],
+            ["g1l",  "g2l",  "g1ll"],
+            ["g2l",  "g1l",  "g2"],
+            ["g1l",  "g1",   "g2"],
+
+            /*
+            {"group":"barstow_headlight_R"},
+            ["he1rr","he2rr","he2r"],
+            ["he1rr","he2r","he1r"],
+            {"group":"barstow_headlight_L"},
+            ["he1ll","he2l","he2ll"],
+            ["he1ll","he1l","he2l"],
+            */
+            {"group":""},
+    ],
+},
+}

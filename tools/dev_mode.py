@@ -29,7 +29,7 @@ SRC = ROOT / "src"
 
 # Runtime folders that BeamNG expects at the mod root. src/tests is source-only
 # and is deliberately not deployed.
-RUNTIME_DIRS = ("lua", "ui", "mod_info", "art", "config")
+RUNTIME_DIRS = ("lua", "ui", "mod_info", "art", "config", "vehicles")
 
 # Runtime folders that are not part of src/lua, src/ui, etc. The source may be
 # in src/<name> or already at the mod root (the current repository layout).
