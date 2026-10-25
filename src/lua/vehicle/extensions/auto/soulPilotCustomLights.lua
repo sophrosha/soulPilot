@@ -45,6 +45,7 @@ local movement_override = false
 local pet_squint_priority = false
 
 local managed = false
+local autopilot_requested = false
 local custom_available = nil
 local feature_warned = false
 local managed_time = 0.0
@@ -510,6 +511,10 @@ function M.setManaged(value)
   managed = value == true or value == 1
   managed_time = 0.0
   if not managed then
+    autopilot_requested = false
+    if absent_hold then
+      releaseAbsentHold()
+    end
     squint_active = false
     squint_elapsed = 0.0
     pet_squint_priority = false
@@ -523,6 +528,22 @@ function M.setManaged(value)
     waiting_for_warmup = false
   end
   return managed
+end
+
+function M.setAutopilotRequested(value)
+  autopilot_requested = value == true
+  if not autopilot_requested then
+    releaseAbsentHold()
+    squint_active = false
+    squint_elapsed = 0.0
+    pet_squint_priority = false
+    movement_override = false
+    wink_active = false
+    wink_elapsed = 0.0
+    idle_timer = 0.0
+    target = lightsTarget()
+  end
+  return autopilot_requested
 end
 
 function M.playCatSquint()
@@ -609,7 +630,7 @@ function M.updateGFX(dt)
   end
 
   local seated_now = isSeated()
-  local absent_visible = managed and not seated_now
+  local absent_visible = managed and not seated_now and autopilot_requested
   local moving_now = speedMps() * 3.6 > 5.0 or aiDriving()
   if moving_now and not pet_squint_priority then
     -- Normal movement clears a squint/wink and forces covers open + lights on.
@@ -709,6 +730,20 @@ function M.updateGFX(dt)
   updateDoorLock(dt)
 
   if not managed then
+    return
+  end
+
+  -- Waiting/squinting for an absent driver exists only after the user asked
+  -- for autopilot. A manually started car must behave like vanilla here.
+  if not autopilot_requested then
+    if absent_hold then
+      releaseAbsentHold()
+    end
+    was_seated = seated_now
+    seated_wait = 0.0
+    waiting_for_warmup = false
+    idle_timer = 0.0
+    return_grace = 0.0
     return
   end
 
@@ -826,6 +861,10 @@ soulPilotCustomLightsCmd = {}
 
 function soulPilotCustomLightsCmd.setManaged(value)
   return M.setManaged(value)
+end
+
+function soulPilotCustomLightsCmd.setAutopilotRequested(value)
+  return M.setAutopilotRequested(value)
 end
 
 function soulPilotCustomLightsCmd.playCatSquint()
