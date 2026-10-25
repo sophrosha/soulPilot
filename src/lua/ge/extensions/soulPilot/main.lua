@@ -354,8 +354,8 @@ function M.onVehicleSwitched(old_id, new_id, player)
   local new_vehicle = getVehicleById(new_id)
   if new_vehicle and not isUnicycle(new_vehicle) then
     local fallback_id = vehicle_bridge.getFallbackVehicleId and vehicle_bridge.getFallbackVehicleId()
-    local resuming_waiting_driver = master.isWaitingDriver and master.isWaitingDriver()
-      and master.isAutopilotRequested and master.isAutopilotRequested()
+    local autopilot_requested = master.isAutopilotRequested and master.isAutopilotRequested()
+    local resuming_autopilot = autopilot_requested
       and fallback_id ~= nil and tonumber(fallback_id) == tonumber(new_id)
 
     -- A manual/auto door lock belongs to one vehicle and one mission only.
@@ -364,7 +364,11 @@ function M.onVehicleSwitched(old_id, new_id, player)
     if idle_hold_active then
       releaseIdleHold()
     end
-    if not resuming_waiting_driver then
+    if resuming_autopilot then
+      if master.onAutopilotVehicleEntered then
+        master.onAutopilotVehicleEntered(new_id)
+      end
+    else
       forceMasterOff()
     end
     resetLocksForced()
@@ -384,7 +388,7 @@ function M.onVehicleSwitched(old_id, new_id, player)
     -- Re-entering the same car after waiting for the driver must keep the
     -- handbrake/AI hold until the 10 second return timer expires. A real
     -- switch to another car still gets the immediate manual-switch release.
-    if not resuming_waiting_driver then
+    if not resuming_autopilot then
       if commands.forceIdleVehicle then
         commands.forceIdleVehicle(new_id, false)
       end

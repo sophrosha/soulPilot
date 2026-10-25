@@ -53,6 +53,7 @@ local managed_time = 0.0
 local idle_timer = 0.0
 local was_seated = false
 local absent_hold = false
+local return_hold = false
 local return_grace = 0.0
 local seated_wait = 0.0
 local waiting_for_warmup = false
@@ -535,6 +536,7 @@ function M.setManaged(value)
     wink_active = false
     wink_elapsed = 0.0
     idle_timer = 0.0
+    return_hold = false
     was_seated = false
     return_grace = 0.0
     seated_wait = 0.0
@@ -554,6 +556,7 @@ function M.setAutopilotRequested(value)
     wink_active = false
     wink_elapsed = 0.0
     idle_timer = 0.0
+    return_hold = false
     target = lightsTarget()
   end
   return autopilot_requested
@@ -625,6 +628,7 @@ function M.getState()
     warm = isWarm(),
     managed = managed,
     custom_input = custom_available,
+    return_hold = return_hold,
     door_locked = door_locked,
     door_lock_requested = door_lock_requested,
   }
@@ -645,6 +649,15 @@ function M.updateGFX(dt)
   local seated_now = isSeated()
   local absent_visible = managed and not seated_now and autopilot_requested
   local moving_now = speedMps() * 3.6 > 5.0 or aiDriving()
+  if seated_now and not was_seated and autopilot_requested and absent_hold then
+    -- The owner is back in the autopilot car. Keep the covers open while the
+    -- 10 second return timer runs, even though the lamps themselves stay off.
+    return_hold = true
+    if not pet_squint_priority then
+      squint_active = false
+      squint_elapsed = 0.0
+    end
+  end
   if moving_now and not pet_squint_priority then
     -- Normal movement clears a squint/wink and forces covers open + lights on.
     movement_override = true
@@ -652,6 +665,7 @@ function M.updateGFX(dt)
     squint_elapsed = 0.0
     wink_active = false
     wink_elapsed = 0.0
+    return_hold = false
     target = 1.0
     forceHeadlights()
   elseif moving_now and pet_squint_priority then
@@ -732,7 +746,7 @@ function M.updateGFX(dt)
       current = moveToward(current, target, MOVE_RATE * dt)
       writeValue(current)
     else
-      target = (moving_now or absent_visible) and 1.0 or lightsTarget()
+      target = (moving_now or absent_visible or return_hold) and 1.0 or lightsTarget()
       current = moveToward(current, target, MOVE_RATE * dt)
       writeValue(current)
     end
@@ -756,6 +770,7 @@ function M.updateGFX(dt)
     seated_wait = 0.0
     waiting_for_warmup = false
     idle_timer = 0.0
+    return_hold = false
     return_grace = 0.0
     return
   end
@@ -764,6 +779,7 @@ function M.updateGFX(dt)
   if seated then
     if not was_seated then
       if absent_hold then
+        return_hold = true
         if warmupActive() then
           -- The warmup is still running: hold the car but do not start the
           -- driver-return timer yet.
@@ -771,7 +787,6 @@ function M.updateGFX(dt)
         else
           waiting_for_warmup = false
           seated_wait = DRIVER_RETURN_WAIT
-          startSquint()
         end
       else
         waiting_for_warmup = false
@@ -784,7 +799,6 @@ function M.updateGFX(dt)
       if warmupFinished() then
         waiting_for_warmup = false
         seated_wait = DRIVER_RETURN_WAIT
-        startSquint()
       else
         applyAbsentHold()
         return
@@ -857,6 +871,7 @@ function M.onReset()
   idle_timer = 0.0
   was_seated = false
   absent_hold = false
+  return_hold = false
   return_grace = 0.0
   seated_wait = 0.0
   waiting_for_warmup = false
