@@ -65,5 +65,6 @@
   "soulPilot.doors_locked": "Двері заблоковані, ти не вийдеш!",
   "soulPilot.warmup_ready": "Прогрів завершено, машина готова",
   "soulPilot.warmup_timeout": "Прогрів за таймаутом, машина готова",
-  "soulPilot.warmup_outside": "Прогрів завершено, водій ззовні"
+  "soulPilot.warmup_outside": "Прогрів завершено, водій ззовні",
+  "soulPilot.autopilot_already_active": "Автопілот уже активний"
 }

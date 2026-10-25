@@ -277,7 +277,16 @@ end
 function M.aplAutopilot(mode)
   mode = tostring(mode or ""):lower()
   if mode == "toggle" then
-    mode = state == "on" and "off" or "on"
+    if state ~= "off" then
+      local message = "apl_autopilot: Autopilot is already active (" .. state .. ")"
+      print(message)
+      if logger then
+        logger.logLine("INFO", message)
+      end
+      hud("soulPilot.autopilot_already_active", 3)
+      return false
+    end
+    mode = "on"
   end
 
   if mode == "on" then
