@@ -59,7 +59,7 @@
     "torsionHydros": [
         ["id1:","id2:","id3:","id4:"],
         {"spring":10000, "damp":0, "deform":15000, "strength":20000},
-        ["he2r","he6r","he5r","he8r", {"factor":1.84,"inRate":5.5,"outRate":5.5,"inputSource":"soulPilotPopupFloat"}],
+        ["he2r","he6r","he5r","he8r", {"factor":1.84,"inRate":5.5,"outRate":5.5,"inputSource":"soulPilotPopupFloatR"}],
     ],
     "nodes": [
          ["id", "posX", "posY", "posZ"],
@@ -299,7 +299,7 @@
     "torsionHydros": [
         ["id1:","id2:","id3:","id4:"],
         {"spring":10000, "damp":0, "deform":15000, "strength":20000},
-        ["he2l","he6l","he5l","he8l", {"factor":-1.84,"inRate":5.5,"outRate":5.5,"inputSource":"soulPilotPopupFloat"}],
+        ["he2l","he6l","he5l","he8l", {"factor":-1.84,"inRate":5.5,"outRate":5.5,"inputSource":"soulPilotPopupFloatL"}],
     ],
     "nodes": [
          ["id", "posX", "posY", "posZ"],

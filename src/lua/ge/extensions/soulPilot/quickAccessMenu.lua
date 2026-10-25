@@ -7,10 +7,39 @@ local config_loader = require("extensions.soulPilot.modules.configLoader")
 
 local M = {}
 local registered = false
+local last_debug_mode = nil
+local debug_refresh_acc = 0
+
+local function readJsonDirect(path)
+  local file = io.open(path, "r")
+  if not file then
+    return nil
+  end
+  local content = file:read("*all")
+  file:close()
+  local ok, decoded = pcall(jsonDecode, content, path)
+  if not ok or type(decoded) ~= "table" then
+    return nil
+  end
+  return decoded
+end
 
 local function debugEnabled()
-  local ok, config = pcall(config_loader.loadMasterConfig)
-  return ok and config ~= nil and tonumber(config.debug_mode) == 1
+  -- Read the deployed/user master config explicitly. The config loader prefers
+  -- src/config during development, which can hide an in-game change made in
+  -- mods/unpacked/soulPilot/config/master.json.
+  local paths = {
+    config_loader.USER_CONFIG_DIR .. "master.json",
+    "mods/unpacked/soulPilot/config/master.json",
+    "mods/unpacked/soulPilot/src/config/master.json",
+  }
+  for _, path in ipairs(paths) do
+    local decoded = readJsonDirect(path)
+    if decoded and decoded.debug_mode ~= nil then
+      return tonumber(decoded.debug_mode) == 1
+    end
+  end
+  return false
 end
 
 function M.register()
@@ -122,12 +151,32 @@ end
 -- Принудительно пере-регистрируем (uniqueID заменяет старые записи).
 function M.onRegisterQuickAccessMenus()
   registered = false
+  last_debug_mode = debugEnabled()
   M.register()
 end
 
 -- Страховка: если хук уже прошёл до загрузки нашего расширения
 function M.onExtensionLoaded()
+  last_debug_mode = debugEnabled()
   M.register()
+end
+
+function M.onUpdate(dt)
+  if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then
+    return
+  end
+  debug_refresh_acc = debug_refresh_acc + dt
+  if debug_refresh_acc < 1.0 then
+    return
+  end
+  debug_refresh_acc = 0
+  local enabled = debugEnabled()
+  if last_debug_mode == nil or enabled ~= last_debug_mode then
+    last_debug_mode = enabled
+    if core_quickAccess and core_quickAccess.reload then
+      pcall(core_quickAccess.reload)
+    end
+  end
 end
 
 return M
