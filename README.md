@@ -101,6 +101,7 @@ The source layout is described in [docs/ai/ARCHITECTURE.md](docs/ai/ARCHITECTURE
 ## Documentation
 
 - [Documentation index](docs/readme.md)
+- [Development tools](tools/README.md)
 - [English FAQ](docs/en/FAQ.md)
 - [Russian FAQ](docs/ru/FAQ.md)
 - [AI architecture](docs/ai/ARCHITECTURE.md)
