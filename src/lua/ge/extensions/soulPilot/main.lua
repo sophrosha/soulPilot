@@ -313,6 +313,9 @@ function M.onVehicleReady(vehicle_id)
   setVehicleManaged(vehicle_id, managed)
   if managed then
     vehicle_bridge.setFallbackVehicle(vehicle_id)
+    if commands and commands.isAutopilotRequested and commands.setAutopilotRequested then
+      commands.setAutopilotRequested(commands.isAutopilotRequested())
+    end
     if idle_hold_active and not master.isOn() and commands then
       idle_hold_ids[#idle_hold_ids + 1] = vehicle_id
       if commands.setVehicleAiDisabled then

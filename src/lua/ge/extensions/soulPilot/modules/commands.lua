@@ -17,6 +17,7 @@ local ui = nil
 local wheel_requested = false
 local pedals_requested = false
 local warmup_requested = false
+local autopilot_requested = false
 local lock_enabled = false
 
 local LOCK_FILTER = "soulPilotLockedActions"
@@ -63,6 +64,30 @@ end
 
 function M.setWarmupRequested(value)
   warmup_requested = value == true
+end
+
+function M.isAutopilotRequested()
+  return autopilot_requested
+end
+
+function M.setAutopilotRequested(value)
+  autopilot_requested = value == true
+  if not bridge then
+    return autopilot_requested
+  end
+  local command = "soulPilotCustomLightsCmd.setAutopilotRequested("
+    .. tostring(autopilot_requested) .. ")"
+  local ids = M.getPlayerVehicleIds and M.getPlayerVehicleIds() or {}
+  local sent = false
+  for _, id in ipairs(ids) do
+    if bridge.sendToVehicleById and bridge.sendToVehicleById(id, command) then
+      sent = true
+    end
+  end
+  if not sent and bridge.sendToVehicle then
+    bridge.sendToVehicle(command)
+  end
+  return autopilot_requested
 end
 
 function M.setWheelRequested(value)

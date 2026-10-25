@@ -220,6 +220,9 @@ function M.aplAutopilot(mode)
 
     local config = config_loader.loadMasterConfig()
     autopilot_requested = true
+    if commands then
+      commands.setAutopilotRequested(true)
+    end
     driver_wait = 0
     last_warmup_state = "off"
     pending = true
@@ -233,6 +236,9 @@ function M.aplAutopilot(mode)
     if not bridge.sendToVehicle(command) then
       pending = false
       autopilot_requested = false
+      if commands then
+        commands.setAutopilotRequested(false)
+      end
       state = "off"
       print("apl_autopilot: WARN failed to start warmup")
       return false
@@ -251,6 +257,9 @@ function M.aplAutopilot(mode)
   if mode == "off" then
     local previous = state
     autopilot_requested = false
+    if commands then
+      commands.setAutopilotRequested(false)
+    end
     pending = false
     state = "off"
     driver_wait = 0
@@ -455,6 +464,9 @@ function M.reset()
   wait_time = 0
   poll_acc = 0
   autopilot_requested = false
+  if commands then
+    commands.setAutopilotRequested(false)
+  end
   driver_wait = 0
   last_warmup_state = "off"
   hold_acc = 0
