@@ -12,5 +12,8 @@
   "night_max_s": 300.0,
   "blink_min_s": 1.2,
   "blink_max_s": 1.2,
-  "debug_force_blink_delay_s": 0
+  "debug_force_blink_delay_s": 0,
+  "squint_min": 0.25,
+  "squint_max": 0.40,
+  "squint_duration_s": 6.0
 }
