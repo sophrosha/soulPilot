@@ -24,6 +24,7 @@
 | `aplPain(mode)` | Delegates to `pain.aplPain`. |
 | `aplDebug()` | Toggles logger/CSV/vehicle debug. |
 | `aplDebugSet(enabled)` | Sets debug state explicitly. |
+| `aplLock("on"|"off"|"status")` | Blocks/unblocks the walking-mode action used to leave the driver seat. |
 | `aplStatus()` | Prints a compact system status. |
 | `aplDiag()` | Delegates to diagnostics. |
 | `aplMapDiag()` | Delegates to graph/map diagnostics. |
@@ -37,7 +38,7 @@
 ```text
 apl_autopilot, apl_autopilotState, apl_wheel, apl_pedals,
 apl_warmup, apl_lights, apl_pet, apl_petActive, apl_popup,
-apl_pain, apl_debug, apl_debug_set, apl_status, apl_diag,
+apl_pain, apl_debug, apl_debug_set, apl_lock, apl_status, apl_diag,
 apl_mapDiag, apl_exportGraph, apl_mark
 ```
 

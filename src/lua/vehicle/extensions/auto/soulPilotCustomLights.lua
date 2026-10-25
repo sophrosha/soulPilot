@@ -1,19 +1,26 @@
 -- soulPilot custom cat-squint cover controller.
 -- The controller writes a normalized 0..1 value to the custom JBeam hydro input.
+--
+-- The game's popup covers still use lights_state for the normal blink cycle.
+-- This module mirrors lights_state into soulPilotPopupFloat and only overrides
+-- the covers while a cat-squint animation or an absent-driver hold is active.
 
 local M = {}
 
-local DEFAULT_MIN = 0.25
-local DEFAULT_MAX = 0.40
+local DEFAULT_MIN = 0.0
+local DEFAULT_MAX = 0.30
 local DEFAULT_DURATION = 6.0
 local MOVE_RATE = 1.5
 local IDLE_DELAY = 30.0
-local SEATED_GRACE = 7.0
 local STOP_SPEED_MPS = 0.20
+local FEATURE_WARN_DELAY = 1.5
+
+local DEFAULT_MODELS = { "bolide", "wigeon", "bx", "wendover", "barstow" }
 
 local squint_min = DEFAULT_MIN
 local squint_max = DEFAULT_MAX
 local squint_duration = DEFAULT_DURATION
+local popup_models = DEFAULT_MODELS
 
 local current = 0.0
 local target = 0.0
@@ -21,18 +28,15 @@ local initialized = false
 local squint_active = false
 local squint_elapsed = 0.0
 
+local managed = false
+local custom_available = nil
+local feature_warned = false
+local managed_time = 0.0
+
 local idle_timer = 0.0
-local seated_grace = 0.0
 local was_seated = false
 local absent_hold = false
-
-local function clampUnit(value)
-  value = tonumber(value)
-  if value == nil or value ~= value then
-    return 0.0
-  end
-  return math.max(0.0, math.min(1.0, value))
-end
+local return_grace = 0.0
 
 local function moveToward(value, wanted, max_step)
   if value < wanted then
@@ -42,6 +46,14 @@ local function moveToward(value, wanted, max_step)
     return math.max(value - max_step, wanted)
   end
   return value
+end
+
+local function lightsTarget()
+  local lights = 0
+  pcall(function()
+    lights = tonumber(electrics.values.lights_state) or 0
+  end)
+  return lights > 0 and 1.0 or 0.0
 end
 
 local function writeValue(value)
@@ -67,26 +79,48 @@ local function readConfigFile(path)
   return decoded
 end
 
+local function applySquintConfig(decoded)
+  if type(decoded.models) == "table" then
+    local models = {}
+    for _, value in ipairs(decoded.models) do
+      if type(value) == "string" and value ~= "" then
+        models[#models + 1] = value:lower()
+      end
+    end
+    if #models > 0 then
+      popup_models = models
+    end
+  end
+
+  local minimum = tonumber(decoded.squint_min)
+  local maximum = tonumber(decoded.squint_max)
+  local duration = tonumber(decoded.squint_duration_s)
+  if minimum ~= nil and maximum ~= nil and minimum >= 0 and maximum <= 1 and maximum >= minimum then
+    squint_min = minimum
+    squint_max = maximum
+  end
+  if duration ~= nil and duration > 0 then
+    squint_duration = duration
+  end
+end
+
 local function loadSquintConfig()
+  squint_min = DEFAULT_MIN
+  squint_max = DEFAULT_MAX
+  squint_duration = DEFAULT_DURATION
+  popup_models = DEFAULT_MODELS
+
+  -- Low priority first, user overrides last. Config keys are applied
+  -- individually so a user file that only changes one value still works.
   local paths = {
-    "settings/mod_settings/soulPilot/popup.json",
-    "mods/unpacked/soulPilot/config/popup.json",
     "mods/unpacked/soulPilot/src/config/popup.json",
+    "mods/unpacked/soulPilot/config/popup.json",
+    "settings/mod_settings/soulPilot/popup.json",
   }
   for _, path in ipairs(paths) do
     local decoded = readConfigFile(path)
     if decoded then
-      local minimum = tonumber(decoded.squint_min)
-      local maximum = tonumber(decoded.squint_max)
-      local duration = tonumber(decoded.squint_duration_s)
-      if minimum ~= nil and maximum ~= nil and minimum >= 0 and maximum <= 1 and maximum >= minimum then
-        squint_min = minimum
-        squint_max = maximum
-      end
-      if duration ~= nil and duration > 0 then
-        squint_duration = duration
-      end
-      return
+      applySquintConfig(decoded)
     end
   end
 end
@@ -125,21 +159,83 @@ local function speedMps()
   return math.max(0.0, speed)
 end
 
+local function customInputAvailable()
+  local available = false
+  pcall(function()
+    for _, hydro in pairs(hydros.hydros or {}) do
+      if hydro.inputSource == "soulPilotPopupFloat" then
+        available = true
+        return
+      end
+    end
+  end)
+  custom_available = available
+  return available
+end
+
+local function isPopupModel()
+  local model = ""
+  pcall(function()
+    model = tostring(obj:getJBeamFilename() or ""):lower()
+  end)
+  for _, allowed in ipairs(popup_models) do
+    if model == allowed then
+      return true
+    end
+  end
+  return false
+end
+
+local function warnMissingOverride()
+  if feature_warned or not managed then
+    return
+  end
+  feature_warned = true
+  local model = "?"
+  pcall(function()
+    model = tostring(obj:getJBeamFilename() or "?")
+  end)
+  if isPopupModel() then
+    print("WARN soulPilotCustomLights: soulPilotPopupFloat hydro input not found for "
+      .. model .. "; custom covers disabled, lights_state remains in control")
+  end
+end
+
+local function setParkingBrake(value)
+  local applied = false
+  pcall(function()
+    if controller and controller.mainController and controller.mainController.smartParkingBrake then
+      controller.mainController.smartParkingBrake(value)
+      applied = true
+    end
+  end)
+  if not applied then
+    pcall(function()
+      electrics.values.parkingbrake = value
+    end)
+  end
+end
+
+local function setAiMode(mode)
+  local applied = false
+  pcall(function()
+    if ai and ai.setMode then
+      ai.setMode(mode)
+      applied = true
+    end
+  end)
+  return applied
+end
+
 local function applyAbsentHold()
-  if absent_hold then
+  if absent_hold or not managed then
     return
   end
   absent_hold = true
-  pcall(function()
-    if ai and ai.setMode then
-      ai.setMode("stop")
-    end
-  end)
-  pcall(function()
-    if controller and controller.mainController and controller.mainController.smartParkingBrake then
-      controller.mainController.smartParkingBrake(1)
-    end
-  end)
+  if not setAiMode("stop") then
+    setAiMode("disabled")
+  end
+  setParkingBrake(1)
 end
 
 local function releaseAbsentHold()
@@ -147,18 +243,25 @@ local function releaseAbsentHold()
     return
   end
   absent_hold = false
-  pcall(function()
-    if controller and controller.mainController and controller.mainController.smartParkingBrake then
-      controller.mainController.smartParkingBrake(0)
-    end
-  end)
+  setParkingBrake(0)
+end
+
+local function restoreAi()
+  -- The player came back: undo the involuntary stop and hand control back
+  -- to traffic AI. The player can still override it with their own input.
+  releaseAbsentHold()
+  setAiMode("traffic")
 end
 
 local function startSquint()
+  if not customInputAvailable() then
+    return false
+  end
   loadSquintConfig()
   squint_active = true
   squint_elapsed = 0.0
   target = squint_min
+  return true
 end
 
 function M.configure(minimum, maximum, duration)
@@ -175,14 +278,33 @@ function M.configure(minimum, maximum, duration)
   return true
 end
 
+function M.setManaged(value)
+  managed = value == true or value == 1
+  managed_time = 0.0
+  if not managed then
+    squint_active = false
+    squint_elapsed = 0.0
+    idle_timer = 0.0
+    was_seated = false
+    return_grace = 0.0
+  end
+  return managed
+end
+
 function M.playCatSquint()
-  startSquint()
-  return true
+  if not managed and isSeated() then
+    managed = true
+  end
+  if not managed then
+    return false
+  end
+  return startSquint()
 end
 
 function M.release()
   squint_active = false
-  target = 1.0
+  squint_elapsed = 0.0
+  target = lightsTarget()
   return true
 end
 
@@ -197,6 +319,8 @@ function M.getState()
     idle_timer = idle_timer,
     seated = isSeated(),
     warm = isWarm(),
+    managed = managed,
+    custom_input = custom_available,
   }
 end
 
@@ -205,50 +329,75 @@ function M.updateGFX(dt)
     return
   end
 
-  if not initialized then
-    local lights = tonumber(electrics.values.lights_state) or 0
-    current = lights > 0 and 1.0 or 0.0
-    target = current
-    initialized = true
-    writeValue(current)
+  if not managed and isSeated() then
+    managed = true
+  end
+  if managed then
+    managed_time = managed_time + dt
   end
 
-  if squint_active then
-    local phase = math.max(0.0, math.sin(2.0 * math.pi * squint_elapsed / squint_duration))
-    target = squint_min + (phase * phase * phase) * (squint_max - squint_min)
-    squint_elapsed = squint_elapsed + dt
-    if squint_elapsed >= squint_duration then
-      squint_active = false
-      target = 1.0
+  local custom = customInputAvailable()
+  if custom then
+    if not initialized then
+      current = lightsTarget()
+      target = current
+      initialized = true
     end
+
+    if squint_active then
+      local phase = math.max(0.0, math.sin(2.0 * math.pi * squint_elapsed / squint_duration))
+      target = squint_min + (phase * phase * phase) * (squint_max - squint_min)
+      squint_elapsed = squint_elapsed + dt
+      if squint_elapsed >= squint_duration then
+        squint_active = false
+        target = lightsTarget()
+      end
+    else
+      target = lightsTarget()
+    end
+
+    current = moveToward(current, target, MOVE_RATE * dt)
+    writeValue(current)
+  elseif managed and managed_time >= FEATURE_WARN_DELAY then
+    warnMissingOverride()
   end
 
-  current = moveToward(current, target, MOVE_RATE * dt)
-  writeValue(current)
+  if not managed then
+    return
+  end
 
   local seated = isSeated()
   if seated then
     if not was_seated then
-      seated_grace = SEATED_GRACE
-      releaseAbsentHold()
+      if absent_hold then
+        restoreAi()
+        return_grace = 1.0
+      end
+      idle_timer = 0.0
     end
     was_seated = true
-    idle_timer = 0.0
     return
   end
 
   was_seated = false
-  if seated_grace > 0 then
-    seated_grace = math.max(0.0, seated_grace - dt)
+
+  -- Avoid immediately re-stopping the car if seating state arrives one frame
+  -- later than the AI/parking-brake release after the player gets back in.
+  if return_grace > 0 then
+    return_grace = math.max(0.0, return_grace - dt)
+    idle_timer = 0.0
+    return
   end
 
-  if not squint_active and isWarm() and isEngineRunning() then
+  if not squint_active and isEngineRunning() then
     applyAbsentHold()
-    if speedMps() <= STOP_SPEED_MPS and seated_grace <= 0 then
+    if speedMps() <= STOP_SPEED_MPS then
       idle_timer = idle_timer + dt
       if idle_timer >= IDLE_DELAY then
         idle_timer = 0.0
-        startSquint()
+        if custom then
+          startSquint()
+        end
       end
     else
       idle_timer = 0.0
@@ -266,10 +415,12 @@ function M.onReset()
   squint_active = false
   squint_elapsed = 0.0
   idle_timer = 0.0
-  seated_grace = 0.0
   was_seated = false
   absent_hold = false
-  writeValue(current)
+  return_grace = 0.0
+  custom_available = nil
+  managed_time = 0.0
+  -- Keep managed: a respawn of the player's vehicle must keep the feature on.
 end
 
 function M.onVehicleDestroyed()
@@ -277,6 +428,10 @@ function M.onVehicleDestroyed()
 end
 
 soulPilotCustomLightsCmd = {}
+
+function soulPilotCustomLightsCmd.setManaged(value)
+  return M.setManaged(value)
+end
 
 function soulPilotCustomLightsCmd.playCatSquint()
   return M.playCatSquint()
@@ -293,7 +448,7 @@ end
 function soulPilotCustomLightsCmd.status()
   local state = M.getState()
   print(string.format(
-    "soulPilotCustomLights: current=%.2f target=%.2f squint=%s range=%.2f..%.2f duration=%.1f idle=%.1f seated=%s",
+    "soulPilotCustomLights: current=%.2f target=%.2f squint=%s range=%.2f..%.2f duration=%.1f idle=%.1f seated=%s managed=%s custom=%s",
     state.current,
     state.target,
     tostring(state.squint_active),
@@ -301,8 +456,12 @@ function soulPilotCustomLightsCmd.status()
     state.squint_max,
     state.duration,
     state.idle_timer,
-    tostring(state.seated)))
+    tostring(state.seated),
+    tostring(state.managed),
+    tostring(state.custom_input)))
   return true
 end
+
+loadSquintConfig()
 
 return M

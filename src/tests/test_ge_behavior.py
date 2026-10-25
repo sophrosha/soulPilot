@@ -139,6 +139,7 @@ class GeCommandGoldenTests(unittest.TestCase):
             "apl_warmup",
             "apl_status",
             "apl_debug",
+            "apl_lock",
         ):
             self.assertEqual(
                 self.lua.globals()[name] is not None,

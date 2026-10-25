@@ -56,8 +56,8 @@ M.POPUP_DEFAULTS = {
   blink_min_s = 1.5,
   blink_max_s = 2.0,
   debug_force_blink_delay_s = 0,
-  squint_min = 0.25,
-  squint_max = 0.40,
+  squint_min = 0.0,
+  squint_max = 0.30,
   squint_duration_s = 6.0,
 }
 

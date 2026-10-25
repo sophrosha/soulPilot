@@ -16,6 +16,38 @@ local master = require("extensions.soulPilot.modules.master")
 local commands = require("extensions.soulPilot.modules.commands")
 local diagnostics = require("extensions.soulPilot.modules.diagnostics")
 
+local function getVehicleById(vehicle_id)
+  if not getObjectByID then
+    return nil
+  end
+  local ok, vehicle = pcall(getObjectByID, vehicle_id)
+  return ok and vehicle or nil
+end
+
+local function isUnicycle(vehicle)
+  local ok, name = pcall(function()
+    return vehicle and vehicle:getJBeamFilename() or ""
+  end)
+  return (ok and tostring(name):lower() == "unicycle") or false
+end
+
+local function setVehicleManaged(vehicle_id, enabled)
+  if not vehicle_id then
+    return
+  end
+  vehicle_bridge.sendToVehicleById(
+    vehicle_id,
+    "soulPilotCustomLightsCmd.setManaged(" .. tostring(enabled == true) .. ")")
+end
+
+local function markCurrentPlayerVehicle()
+  local vehicle = vehicle_bridge.getVehicle()
+  if vehicle and not isUnicycle(vehicle) then
+    setVehicleManaged(vehicle:getID(), true)
+    vehicle_bridge.setFallbackVehicle(vehicle:getID())
+  end
+end
+
 logger.init()
 vehicle_bridge.init(logger)
 csv.init(vehicle_bridge, logger)
@@ -74,14 +106,21 @@ function M.onExtensionLoaded()
   end)
   _G.soulPilot_main = M
   extensions.soulPilot_main = M
+  markCurrentPlayerVehicle()
 end
 
 function M.onExtensionUnloaded()
+  if commands then
+    commands.resetLock()
+  end
   csv.stop()
   logger.closeLogFile()
 end
 
 function M.onShutdown()
+  if commands then
+    commands.resetLock()
+  end
   csv.stop()
   logger.closeLogFile()
 end
@@ -105,6 +144,8 @@ function M.onClientPostStartMission()
   popup.reset()
   pain.reset()
   master.reset()
+  commands.resetLock()
+  markCurrentPlayerVehicle()
   csv.stop()
 end
 
@@ -156,8 +197,40 @@ function M.onVehicleLightsAutoOff()
 end
 
 function M.onVehicleReady(vehicle_id)
+  local vehicle = getVehicleById(vehicle_id)
+  local player_vehicle = vehicle_bridge.getVehicle()
+  local managed = vehicle ~= nil
+    and player_vehicle
+    and not isUnicycle(vehicle)
+    and vehicle:getID() == player_vehicle:getID()
+
+  setVehicleManaged(vehicle_id, managed)
+  if managed then
+    vehicle_bridge.setFallbackVehicle(vehicle_id)
+  end
   vehicle_bridge.sendToVehicle("soulPilotCmd.setDebug(" .. tostring(logger.isDebug()) .. ")")
   logger.logLine("INFO", "vehicle layer ready (vehId=" .. tostring(vehicle_id) .. ")", "vehicle")
+end
+
+function M.onVehicleSwitched(old_id, new_id, player)
+  if player ~= nil and tonumber(player) ~= 0 then
+    return
+  end
+
+  local new_vehicle = getVehicleById(new_id)
+  if new_vehicle and not isUnicycle(new_vehicle) then
+    -- Switching between cars: only the car the player is in may run the
+    -- absent-driver / cat-squint logic.
+    local old_vehicle = getVehicleById(old_id)
+    if old_id and old_id ~= new_id and old_vehicle and not isUnicycle(old_vehicle) then
+      setVehicleManaged(old_id, false)
+    end
+    setVehicleManaged(new_id, true)
+    vehicle_bridge.setFallbackVehicle(new_id)
+  elseif new_id == nil or tonumber(new_id) == -1 then
+    -- The player left the car into walking/observer mode. Keep the old car
+    -- managed so it can stop, apply the handbrake and trigger the squint.
+  end
 end
 
 function M.onSerialize()
