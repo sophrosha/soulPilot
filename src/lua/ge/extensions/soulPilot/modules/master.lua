@@ -11,6 +11,11 @@ local state = "off"
 local pending = false
 local wait_time = 0
 local poll_acc = 0
+local autopilot_requested = false
+local driver_wait = 0
+local last_warmup_state = "off"
+
+local DRIVER_WAIT_S = 10.0
 
 function M.init(config_module, vehicle_bridge, logger_module)
   config_loader = config_module
@@ -20,6 +25,12 @@ end
 
 function M.setCommands(command_module)
   commands = command_module
+end
+
+local function hud(key, ttl)
+  pcall(function()
+    guihooks.message({ txt = key, context = {} }, ttl or 4, key)
+  end)
 end
 
 local function playerInCar()
@@ -77,11 +88,11 @@ local function disableDriverlessVehicle()
     .. 'controller.mainController.smartParkingBrake(1) end end)')
 end
 
-local function cancelWarmupOutside()
+local function enterWaitingDriver()
   pending = false
-  state = "off"
   wait_time = 0
-  poll_acc = 0
+  driver_wait = 0
+  state = autopilot_requested and "waiting_driver" or "off"
   if commands and commands.setWarmupRequested then
     commands.setWarmupRequested(false)
   end
@@ -104,11 +115,12 @@ local function finish()
     return
   end
   if not playerInCar() then
-    cancelWarmupOutside()
+    enterWaitingDriver()
     return
   end
   pending = false
   state = "on"
+  driver_wait = 0
   local config = config_loader.loadMasterConfig()
 
   if config.enable_wheel == 1 and not commands.isWheelRequested() then
@@ -133,6 +145,8 @@ local function finish()
   local mode = config.ai_mode ~= "" and config.ai_mode or "traffic"
   sendToDriversVehicle(string.format(
     'if playerInfo and playerInfo.anyPlayerSeated == true then '
+    .. 'pcall(function() if controller and controller.mainController then '
+    .. 'controller.mainController.smartParkingBrake(0) end end); '
     .. 'if ai and ai.setMode then ai.setMode("%s") end '
     .. 'else '
     .. 'if ai and ai.setMode then ai.setMode("disabled") end; '
@@ -143,6 +157,16 @@ local function finish()
   if logger then
     logger.logLine("INFO", "master ON: modules enabled, ai=" .. mode)
   end
+end
+
+local function releaseAndTraffic()
+  if not playerInCar() then
+    enterWaitingDriver()
+    return
+  end
+  pending = true
+  finish()
+  driver_wait = 0
 end
 
 function M.aplAutopilot(mode)
@@ -158,24 +182,36 @@ function M.aplAutopilot(mode)
     end
     if state == "waiting_warmup" then
       if not playerInCar() then
-        cancelWarmupOutside()
-        print("soulPilot: Get in the vehicle to start")
+        hud("soulPilot.get_in_vehicle")
         return false
       end
       logger.debugPrint("apl_autopilot: already waiting for warmup")
       return false
     end
+    if state == "waiting_driver" then
+      if not playerInCar() then
+        hud("soulPilot.get_in_vehicle")
+        return false
+      end
+      if driver_wait <= 0 then
+        driver_wait = DRIVER_WAIT_S
+      end
+      return true
+    end
     local vehicle = bridge.getVehicle()
     if not vehicle then
-      print("soulPilot: Get in the vehicle to start")
+      hud("soulPilot.get_in_vehicle")
       return false
     end
     if not playerInCar() then
-      print("soulPilot: Get in the vehicle to start")
+      hud("soulPilot.get_in_vehicle")
       return false
     end
 
     local config = config_loader.loadMasterConfig()
+    autopilot_requested = true
+    driver_wait = 0
+    last_warmup_state = "off"
     pending = true
     state = "waiting_warmup"
     wait_time = 0
@@ -186,6 +222,7 @@ function M.aplAutopilot(mode)
       tostring(config.skip_warmup_if_warm == 1))
     if not bridge.sendToVehicle(command) then
       pending = false
+      autopilot_requested = false
       state = "off"
       print("apl_autopilot: WARN failed to start warmup")
       return false
@@ -203,8 +240,10 @@ function M.aplAutopilot(mode)
 
   if mode == "off" then
     local previous = state
+    autopilot_requested = false
     pending = false
     state = "off"
+    driver_wait = 0
     wait_time = 0
     if commands then
       if commands.isWheelRequested() then
@@ -258,6 +297,7 @@ function M.onWheelOn()
 end
 
 function M.onWarmupDone(vehicle_id, elapsed, temperature, auto_engage, timed_out, driver_seated)
+  last_warmup_state = "done"
   local message = string.format(
     "MASTER: warmup done (pending=%s, state=%s, veh=%s, elapsed=%s, temp=%s, seated=%s)",
     tostring(pending), tostring(state), tostring(vehicle_id), tostring(elapsed), tostring(temperature),
@@ -270,7 +310,7 @@ function M.onWarmupDone(vehicle_id, elapsed, temperature, auto_engage, timed_out
   local seated_flag = not (driver_seated == false or tostring(driver_seated):lower() == "false")
   local seated = seated_flag and playerInCar()
   if not seated then
-    cancelWarmupOutside()
+    enterWaitingDriver()
     return
   end
 
@@ -298,14 +338,15 @@ end
 
 function M.onWarmupState(warmup_state)
   warmup_state = tostring(warmup_state or "")
+  last_warmup_state = warmup_state
   if pending and warmup_state == "done_outside" then
-    logger.debugPrint("MASTER: warmup state done_outside -> cancel")
-    cancelWarmupOutside()
+    logger.debugPrint("MASTER: warmup state done_outside -> waiting for driver")
+    enterWaitingDriver()
     return
   end
   if pending and warmup_state == "done" then
     if not playerInCar() then
-      cancelWarmupOutside()
+      enterWaitingDriver()
       return
     end
     logger.debugPrint("MASTER: warmup state done -> finish")
@@ -314,33 +355,72 @@ function M.onWarmupState(warmup_state)
 end
 
 function M.update(dt)
-  if not pending then
-    return
-  end
-  if not playerInCar() then
-    cancelWarmupOutside()
+  if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then
     return
   end
 
-  wait_time = wait_time + dt
-  poll_acc = poll_acc + dt
-  if poll_acc >= 2 then
-    poll_acc = 0
-    local vehicle = bridge.getVehicle()
-    if vehicle and vehicle.queueLuaCommand then
-      pcall(function()
-        vehicle:queueLuaCommand(
-          "if soulPilotWarmupCmd and soulPilotWarmupCmd.pushState then soulPilotWarmupCmd.pushState() end")
-      end)
+  if state == "waiting_warmup" then
+    if last_warmup_state == "done" or last_warmup_state == "done_outside" then
+      if last_warmup_state == "done" and playerInCar() then
+        finish()
+      else
+        enterWaitingDriver()
+      end
+      return
     end
+
+    if not playerInCar() then
+      disableDriverlessVehicle()
+    end
+
+    wait_time = wait_time + dt
+    poll_acc = poll_acc + dt
+    if poll_acc >= 2 then
+      poll_acc = 0
+      local vehicle = bridge.getVehicle()
+      if vehicle and vehicle.queueLuaCommand then
+        pcall(function()
+          vehicle:queueLuaCommand(
+            "if soulPilotWarmupCmd and soulPilotWarmupCmd.pushState then soulPilotWarmupCmd.pushState() end")
+        end)
+      end
+    end
+
+    if wait_time > 60 then
+      if logger then
+        logger.logLine("WARN", "master timeout waiting warmup")
+      end
+      enterWaitingDriver()
+    end
+    return
   end
 
-  if wait_time > 60 then
-    pending = false
-    state = "off"
-    print("apl_autopilot: WARN warmup timeout 60 s, master cancelled")
+  if state == "waiting_driver" then
+    if playerInCar() then
+      if driver_wait <= 0 then
+        driver_wait = DRIVER_WAIT_S
+        if logger then
+          logger.logLine("INFO", "driver is back, waiting before AI enable")
+        end
+      end
+      driver_wait = math.max(0, driver_wait - dt)
+      disableDriverlessVehicle()
+      if driver_wait <= 0 then
+        releaseAndTraffic()
+      end
+    else
+      driver_wait = 0
+      disableDriverlessVehicle()
+    end
+    return
+  end
+
+  if state == "on" and not playerInCar() then
+    state = "waiting_driver"
+    driver_wait = 0
+    disableDriverlessVehicle()
     if logger then
-      logger.logLine("WARN", "master timeout waiting warmup")
+      logger.logLine("WARN", "driver is outside, AI disabled; waiting for driver")
     end
   end
 end
@@ -350,6 +430,9 @@ function M.reset()
   pending = false
   wait_time = 0
   poll_acc = 0
+  autopilot_requested = false
+  driver_wait = 0
+  last_warmup_state = "off"
 end
 
 return M

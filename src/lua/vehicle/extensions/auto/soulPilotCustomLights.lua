@@ -7,11 +7,12 @@
 
 local M = {}
 
-local DEFAULT_MIN = 0.0
-local DEFAULT_MAX = 0.30
+local DEFAULT_MIN = 0.27
+local DEFAULT_MAX = 0.50
 local DEFAULT_DURATION = 6.0
 local MOVE_RATE = 1.5
-local IDLE_DELAY = 30.0
+local IDLE_DELAY = 6.0
+local DRIVER_RETURN_WAIT = 10.0
 local STOP_SPEED_MPS = 0.20
 local FEATURE_WARN_DELAY = 1.5
 
@@ -37,6 +38,8 @@ local idle_timer = 0.0
 local was_seated = false
 local absent_hold = false
 local return_grace = 0.0
+local seated_wait = 0.0
+local waiting_for_warmup = false
 local door_lock_requested = false
 local door_locked = false
 local door_close_acc = 0.0
@@ -145,14 +148,34 @@ local function isEngineRunning()
   return running
 end
 
-local function isWarm()
-  local warm = false
+local function warmupActive()
+  local active = false
   pcall(function()
-    warm = soulPilotWarmupCmd
-      and soulPilotWarmupCmd.getState
-      and soulPilotWarmupCmd.getState() == "done"
+    if soulPilotWarmupCmd and soulPilotWarmupCmd.isActive then
+      active = soulPilotWarmupCmd.isActive() == true
+    elseif soulPilotWarmupCmd and soulPilotWarmupCmd.getState then
+      local state = soulPilotWarmupCmd.getState()
+      active = state == "starting_engine" or state == "warming_up"
+    end
   end)
-  return warm
+  return active
+end
+
+local function warmupFinished()
+  local finished = false
+  pcall(function()
+    if soulPilotWarmupCmd and soulPilotWarmupCmd.isDone then
+      finished = soulPilotWarmupCmd.isDone() == true
+    elseif soulPilotWarmupCmd and soulPilotWarmupCmd.getState then
+      local state = soulPilotWarmupCmd.getState()
+      finished = state == "done" or state == "done_outside"
+    end
+  end)
+  return finished
+end
+
+local function isWarm()
+  return warmupFinished()
 end
 
 local function speedMps()
@@ -222,7 +245,7 @@ local function updateDoorLock(dt)
     if door_message_cooldown <= 0.0 and doorsDetached() then
       door_message_cooldown = 1.0
       pcall(function()
-        guihooks.message("Doors are locked, you can't get out!", 3, "soulPilot.doorLock")
+        guihooks.message({ txt = "soulPilot.doors_locked", context = {} }, 3, "soulPilot.doorLock")
       end)
     end
 
@@ -313,6 +336,16 @@ local function setAiMode(mode)
   return applied
 end
 
+local function forceHeadlights()
+  pcall(function()
+    if electrics.setLightsState then
+      electrics.setLightsState(1)
+    else
+      electrics.values.lights_state = 1
+    end
+  end)
+end
+
 local function applyAbsentHold()
   if not managed then
     return
@@ -373,6 +406,8 @@ function M.setManaged(value)
     idle_timer = 0.0
     was_seated = false
     return_grace = 0.0
+    seated_wait = 0.0
+    waiting_for_warmup = false
   end
   return managed
 end
@@ -442,6 +477,11 @@ function M.updateGFX(dt)
     managed_time = managed_time + dt
   end
 
+  local seated_now = isSeated()
+  if managed and not seated_now and isEngineRunning() and warmupFinished() then
+    forceHeadlights()
+  end
+
   local custom = customInputAvailable()
   if custom then
     if not initialized then
@@ -474,20 +514,54 @@ function M.updateGFX(dt)
     return
   end
 
-  local seated = isSeated()
+  local seated = seated_now
   if seated then
     if not was_seated then
       if absent_hold then
-        restoreAi()
-        return_grace = 1.0
+        if warmupActive() then
+          -- The warmup is still running: hold the car but do not start the
+          -- driver-return timer yet.
+          waiting_for_warmup = true
+        else
+          waiting_for_warmup = false
+          seated_wait = DRIVER_RETURN_WAIT
+          startSquint()
+        end
+      else
+        waiting_for_warmup = false
       end
       idle_timer = 0.0
     end
     was_seated = true
+
+    if waiting_for_warmup then
+      if warmupFinished() then
+        waiting_for_warmup = false
+        seated_wait = DRIVER_RETURN_WAIT
+        startSquint()
+      else
+        applyAbsentHold()
+        return
+      end
+    end
+
+    if seated_wait > 0 then
+      applyAbsentHold()
+      seated_wait = math.max(0.0, seated_wait - dt)
+      if seated_wait <= 0 then
+        restoreAi()
+        return_grace = 1.0
+      end
+    elseif absent_hold then
+      restoreAi()
+      return_grace = 1.0
+    end
     return
   end
 
   was_seated = false
+  seated_wait = 0.0
+  waiting_for_warmup = false
 
   -- Avoid immediately re-stopping the car if seating state arrives one frame
   -- later than the AI/parking-brake release after the player gets back in.
@@ -499,7 +573,11 @@ function M.updateGFX(dt)
 
   applyAbsentHold()
 
-  if not squint_active and isEngineRunning() then
+  if isEngineRunning() and warmupFinished() then
+    forceHeadlights()
+  end
+
+  if not squint_active and isEngineRunning() and warmupFinished() then
     if speedMps() <= STOP_SPEED_MPS then
       idle_timer = idle_timer + dt
       if idle_timer >= IDLE_DELAY then
@@ -527,6 +605,8 @@ function M.onReset()
   was_seated = false
   absent_hold = false
   return_grace = 0.0
+  seated_wait = 0.0
+  waiting_for_warmup = false
   door_locked = false
   door_close_acc = 0.0
   door_message_cooldown = 0.0
