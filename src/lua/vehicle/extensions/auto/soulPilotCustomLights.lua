@@ -13,8 +13,10 @@ local DEFAULT_MIN = 0.27
 local DEFAULT_MAX = 0.50
 local DEFAULT_DURATION = 6.0
 local MOVE_RATE = 1.5
-local WINK_RATE = 6.0
-local WINK_PHASE_S = 0.22
+local WINK_CLOSE_S = 1.5
+local WINK_HOLD_S = 0.5
+local WINK_OPEN_S = 1.5
+local WINK_RATE = 1.0 / WINK_CLOSE_S
 local IDLE_DELAY = 6.0
 local DRIVER_RETURN_WAIT = 10.0
 local STOP_SPEED_MPS = 0.20
@@ -39,6 +41,8 @@ local wink_split = false
 local wink_left = 1.0
 local wink_right = 1.0
 local wink_capability_checked = false
+local movement_override = false
+local pet_squint_priority = false
 
 local managed = false
 local custom_available = nil
@@ -416,6 +420,16 @@ local function forceHeadlights()
   end)
 end
 
+local function forceHeadlightsOff()
+  pcall(function()
+    if electrics.setLightsState then
+      electrics.setLightsState(0)
+    else
+      electrics.values.lights_state = 0
+    end
+  end)
+end
+
 local function applyAbsentHold()
   if not managed then
     return
@@ -442,11 +456,15 @@ local function restoreAi()
   setAiMode("traffic")
 end
 
-local function startSquint()
+local function startSquint(priority)
   if not customInputAvailable() then
     return false
   end
   loadSquintConfig()
+  pet_squint_priority = priority == true
+  if pet_squint_priority then
+    movement_override = false
+  end
   squint_active = true
   squint_elapsed = 0.0
   wink_active = false
@@ -461,6 +479,8 @@ function M.wink()
   end
   squint_active = false
   squint_elapsed = 0.0
+  pet_squint_priority = false
+  movement_override = false
   wink_active = true
   wink_elapsed = 0.0
   wink_phase = 0
@@ -492,6 +512,8 @@ function M.setManaged(value)
   if not managed then
     squint_active = false
     squint_elapsed = 0.0
+    pet_squint_priority = false
+    movement_override = false
     wink_active = false
     wink_elapsed = 0.0
     idle_timer = 0.0
@@ -511,7 +533,7 @@ function M.playCatSquint()
   if not managed and isSeated() then
     managed = true
   end
-  return startSquint()
+  return startSquint(true)
 end
 
 function M.release()
@@ -519,7 +541,12 @@ function M.release()
   squint_elapsed = 0.0
   wink_active = false
   wink_elapsed = 0.0
-  target = lightsTarget()
+  pet_squint_priority = false
+  movement_override = false
+  target = 1.0
+  if speedMps() * 3.6 > 5.0 then
+    forceHeadlights()
+  end
   return true
 end
 
@@ -582,18 +609,29 @@ function M.updateGFX(dt)
   end
 
   local seated_now = isSeated()
+  local absent_visible = managed and not seated_now
   local moving_now = speedMps() * 3.6 > 5.0 or aiDriving()
-  if moving_now then
-    -- Movement always clears a squint/wink and forces the covers open with
-    -- the headlights on. This also recovers after a wink while re-entering.
+  if moving_now and not pet_squint_priority then
+    -- Normal movement clears a squint/wink and forces covers open + lights on.
+    movement_override = true
     squint_active = false
     squint_elapsed = 0.0
     wink_active = false
     wink_elapsed = 0.0
     target = 1.0
     forceHeadlights()
-  elseif managed and not seated_now and isEngineRunning() and warmupFinished() then
-    forceHeadlights()
+  elseif moving_now and pet_squint_priority then
+    -- Pet squint has priority even if the car was just moving.
+    movement_override = false
+    if speedMps() * 3.6 > 5.0 then
+      forceHeadlights()
+    end
+  else
+    movement_override = false
+    if absent_visible then
+      -- Driverless waiting: open the covers without lighting the lamps.
+      forceHeadlightsOff()
+    end
   end
 
   local custom = customInputAvailable()
@@ -607,28 +645,37 @@ function M.updateGFX(dt)
     if wink_active then
       wink_elapsed = wink_elapsed + dt
       if wink_split then
-        local phase = math.floor(wink_elapsed / WINK_PHASE_S)
+        local close_end = WINK_CLOSE_S
+        local hold_end = close_end + WINK_HOLD_S
+        local open_end = hold_end + WINK_OPEN_S
         local wanted_left = 1.0
-        local wanted_right = 1.0
-        if phase == 0 then
+        if wink_elapsed < hold_end then
           wanted_left = 0.0
-        elseif phase >= 2 then
+        elseif wink_elapsed >= open_end then
           wink_active = false
         end
         wink_left = moveToward(wink_left, wanted_left, WINK_RATE * dt)
-        wink_right = moveToward(wink_right, wanted_right, WINK_RATE * dt)
+        wink_right = 1.0
         writeSplit(wink_left, wink_right)
       elseif wink_phase == 0 then
         target = 0.0
-        if wink_elapsed >= WINK_PHASE_S then
+        if wink_elapsed >= WINK_CLOSE_S then
           wink_phase = 1
+          wink_elapsed = 0.0
+        end
+        current = moveToward(current, target, WINK_RATE * dt)
+        writeValue(current)
+      elseif wink_phase == 1 then
+        target = 0.0
+        if wink_elapsed >= WINK_HOLD_S then
+          wink_phase = 2
           wink_elapsed = 0.0
         end
         current = moveToward(current, target, WINK_RATE * dt)
         writeValue(current)
       else
         target = 1.0
-        if wink_elapsed >= WINK_PHASE_S then
+        if wink_elapsed >= WINK_OPEN_S then
           wink_active = false
           target = lightsTarget()
         end
@@ -641,12 +688,17 @@ function M.updateGFX(dt)
       squint_elapsed = squint_elapsed + dt
       if squint_elapsed >= squint_duration then
         squint_active = false
-        target = lightsTarget()
+        local was_pet = pet_squint_priority
+        pet_squint_priority = false
+        target = 1.0
+        if was_pet and speedMps() * 3.6 > 5.0 then
+          forceHeadlights()
+        end
       end
       current = moveToward(current, target, MOVE_RATE * dt)
       writeValue(current)
     else
-      target = moving_now and 1.0 or lightsTarget()
+      target = (moving_now or absent_visible) and 1.0 or lightsTarget()
       current = moveToward(current, target, MOVE_RATE * dt)
       writeValue(current)
     end
@@ -719,10 +771,8 @@ function M.updateGFX(dt)
 
   applyAbsentHold()
 
-  if isEngineRunning() and warmupFinished() then
-    forceHeadlights()
-  end
-
+  -- The covers are driven directly by soulPilotPopupFloatL/R now. Keep the
+  -- lamps off while waiting outside; do not call setLightsState(1).
   if not squint_active and not wink_active and isEngineRunning() and warmupFinished() then
     if speedMps() <= STOP_SPEED_MPS then
       idle_timer = idle_timer + dt
@@ -747,6 +797,8 @@ function M.onReset()
   initialized = false
   squint_active = false
   squint_elapsed = 0.0
+  pet_squint_priority = false
+  movement_override = false
   wink_active = false
   wink_elapsed = 0.0
   wink_phase = 0
