@@ -22,8 +22,6 @@ local lock_reset_release_ids = nil
 local idle_hold_active = false
 local idle_hold_acc = 0
 local idle_hold_ids = {}
-local spectapilot_detected = false
-local specta_check_acc = 0
 
 local function getVehicleById(vehicle_id)
   if not getObjectByID then
@@ -141,41 +139,6 @@ local function updateMissionGuard(dt)
   end
 end
 
-local function detectSpectaPilot()
-  if spectapilot_detected then
-    return true
-  end
-  local candidate = extensions and extensions.spectapilot_spectapilot or nil
-  if (type(candidate) ~= "table" or type(candidate.toggleAP) ~= "function")
-    and type(_G.spectapilot_spectapilot) == "table"
-    and type(_G.spectapilot_spectapilot.toggleAP) == "function" then
-    candidate = _G.spectapilot_spectapilot
-  end
-  if type(candidate) ~= "table" or type(candidate.toggleAP) ~= "function" then
-    return false
-  end
-
-  spectapilot_detected = true
-  local config = config_loader.loadMasterConfig()
-  local smoothing = config ~= nil and tonumber(config.smooth_spectapilot) == 1
-  _G.soulPilotSpectaPilotDetected = true
-  _G.soulPilotSpectaPilotSmoothing = smoothing
-  pcall(function()
-    if type(candidate.cfg) == "table" then
-      candidate.cfg.soulPilot_smoothing = smoothing
-    end
-  end)
-  if commands and commands.setSpectaPilotDetected then
-    commands.setSpectaPilotDetected(true)
-  end
-  print("SpectaPilot detected")
-  logger.debugPrint("SpectaPilot detected")
-  logger.logLine("INFO", "SpectaPilot detected")
-  logger.logLine("INFO", "SpectaPilot smoothing option = "
-    .. (smoothing and "enabled" or "disabled"))
-  return true
-end
-
 logger.init()
 vehicle_bridge.init(logger)
 csv.init(vehicle_bridge, logger)
@@ -232,7 +195,9 @@ function M.onExtensionLoaded()
   _G.soulPilot_main = M
   extensions.soulPilot_main = M
   markCurrentPlayerVehicle()
-  detectSpectaPilot()
+  if extensions and extensions.spectapilot_spectapilot then
+    logger.debugPrint("SpectaPilot detected")
+  end
 end
 
 function M.onExtensionUnloaded()
@@ -252,13 +217,6 @@ end
 function M.onUpdate(dt)
   if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then
     return
-  end
-  if not spectapilot_detected then
-    specta_check_acc = specta_check_acc + dt
-    if specta_check_acc >= 2.0 then
-      specta_check_acc = 0
-      detectSpectaPilot()
-    end
   end
   updateMissionGuard(dt)
   pain.update(dt)

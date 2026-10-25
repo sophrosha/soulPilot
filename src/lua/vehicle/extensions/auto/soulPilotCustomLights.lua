@@ -7,6 +7,8 @@
 
 local M = {}
 
+local vehicle_bridge = require("extensions.soulPilot.utils.vehicleBridge")
+
 local DEFAULT_MIN = 0.27
 local DEFAULT_MAX = 0.50
 local DEFAULT_DURATION = 6.0
@@ -323,7 +325,7 @@ local function detectWinkCapability()
   end
   if managed or isSeated() then
     aplPrint(message)
-    toGE("INFO", message)
+    vehicle_bridge.sendToGameEngine("INFO", message)
   end
   return wink_split
 end
@@ -449,7 +451,7 @@ end
 
 function M.wink()
   if not customInputAvailable() then
-    toGE("WARN", "popup wink ignored: no popup hydro override")
+    vehicle_bridge.sendToGameEngine("WARN", "popup wink ignored: no popup hydro override")
     return false
   end
   squint_active = false

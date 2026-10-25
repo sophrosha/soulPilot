@@ -18,7 +18,6 @@ local wheel_requested = false
 local pedals_requested = false
 local warmup_requested = false
 local lock_enabled = false
-local spectapilot_detected = false
 
 local LOCK_FILTER = "soulPilotLockedActions"
 local AUTO_DOOR_FILTER = "soulPilotAutoDoorLock"
@@ -44,11 +43,6 @@ end
 
 function M.isWheelRequested()
   return wheel_requested
-end
-
-function M.setSpectaPilotDetected(value)
-  spectapilot_detected = value == true
-  return spectapilot_detected
 end
 
 function M.isPedalsRequested()
@@ -97,8 +91,9 @@ local function isSmoothAiEnabled()
   if config == nil or tonumber(config.smooth_ai_cars) ~= 1 then
     return false
   end
-  local specta_detected = spectapilot_detected or _G.soulPilotSpectaPilotDetected == true
-  if specta_detected and tonumber(config.smooth_spectapilot) ~= 1 then
+  local spectapilot = type(extensions) == "table"
+    and extensions.spectapilot_spectapilot or nil
+  if spectapilot and tonumber(config.smooth_spectapilot) ~= 1 then
     return false
   end
   return true
