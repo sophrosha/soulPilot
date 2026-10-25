@@ -1,8 +1,8 @@
 {
   "rate_limit": {
-    "throttle_rise": 0.8,
+    "throttle_rise": 0.6,
     "throttle_fall": 1.5,
-    "brake_rise": 1.7,
+    "brake_rise": 1.4,
     "brake_fall": 2.5
   },
   "ema_tau": {

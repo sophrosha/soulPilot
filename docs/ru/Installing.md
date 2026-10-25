@@ -34,7 +34,7 @@ soulPilot-<version>.zip
 
 ```powershell
 Set-Location "C:\Users\<вы>\AppData\Local\BeamNG\BeamNG.drive\current\mods\unpacked\soulPilot"
-python ai/dev_mode.py
+python tools/dev_mode.py
 ```
 
 `dev_mode.py` копирует:

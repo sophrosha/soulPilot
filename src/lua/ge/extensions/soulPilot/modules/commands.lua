@@ -85,7 +85,7 @@ function M.aplWheel(mode)
     local vehicle = bridge.sendToVehicle(string.format('soulPilotWheelCmd.on("%s")', path))
     if vehicle then
       wheel_requested = true
-      print("apl_wheel: ON (config: " .. tostring(path) .. ")")
+      logger.debugPrint("apl_wheel: ON (config: " .. tostring(path) .. ")")
       if logger then
         logger.logLine("INFO", "apl_wheel ON, conf=" .. tostring(path))
       end
@@ -100,7 +100,7 @@ function M.aplWheel(mode)
       .. 'pcall(function() soulPilotWheelCmd.status() end)'
     if bridge.sendToVehicle(command) then
       wheel_requested = false
-      print("apl_wheel: OFF sent")
+      logger.debugPrint("apl_wheel: OFF sent")
       if logger then
         logger.logLine("INFO", "apl_wheel OFF sent")
       end
@@ -133,7 +133,7 @@ function M.aplPedals(mode)
     local vehicle = bridge.sendToVehicle(string.format('soulPilotPedalsCmd.on("%s")', path))
     if vehicle then
       pedals_requested = true
-      print("apl_pedals: ON (config: " .. tostring(path) .. ")")
+      logger.debugPrint("apl_pedals: ON (config: " .. tostring(path) .. ")")
       if logger then
         logger.logLine("INFO", "apl_pedals ON, conf=" .. tostring(path))
       end
@@ -148,7 +148,7 @@ function M.aplPedals(mode)
       .. 'pcall(function() soulPilotPedalsCmd.status() end)'
     if bridge.sendToVehicle(command) then
       pedals_requested = false
-      print("apl_pedals: OFF sent")
+      logger.debugPrint("apl_pedals: OFF sent")
       if logger then
         logger.logLine("INFO", "apl_pedals OFF sent")
       end
@@ -181,7 +181,7 @@ function M.aplWarmup(mode)
     local vehicle = bridge.sendToVehicle(string.format('soulPilotWarmupCmd.on("%s")', path))
     if vehicle then
       warmup_requested = true
-      print("apl_warmup: START (config: " .. tostring(path) .. ")")
+      logger.debugPrint("apl_warmup: START (config: " .. tostring(path) .. ")")
       autoCsv("apl_warmup")
     end
     return true
@@ -190,7 +190,7 @@ function M.aplWarmup(mode)
   if mode == "off" then
     if bridge.sendToVehicle("soulPilotWarmupCmd.off()") then
       warmup_requested = false
-      print("apl_warmup: OFF sent")
+      logger.debugPrint("apl_warmup: OFF sent")
     end
     return true
   end

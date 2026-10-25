@@ -83,7 +83,7 @@ function M.aplPopup(mode)
       config.debug_force_blink_delay_s,
       tostring(night)))
     bridge.sendToVehicle("soulPilotPopupCmd.setNight(" .. tostring(night) .. ")")
-    print("apl_popup: auto ON (" .. tostring(jbeam) .. "), night=" .. tostring(night))
+    logger.debugPrint("apl_popup: auto ON (" .. tostring(jbeam) .. "), night=" .. tostring(night))
     if logger then
       logger.logLine("INFO", "popup auto ON: model=" .. tostring(jbeam) .. " night=" .. tostring(night))
     end
@@ -97,7 +97,7 @@ function M.aplPopup(mode)
     end
     auto_enabled = false
     bridge.sendToVehicle("soulPilotPopupCmd.stop()")
-    print("apl_popup: auto OFF")
+    logger.debugPrint("apl_popup: auto OFF")
     if logger then
       logger.logLine("INFO", "popup auto OFF")
     end
@@ -125,7 +125,7 @@ function M.onVehicleAutoOff()
     return
   end
   auto_enabled = false
-  print("apl_popup: auto disabled by manual light control")
+  logger.debugPrint("apl_popup: auto disabled by manual light control")
   if logger then
     logger.logLine("WARN", "popup auto disabled by manual light control")
   end
@@ -153,13 +153,13 @@ function M.update(dt)
   if night ~= night_last then
     night_last = night
     debug_acc = 0
-    print("apl_popup: " .. (night and "NIGHT" or "DAY") .. " setNight=" .. tostring(night))
+    logger.debugPrint("apl_popup: " .. (night and "NIGHT" or "DAY") .. " setNight=" .. tostring(night))
     if logger then
       logger.logLine("INFO", "popup night=" .. tostring(night))
     end
   elseif debug_acc >= 30 then
     debug_acc = 0
-    print("apl_popup: keepalive night=" .. tostring(night))
+    logger.debugPrint("apl_popup: keepalive night=" .. tostring(night))
   end
 end
 

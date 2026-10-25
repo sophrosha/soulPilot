@@ -22,7 +22,7 @@ jobs:
           python-version: "3.12"
 
       - name: Build soulPilot zip
-        run: python ai/build_release.py --output-dir "${RUNNER_TEMP}/soulPilot-release"
+        run: python tools/build_release.py --output-dir "${RUNNER_TEMP}/soulPilot-release"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

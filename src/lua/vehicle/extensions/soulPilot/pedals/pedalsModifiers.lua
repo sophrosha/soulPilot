@@ -39,7 +39,7 @@ function M.updateShift(state, cfg, gear, raw_throttle, rpm)
       and (cfg.shift.hold_s or 0) > 0 then
       state.shift_hold_time = cfg.shift.hold_s
       state.shift_hold_value = state.pipe.throttle.output
-      print(string.format(
+      aplPrint(string.format(
         "soulPilotPedals: SHIFT %s->%s out=%.3f raw=%.3f ctrlThr=%s rpm=%.0f hold=%.1fs",
         previous_gear,
         gear,
@@ -57,7 +57,7 @@ function M.updateShift(state, cfg, gear, raw_throttle, rpm)
       end
     elseif previous_gear ~= "" then
       state.shift_hold_time = 0
-      print(string.format(
+      aplPrint(string.format(
         "soulPilotPedals: SHIFT %s->%s out=%.3f raw=%.3f (neutral or hold disabled)",
         previous_gear,
         gear,

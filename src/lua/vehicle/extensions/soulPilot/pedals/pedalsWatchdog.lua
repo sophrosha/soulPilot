@@ -51,7 +51,7 @@ function M.updateRamp(state, throttle_out, throttle_raw, dt, gear, rpm)
     state.ramp_time = state.ramp_time + dt
     if state.ramp_time >= 0.2 then
       state.ramp_time = 0
-      print(string.format(
+      aplPrint(string.format(
         "soulPilotPedals: ramp out=%.2f raw=%.2f gear=%s rpm=%.0f",
         throttle_out,
         throttle_raw,

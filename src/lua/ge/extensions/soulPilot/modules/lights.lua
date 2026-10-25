@@ -139,7 +139,7 @@ function M.aplLights(mode, value)
       auto_enabled = true
       target = computed
       poll_acc = 0
-      print("apl_lights: AUTO ON - time " .. tostring(gameTodString() or "?")
+      logger.debugPrint("apl_lights: AUTO ON - time " .. tostring(gameTodString() or "?")
         .. ", window " .. active_window.start .. "-" .. active_window["end"]
         .. (from_map and (" (map " .. tostring(map_id) .. ")") or "")
         .. ", target=" .. tostring(computed))
@@ -158,7 +158,7 @@ function M.aplLights(mode, value)
       auto_enabled = false
       target = nil
       is_night = nil
-      print("apl_lights: " .. mode:upper() .. " -> state " .. tostring(state))
+      logger.debugPrint("apl_lights: " .. mode:upper() .. " -> state " .. tostring(state))
     end
     return true
   end
@@ -188,7 +188,7 @@ function M.aplLights(mode, value)
       print("ERROR apl_lights: could not write " .. path)
       return false
     end
-    print("apl_lights: " .. mode .. "=" .. tostring(numeric) .. " saved")
+    logger.debugPrint("apl_lights: " .. mode .. "=" .. tostring(numeric) .. " saved")
     if auto_enabled and window ~= nil then
       config = config_loader.loadLightsConfig()
       local computed = computeTarget(config, window)
@@ -221,7 +221,7 @@ function M.onVehicleAutoOff()
   auto_enabled = false
   target = nil
   is_night = nil
-  print("apl_lights: manual control detected, auto disabled")
+  logger.debugPrint("apl_lights: manual control detected, auto disabled")
   if logger then
     logger.logLine("INFO", "lights auto disabled by manual control")
   end
@@ -250,7 +250,7 @@ function M.update(dt)
     return
   end
   if transition then
-    print("apl_lights: " .. (transition == "night" and "NIGHT" or "DAY")
+    logger.debugPrint("apl_lights: " .. (transition == "night" and "NIGHT" or "DAY")
       .. " (" .. tostring(gameTodString() or "?") .. ") -> target=" .. tostring(computed))
     if logger then
       logger.logLine("INFO", "lights " .. transition .. " at " .. tostring(gameTodString() or "?")

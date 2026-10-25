@@ -12,10 +12,10 @@
   },
   "profiles": {
     "comfort": {
-      "steer_rise": 3.5,
-      "steer_fall": 5.0,
-      "ema_tau": 0.12,
-      "lerp_tau": 0.10
+      "steer_rise": 1.8,
+      "steer_fall": 2.5,
+      "ema_tau": 0.15,
+      "lerp_tau": 0.12
     }
   }
 }

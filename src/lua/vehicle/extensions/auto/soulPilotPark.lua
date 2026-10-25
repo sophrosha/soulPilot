@@ -191,7 +191,7 @@ function M.updateGFX(dt)
   end
 
   if reverseStuckT >= REVERSE_STUCK_TIME_S then
-    print("aplPark: застрял на задней передаче, аварийное завершение")
+    aplPrint("aplPark: застрял на задней передаче, аварийное завершение")
     finishPark()
     return
   end

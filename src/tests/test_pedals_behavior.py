@@ -310,9 +310,9 @@ def resume_seed(
 class PedalsGoldenTests(unittest.TestCase):
     def test_pedals_config_values_are_locked(self) -> None:
         rate = PEDALS_CONFIG["rate_limit"]
-        self.assertAlmostEqual(rate["throttle_rise"], 0.8)
+        self.assertAlmostEqual(rate["throttle_rise"], 0.6)
         self.assertAlmostEqual(rate["throttle_fall"], 1.5)
-        self.assertAlmostEqual(rate["brake_rise"], 1.7)
+        self.assertAlmostEqual(rate["brake_rise"], 1.4)
         self.assertAlmostEqual(rate["brake_fall"], 2.5)
         self.assertAlmostEqual(PEDALS_CONFIG["ema_tau"]["throttle"], 0.10)
         self.assertAlmostEqual(PEDALS_CONFIG["ema_tau"]["brake"], 0.08)

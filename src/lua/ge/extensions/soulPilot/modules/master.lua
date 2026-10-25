@@ -59,7 +59,7 @@ local function finish()
 
   local mode = config.ai_mode ~= "" and config.ai_mode or "traffic"
   bridge.sendToVehicle(string.format('if ai and ai.setMode then ai.setMode("%s") end', mode))
-  print('apl_autopilot: ready - modules enabled, AI="' .. mode .. '"')
+  logger.debugPrint('apl_autopilot: ready - modules enabled, AI="' .. mode .. '"')
   if logger then
     logger.logLine("INFO", "master ON: modules enabled, ai=" .. mode)
   end
@@ -73,11 +73,11 @@ function M.aplAutopilot(mode)
 
   if mode == "on" then
     if state == "on" then
-      print("apl_autopilot: already enabled")
+      logger.debugPrint("apl_autopilot: already enabled")
       return false
     end
     if state == "waiting_warmup" then
-      print("apl_autopilot: already waiting for warmup")
+      logger.debugPrint("apl_autopilot: already waiting for warmup")
       return false
     end
     local vehicle = bridge.getVehicle()
@@ -105,7 +105,7 @@ function M.aplAutopilot(mode)
     if commands then
       commands.setWarmupRequested(true)
     end
-    print("apl_autopilot: ON - warmup started, AI will be enabled after warmup")
+    logger.debugPrint("apl_autopilot: ON - warmup started, AI will be enabled after warmup")
     if logger then
       logger.logLine("INFO", "master ON: warmup started")
     end
@@ -136,7 +136,7 @@ function M.aplAutopilot(mode)
       commands.setWarmupRequested(false)
     end
     bridge.sendToVehicle('if ai and ai.setMode then ai.setMode("disabled") end')
-    print("apl_autopilot: OFF (was " .. tostring(previous) .. ")")
+    logger.debugPrint("apl_autopilot: OFF (was " .. tostring(previous) .. ")")
     if logger then
       logger.logLine("INFO", "master OFF (was " .. tostring(previous) .. ")")
     end
@@ -172,7 +172,7 @@ function M.onWarmupDone(vehicle_id, elapsed, temperature, auto_engage, timed_out
   local message = string.format(
     "MASTER: warmup done (pending=%s, state=%s, veh=%s, elapsed=%s, temp=%s)",
     tostring(pending), tostring(state), tostring(vehicle_id), tostring(elapsed), tostring(temperature))
-  print(message)
+  logger.debugPrint(message)
   if logger then
     logger.logLine(timed_out and "WARN" or "INFO", message)
   end
@@ -191,7 +191,7 @@ function M.onWarmupDone(vehicle_id, elapsed, temperature, auto_engage, timed_out
       end
     end
   else
-    print('apl_warmup: manual engage required: apl_wheel("on") + apl_pedals("on")')
+    logger.debugPrint('apl_warmup: manual engage required: apl_wheel("on") + apl_pedals("on")')
   end
 
   if pending then
@@ -202,7 +202,7 @@ end
 function M.onWarmupState(warmup_state)
   warmup_state = tostring(warmup_state or "")
   if pending and warmup_state == "done" then
-    print("MASTER: warmup state done -> finish")
+    logger.debugPrint("MASTER: warmup state done -> finish")
     finish()
   end
 end

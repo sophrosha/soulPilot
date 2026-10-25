@@ -47,10 +47,10 @@ local function playPurr(config)
     if ok and source ~= nil then
       sound_ids[#sound_ids + 1] = source
       sound_event = config.sound_event
-      print("apl_pet: playOnce " .. sound_name .. " -> OK")
+      logger.debugPrint("apl_pet: playOnce " .. sound_name .. " -> OK")
       return true
     end
-    print("apl_pet: playOnce " .. sound_name .. " -> failed")
+    logger.debugPrint("apl_pet: playOnce " .. sound_name .. " -> failed")
   end
 
   return false
@@ -97,7 +97,7 @@ function M.aplPet(mode)
     active = true
     playPurr(config)
 
-    print("apl_pet: command sent (config=" .. (config.from_file and "file" or "DEFAULTS") .. ")")
+    logger.debugPrint("apl_pet: command sent (config=" .. (config.from_file and "file" or "DEFAULTS") .. ")")
     if logger then
       logger.logLine("INFO", "pet start sent, sound=" .. tostring(config.sound_event))
     end
@@ -108,7 +108,7 @@ function M.aplPet(mode)
     stopSound()
     active = false
     bridge.sendToVehicle("soulPilotPetCmd.stop()")
-    print("apl_pet: petting stopped")
+    logger.debugPrint("apl_pet: petting stopped")
     if logger then
       logger.logLine("INFO", "pet stop sent")
     end
