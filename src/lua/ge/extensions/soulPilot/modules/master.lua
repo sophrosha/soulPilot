@@ -14,6 +14,7 @@ local poll_acc = 0
 local autopilot_requested = false
 local driver_wait = 0
 local last_warmup_state = "off"
+local hold_acc = 0
 
 local DRIVER_WAIT_S = 10.0
 
@@ -92,6 +93,7 @@ local function enterWaitingDriver()
   pending = false
   wait_time = 0
   driver_wait = 0
+  hold_acc = 0
   state = autopilot_requested and "waiting_driver" or "off"
   if commands and commands.setWarmupRequested then
     commands.setWarmupRequested(false)
@@ -99,6 +101,14 @@ local function enterWaitingDriver()
   disableDriverlessVehicle()
   if logger then
     logger.logLine("WARN", "Warmup finished, but driver is outside. AI is disabled.")
+  end
+end
+
+local function enforceDriverless(dt)
+  hold_acc = hold_acc + dt
+  if hold_acc >= 0.5 then
+    hold_acc = 0
+    disableDriverlessVehicle()
   end
 end
 
@@ -370,7 +380,7 @@ function M.update(dt)
     end
 
     if not playerInCar() then
-      disableDriverlessVehicle()
+      enforceDriverless(dt)
     end
 
     wait_time = wait_time + dt
@@ -404,13 +414,13 @@ function M.update(dt)
         end
       end
       driver_wait = math.max(0, driver_wait - dt)
-      disableDriverlessVehicle()
+      enforceDriverless(dt)
       if driver_wait <= 0 then
         releaseAndTraffic()
       end
     else
       driver_wait = 0
-      disableDriverlessVehicle()
+      enforceDriverless(dt)
     end
     return
   end
@@ -418,6 +428,7 @@ function M.update(dt)
   if state == "on" and not playerInCar() then
     state = "waiting_driver"
     driver_wait = 0
+    hold_acc = 0
     disableDriverlessVehicle()
     if logger then
       logger.logLine("WARN", "driver is outside, AI disabled; waiting for driver")
@@ -433,6 +444,7 @@ function M.reset()
   autopilot_requested = false
   driver_wait = 0
   last_warmup_state = "off"
+  hold_acc = 0
 end
 
 return M
