@@ -89,13 +89,16 @@ local function speedKph()
 end
 
 local function warmupActive()
-  local state = 'off'
+  local active = false
   pcall(function()
-    if soulPilotWarmupCmd and soulPilotWarmupCmd.getState then
-      state = soulPilotWarmupCmd.getState()
+    if soulPilotWarmupCmd and soulPilotWarmupCmd.isActive then
+      active = soulPilotWarmupCmd.isActive() == true
+    elseif soulPilotWarmupCmd and soulPilotWarmupCmd.getState then
+      local state = soulPilotWarmupCmd.getState()
+      active = state == 'starting_engine' or state == 'warming_up'
     end
   end)
-  return state == 'starting_engine' or state == 'warming_up'
+  return active
 end
 
 -- Штатный ручник (vehicleController.lua:428, экспорт M.smartParkingBrake;

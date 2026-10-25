@@ -48,17 +48,6 @@ function M.register()
           return { 'hide' }
         end
       })
-      table.insert(entries, {
-        title = 'Парковка',
-        desc = 'Найти место, остановиться, ручник, заглушить двигатель',
-        icon = 'parking',
-        startSlot = 3,
-        uniqueID = 'aplParking',
-        onSelect = function()
-          if apl_park then apl_park('auto') end
-          return { 'hide' }
-        end
-      })
     end
   })
 

@@ -60,5 +60,10 @@
   "apl.about.author": "Автор: Sophron Ragozin | Лицензия: MIT",
   "apl.about.links": "Ссылки",
   "apl.about.github": "GitHub",
-  "apl.about.website": "Сайт"
+  "apl.about.website": "Сайт",
+  "soulPilot.get_in_vehicle": "Сядь в машину, чтобы начать",
+  "soulPilot.doors_locked": "Двери заблокированы, ты не выйдешь!",
+  "soulPilot.warmup_ready": "Прогрев завершён, машина готова",
+  "soulPilot.warmup_timeout": "Прогрев по таймауту, машина готова",
+  "soulPilot.warmup_outside": "Прогрев завершён, водитель снаружи"
 }

@@ -344,13 +344,11 @@ local function finish(timedOut)
   
   -- HUD-сообщение игроку
   pcall(function()
-    local txt
+    local txt = 'soulPilot.warmup_ready'
     if not seated then
-      txt = 'soulPilot: warmup finished, driver is outside — AI disabled'
+      txt = 'soulPilot.warmup_outside'
     elseif timedOut then
-      txt = 'soulPilot: прогрев по таймауту — машина готова'
-    else
-      txt = 'soulPilot: прогрев завершён, машина готова'
+      txt = 'soulPilot.warmup_timeout'
     end
     guihooks.message({ txt = txt, context = {} }, 5, 'soulPilot.warmup')
   end)
@@ -656,6 +654,14 @@ function soulPilotWarmupCmd.off()
   toGE('INFO', 'warmup: остановлен игроком (фаза ' .. was .. ', прошло ' .. fmt(elapsed) ..
     ' с). Двигатель НЕ глушится, ручник не трогается.')
   return true
+end
+
+function soulPilotWarmupCmd.isActive()
+  return state == 'starting_engine' or state == 'warming_up'
+end
+
+function soulPilotWarmupCmd.isDone()
+  return state == 'done' or state == 'done_outside'
 end
 
 function soulPilotWarmupCmd.getState()

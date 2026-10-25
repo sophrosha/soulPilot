@@ -476,7 +476,7 @@ function M.onVehicleTriggersExecuteLink(lnk, actionValue, vehicleId, player)
   last_door_message = now
 
   pcall(function()
-    guihooks.message("Doors are locked, you can't get out!", 3, "soulPilot.doorLock")
+    guihooks.message({ txt = "soulPilot.doors_locked", context = {} }, 3, "soulPilot.doorLock")
   end)
 end
 
@@ -485,7 +485,11 @@ function M.onVehicleTriggerActionLabel(data)
     return
   end
   if isDoorAction(data.actionName) then
-    data.title = "Doors are locked, you can't get out!"
+    local title = "soulPilot.doors_locked"
+    pcall(function()
+      if _tr then title = _tr(title) end
+    end)
+    data.title = title
     data.icon = "circleSlashed"
     data.color = { 1, 0.1, 0.1, 0.8 }
   end

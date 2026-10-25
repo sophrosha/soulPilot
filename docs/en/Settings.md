@@ -85,8 +85,8 @@ Keep `sway.amplitude` at or below `0.035`. On finish the sway is reset and the s
   "blink_min_s": 1.2,
   "blink_max_s": 1.2,
   "debug_force_blink_delay_s": 0,
-  "squint_min": 0.0,
-  "squint_max": 0.30,
+  "squint_min": 0.27,
+  "squint_max": 0.50,
   "squint_duration_s": 6.0
 }
 ```

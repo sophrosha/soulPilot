@@ -60,5 +60,10 @@
   "apl.about.author": "Author: Sophron Ragozin | License: MIT",
   "apl.about.links": "Links",
   "apl.about.github": "GitHub",
-  "apl.about.website": "Website"
+  "apl.about.website": "Website",
+  "soulPilot.get_in_vehicle": "Get in the vehicle to start",
+  "soulPilot.doors_locked": "Doors are locked, you can't get out!",
+  "soulPilot.warmup_ready": "Warmup complete, car is ready",
+  "soulPilot.warmup_timeout": "Warmup timed out, car is ready",
+  "soulPilot.warmup_outside": "Warmup complete, driver is outside"
 }
