@@ -135,6 +135,11 @@ local function finish(reason)
   active = false
   p = nil
   elapsed = 0
+  pcall(function()
+    if soulPilotCustomLightsCmd and soulPilotCustomLightsCmd.release then
+      soulPilotCustomLightsCmd.release()
+    end
+  end)
 end
 
 -- === Кадр ===
@@ -272,6 +277,11 @@ function soulPilotPetCmd.start(params)
   elapsed = 0
   active = true
   curScale = 1
+  pcall(function()
+    if soulPilotCustomLightsCmd and soulPilotCustomLightsCmd.playCatSquint then
+      soulPilotCustomLightsCmd.playCatSquint()
+    end
+  end)
   lastAppliedScale = 1
   thrRandT = 0
   thrRandVal = 0
@@ -339,12 +349,22 @@ function M.onReset()
     aplPrint('aplPet: ПОГЛАЖИВАНИЕ ПРЕРВАНО (respawn)')
     notifyGE('onVehiclePetDone')
   end
+  pcall(function()
+    if soulPilotCustomLightsCmd and soulPilotCustomLightsCmd.release then
+      soulPilotCustomLightsCmd.release()
+    end
+  end)
 end
 
 function M.onVehicleDestroyed()
   active = false
   p = nil
   elapsed = 0
+  pcall(function()
+    if soulPilotCustomLightsCmd and soulPilotCustomLightsCmd.release then
+      soulPilotCustomLightsCmd.release()
+    end
+  end)
 end
 
 return M
