@@ -18,7 +18,7 @@ import sys
 import numpy as np
 import pandas as pd
 
-CONFIG_DIR = os.path.join(os.path.dirname(__file__), "..", "config")
+CONFIG_DIR = os.path.join(os.path.dirname(__file__), "..", "src", "config")
 
 CAP_DEFAULT = {
     "throttle_rise": 2.0, "throttle_fall": 3.0,

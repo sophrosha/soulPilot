@@ -108,7 +108,7 @@ function soulPilotWheelCmd.on(config_path, options)
   end
 
   if state.active and state.active_config_path == path then
-    print("soulPilotWheel: ON already active - duplicate call ignored")
+    aplPrint("soulPilotWheel: ON already active - duplicate call ignored")
     return true
   end
 
@@ -122,7 +122,7 @@ function soulPilotWheelCmd.on(config_path, options)
     state.rate_scale = 1.0
     wheel_diagnostics.resetRateStats(state)
   else
-    print("soulPilotWheel: ON already active - config reloaded, needInit preserved")
+    aplPrint("soulPilotWheel: ON already active - config reloaded, needInit preserved")
   end
 
   pcall(function()
@@ -132,7 +132,7 @@ function soulPilotWheelCmd.on(config_path, options)
 
   local rate = state.cfg.rate_limit
   local config_label = state.cfg_from_file and "file" or "DEFAULTS"
-  print(string.format(
+  aplPrint(string.format(
     "soulPilotWheel: ON - mode=%s, rate %s/%s, ema %s, lerp %s",
     tostring(state.cfg.mode or "custom"),
     tostring(rate.steer_rise),

@@ -128,6 +128,12 @@ function M.isDebug()
   return M.debug_enabled
 end
 
+function M.debugPrint(...)
+  if M.debug_enabled then
+    print(...)
+  end
+end
+
 function M.getDataDir()
   return M.data_dir
 end

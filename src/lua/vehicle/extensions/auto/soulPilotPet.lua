@@ -336,7 +336,7 @@ function M.onReset()
     active = false
     p = nil
     elapsed = 0
-    print('aplPet: ПОГЛАЖИВАНИЕ ПРЕРВАНО (respawn)')
+    aplPrint('aplPet: ПОГЛАЖИВАНИЕ ПРЕРВАНО (respawn)')
     notifyGE('onVehiclePetDone')
   end
 end

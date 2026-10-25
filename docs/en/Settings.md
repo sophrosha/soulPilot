@@ -28,7 +28,7 @@ The first readable file wins. User files are never modified by `dev_mode.py`.
 
 | File | Purpose |
 |---|---|
-| `master.json` | Module enable flags, AI mode and warm-up policy. |
+| `master.json` | Module enable flags, AI mode, warm-up policy and `debug_mode`. |
 | `wheel.json` | Steering rate limits, EMA, lerp and profile mode. |
 | `pedals.json` | Throttle/brake rates, arbitration and smooth start. |
 | `warmup.json` | Engine thresholds, sway and AI handover. |
@@ -40,6 +40,16 @@ The first readable file wins. User files are never modified by `dev_mode.py`.
 | `music.json` | Music-reactive steering amplitudes. |
 | `parking.json` | Parking search and stop parameters. |
 | `graph.json` | Graph diagnostics friction/turn/speed settings. |
+
+## Debug logging
+
+`master.json` contains:
+
+```json
+"debug_mode": 0
+```
+
+At `0`, only `WARN`/`ERROR` and explicit `status` output reaches the console. Set it to `1` to enable verbose module logs. Vehicle `aplPrint` output follows the same flag.
 
 ## Warm-up
 
@@ -95,7 +105,7 @@ The current custom tuning is intentionally:
 }
 ```
 
-`mode: comfort/sport` replaces the rates with a preset; `custom` uses the explicit values. Comfort is tuned to rise/fall `3.5/5.0`, EMA `0.12`, lerp `0.10`.
+`mode: comfort/sport` replaces the rates with a preset; `custom` uses the explicit values. Comfort is tuned to rise/fall `1.8/2.5`, EMA `0.15`, lerp `0.12`.
 
 ## Pet
 

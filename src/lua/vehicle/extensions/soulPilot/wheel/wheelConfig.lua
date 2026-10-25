@@ -12,7 +12,7 @@ M.DEFAULTS = {
 }
 
 M.PRESETS = {
-  comfort = { rise = 3.5, fall = 5.0, ema = 0.12, lerp = 0.10 },
+  comfort = { rise = 1.8, fall = 2.5, ema = 0.15, lerp = 0.12 },
   sport = { rise = 6.0, fall = 7.0, ema = 0.04, lerp = 0.05 },
 }
 

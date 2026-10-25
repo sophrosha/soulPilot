@@ -38,10 +38,10 @@
 ## Release workflow
 
 ```powershell
-python ai/dev_mode.py
+python tools/dev_mode.py
 python -m unittest discover -s src/tests -v
-python ai/build_release.py --dry-run
-python ai/build_release.py
+python tools/build_release.py --dry-run
+python tools/build_release.py
 ```
 
 Release output must stay outside `mods/unpacked`. The zip root contains `lua/`, `ui/`, `mod_info/`, `art/`, `config/`, `scripts/` and `src_music/`; it must not contain `src/` or `dist/`.

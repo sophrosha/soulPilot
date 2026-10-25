@@ -44,11 +44,17 @@ commands.init({
 commands.register()
 
 local function loadDebugState()
+  local enabled = false
+  local master_config = config_loader.loadMasterConfig()
+  if master_config and tonumber(master_config.debug_mode) == 1 then
+    enabled = true
+  end
   local debug_config = config_loader.readJsonFile(config_loader.USER_CONFIG_DIR .. "debug.json")
   if debug_config and tonumber(debug_config.enabled) == 1 then
-    logger.setDebug(true)
-    vehicle_bridge.sendToVehicle("soulPilotCmd.setDebug(true)")
+    enabled = true
   end
+  logger.setDebug(enabled)
+  vehicle_bridge.sendToVehicle("soulPilotCmd.setDebug(" .. tostring(enabled) .. ")")
 end
 
 function M.onExtensionLoaded()

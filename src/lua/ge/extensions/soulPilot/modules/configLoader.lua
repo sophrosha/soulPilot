@@ -15,6 +15,7 @@ M.MASTER_DEFAULTS = {
   enable_popup = 1,
   enable_pain = 1,
   enable_music = 0,
+  debug_mode = 0,
   ai_mode = "traffic",
   skip_warmup_if_warm = 1,
 }
@@ -246,6 +247,7 @@ function M.loadMasterConfig()
   config.enable_popup = flag("enable_popup", defaults.enable_popup)
   config.enable_pain = flag("enable_pain", defaults.enable_pain)
   config.enable_music = flag("enable_music", defaults.enable_music)
+  config.debug_mode = flag("debug_mode", defaults.debug_mode)
   config.skip_warmup_if_warm = flag("skip_warmup_if_warm", defaults.skip_warmup_if_warm)
 
   if type(decoded.ai_mode) == "string" then

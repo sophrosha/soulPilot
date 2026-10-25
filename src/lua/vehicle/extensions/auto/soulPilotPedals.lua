@@ -61,7 +61,7 @@ local function updateRateScaleTimer(dt)
 
   state.rate_scale = 1.0
   state.rate_scale_time = 0
-  print("soulPilotPedals: rateScale restored to 1.00 - recovery mode finished")
+  aplPrint("soulPilotPedals: rateScale restored to 1.00 - recovery mode finished")
   notify("INFO", "pedals rateScale restored to 1.0")
 end
 
@@ -94,7 +94,7 @@ function M.updateGFX(dt)
   if not isAiDriving() then
     if state.ai_was_driving then
       state.ai_was_driving = false
-      print("soulPilotPedals: AI PAUSE - override cleared, lastOut " ..
+      aplPrint("soulPilotPedals: AI PAUSE - override cleared, lastOut " ..
         pedals_diagnostics.formatUnit(state.last_out.throttle))
     end
     pedals_overrides.clear(state)
@@ -118,7 +118,7 @@ function M.updateGFX(dt)
     state.ai_was_driving = true
     state.resume_time = 0
     if state.cfg then
-      print(string.format(
+      aplPrint(string.format(
         "soulPilotPedals: AI RESUME - raw %s, lastOut %s, cap %s, gear %s",
         pedals_diagnostics.formatUnit(throttle_raw),
         pedals_diagnostics.formatUnit(state.last_out.throttle),
@@ -261,7 +261,7 @@ function soulPilotPedalsCmd.on(config_path)
 
   local rate = state.cfg.rate_limit
   local config_label = state.cfg_from_file and "file" or "DEFAULTS"
-  print(string.format(
+  aplPrint(string.format(
     "soulPilotPedals: ON - rate thr %s/%s (units/s), brk %s/%s, cap %s, dt-independent",
     tostring(rate.throttle_rise),
     tostring(rate.throttle_fall),
@@ -299,7 +299,7 @@ function soulPilotPedalsCmd.setRateScale(scale, duration)
   state.rate_scale = scale
   state.rate_scale_time = duration
 
-  print(string.format(
+  aplPrint(string.format(
     "soulPilotPedals: recovery mode ON - pedal rate %s for %.1f s",
     tostring(scale),
     duration))

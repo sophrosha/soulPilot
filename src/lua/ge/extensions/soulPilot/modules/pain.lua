@@ -90,7 +90,7 @@ local function recover(vehicle, kind)
   teleport_delay = 0.2
   bridge.sendToVehicle("soulPilotPainCmd.ignoreDamage(3.0)")
   bridge.sendToVehicle("soulPilotPedalsCmd.setRateScale(0.2, 3.0)")
-  print(string.format("apl_pain: recover %s - resetVehicle=%s", tostring(kind), tostring(reset_ok)))
+  logger.debugPrint(string.format("apl_pain: recover %s - resetVehicle=%s", tostring(kind), tostring(reset_ok)))
 end
 
 function M.init(config_module, vehicle_bridge, logger_module)
@@ -113,7 +113,7 @@ function M.aplPain(mode)
 
   if mode == "auto" then
     if auto_enabled then
-      print("apl_pain: already enabled")
+      logger.debugPrint("apl_pain: already enabled")
       return false
     end
     local config = config_loader.loadPainConfig()
@@ -133,7 +133,7 @@ function M.aplPain(mode)
       config.flipped_up_dot,
       config.flipped_time_s,
       config.cooldown_s))
-    print("apl_pain: auto ON, threshold=" .. string.format("%.0f", threshold)
+    logger.debugPrint("apl_pain: auto ON, threshold=" .. string.format("%.0f", threshold)
       .. " model=" .. tostring(jbeam or "?"))
     if logger then
       logger.logLine("INFO", "pain auto ON")
@@ -143,12 +143,12 @@ function M.aplPain(mode)
 
   if mode == "off" then
     if not auto_enabled then
-      print("apl_pain: already disabled")
+      logger.debugPrint("apl_pain: already disabled")
       return false
     end
     auto_enabled = false
     bridge.sendToVehicle("soulPilotPainCmd.stop()")
-    print("apl_pain: OFF")
+    logger.debugPrint("apl_pain: OFF")
     if logger then
       logger.logLine("INFO", "pain auto OFF")
     end

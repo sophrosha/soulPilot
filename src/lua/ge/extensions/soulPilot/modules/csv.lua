@@ -64,7 +64,7 @@ function M.start()
     real_path = path
   end
 
-  print("CSV: " .. real_path)
+  logger.debugPrint("CSV: " .. real_path)
   if logger then
     logger.logLine("INFO", "CSV requested: " .. path .. " (real: " .. real_path .. ")")
   end
@@ -92,13 +92,13 @@ function M.autoStart(reason)
     return false
   end
   if active then
-    print("soulPilot: CSV already active, auto_csv skipped (" .. tostring(reason) .. ")")
+    logger.debugPrint("soulPilot: CSV already active, auto_csv skipped (" .. tostring(reason) .. ")")
     return false
   end
   if not M.start() then
     return false
   end
-  print("soulPilot: CSV started automatically (" .. tostring(reason) .. ")")
+  logger.debugPrint("soulPilot: CSV started automatically (" .. tostring(reason) .. ")")
   if logger then
     logger.logLine("INFO", "auto_csv: started for " .. tostring(reason))
   end
