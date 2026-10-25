@@ -319,7 +319,7 @@ local function detectWinkCapability()
   if not any then
     message = "popup wink: no popup hydro override; wink ignored"
   elseif wink_split then
-    message = "popup wink: split L/R hydros found; asynchronous wink enabled"
+    message = "popup wink: split L/R hydros found; left-only wink enabled"
   else
     message = "popup wink: single hydro override; synchronized 0.0 close/open"
   end
@@ -342,7 +342,12 @@ local function customInputAvailable()
       end
     end
   end)
-  detectWinkCapability()
+  if available then
+    detectWinkCapability()
+  else
+    -- Hydros may not be populated on the very first vehicle frame.
+    wink_capability_checked = false
+  end
   custom_available = available
   return available
 end
@@ -577,7 +582,17 @@ function M.updateGFX(dt)
   end
 
   local seated_now = isSeated()
-  if managed and not seated_now and isEngineRunning() and warmupFinished() then
+  local moving_now = speedMps() * 3.6 > 5.0 or aiDriving()
+  if moving_now then
+    -- Movement always clears a squint/wink and forces the covers open with
+    -- the headlights on. This also recovers after a wink while re-entering.
+    squint_active = false
+    squint_elapsed = 0.0
+    wink_active = false
+    wink_elapsed = 0.0
+    target = 1.0
+    forceHeadlights()
+  elseif managed and not seated_now and isEngineRunning() and warmupFinished() then
     forceHeadlights()
   end
 
@@ -597,9 +612,7 @@ function M.updateGFX(dt)
         local wanted_right = 1.0
         if phase == 0 then
           wanted_left = 0.0
-        elseif phase == 1 then
-          wanted_right = 0.0
-        elseif phase >= 3 then
+        elseif phase >= 2 then
           wink_active = false
         end
         wink_left = moveToward(wink_left, wanted_left, WINK_RATE * dt)
@@ -633,7 +646,7 @@ function M.updateGFX(dt)
       current = moveToward(current, target, MOVE_RATE * dt)
       writeValue(current)
     else
-      target = lightsTarget()
+      target = moving_now and 1.0 or lightsTarget()
       current = moveToward(current, target, MOVE_RATE * dt)
       writeValue(current)
     end

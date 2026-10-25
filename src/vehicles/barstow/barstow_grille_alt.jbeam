@@ -465,20 +465,20 @@
 //            {"breakGroupType":1},
 //            {"breakGroup":"headlighthinge_R"},
 //            {"deformGroup":"headlightglass_R_break"}
-//            ["ra4rr","he6r", {"inputSource":"soulPilotPopupFloat","inLimit":0,"outLimit":2.625,"inRate":1.2,"outRate":1.2,"inputFactor":1}],
-//            ["he7r","he6r", {"inputSource":"soulPilotPopupFloat","inLimit":0,"outLimit":2.625,"inRate":1.2,"outRate":1.2,"inputFactor":1}],
+//            ["ra4rr","he6r", {"inputSource":"soulPilotPopupFloatR","inLimit":0,"outLimit":2.625,"inRate":1.2,"outRate":1.2,"inputFactor":1}],
+//            ["he7r","he6r", {"inputSource":"soulPilotPopupFloatR","inLimit":0,"outLimit":2.625,"inRate":1.2,"outRate":1.2,"inputFactor":1}],
 //            {"breakGroup":"headlighthinge_L"},
 //         barstow_lightsdeformGroup":"headlightglass_L_break"}
-//            ["ra4ll","he6l", {"inputSource":"soulPilotPopupFloat","inLimit":0,"outLimit":2.625,"inRate":1.2,"outRate":1.2,"inputFactor":1}],
-//            ["he7l","he6l", {"inputSource":"soulPilotPopupFloat","inLimit":0,"outLimit":2.625,"inRate":1.2,"outRate":1.2,"inputFactor":1}],
+//            ["ra4ll","he6l", {"inputSource":"soulPilotPopupFloatL","inLimit":0,"outLimit":2.625,"inRate":1.2,"outRate":1.2,"inputFactor":1}],
+//            ["he7l","he6l", {"inputSource":"soulPilotPopupFloatL","inLimit":0,"outLimit":2.625,"inRate":1.2,"outRate":1.2,"inputFactor":1}],
 //            {"breakGroupType":0},
 //            {"breakGroup":""},
 //    ],
     "torsionHydros": [
         ["id1:","id2:","id3:","id4:"],
         {"spring":10000, "damp":0, "deform":15000, "strength":20000},
-        ["he2r","he3r","he3rr","g1rr", {"factor":-3.145,"inRate":2.5,"outRate":2.5,"inputSource":"soulPilotPopupFloat"}],
-        ["he2l","he3l","he3ll","g1ll", {"factor":3.145,"inRate":2.5,"outRate":2.5,"inputSource":"soulPilotPopupFloat"}],
+        ["he2r","he3r","he3rr","g1rr", {"factor":-3.145,"inRate":2.5,"outRate":2.5,"inputSource":"soulPilotPopupFloatR"}],
+        ["he2l","he3l","he3ll","g1ll", {"factor":3.145,"inRate":2.5,"outRate":2.5,"inputSource":"soulPilotPopupFloatL"}],
     ],
     "triangles": [
             ["id1:", "id2:", "id3:"],
