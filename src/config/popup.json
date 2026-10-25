@@ -2,7 +2,9 @@
   "models": [
     "bolide",
     "wigeon",
-    "200bx"
+    "bx",
+    "wendover",
+    "barstow"
   ],
   "day_min_s": 120.0,
   "day_max_s": 180.0,

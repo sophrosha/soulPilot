@@ -77,7 +77,7 @@ Keep `sway.amplitude` at or below `0.035`. On finish the sway is reset and the s
 
 ```json
 {
-  "models": ["bolide", "wigeon", "200bx"],
+  "models": ["bolide", "wigeon", "bx", "wendover", "barstow"],
   "day_min_s": 120,
   "day_max_s": 180,
   "night_min_s": 180,
