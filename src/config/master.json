@@ -1,6 +1,7 @@
 {
   "enable_wheel": 1,
   "smooth_ai_cars": 1,
+  "smooth_spectapilot": 1,
   "enable_pedals": 1,
   "enable_lights": 1,
   "enable_popup": 1,

@@ -11,6 +11,8 @@ local DEFAULT_MIN = 0.27
 local DEFAULT_MAX = 0.50
 local DEFAULT_DURATION = 6.0
 local MOVE_RATE = 1.5
+local WINK_RATE = 6.0
+local WINK_PHASE_S = 0.22
 local IDLE_DELAY = 6.0
 local DRIVER_RETURN_WAIT = 10.0
 local STOP_SPEED_MPS = 0.20
@@ -28,6 +30,13 @@ local target = 0.0
 local initialized = false
 local squint_active = false
 local squint_elapsed = 0.0
+local wink_active = false
+local wink_elapsed = 0.0
+local wink_phase = 0
+local wink_split = false
+local wink_left = 1.0
+local wink_right = 1.0
+local wink_capability_checked = false
 
 local managed = false
 local custom_available = nil
@@ -66,6 +75,18 @@ end
 local function writeValue(value)
   pcall(function()
     electrics.values.soulPilotPopupFloat = value
+    if wink_split then
+      electrics.values.soulPilotPopupFloatL = value
+      electrics.values.soulPilotPopupFloatR = value
+    end
+  end)
+end
+
+local function writeSplit(left, right)
+  pcall(function()
+    electrics.values.soulPilotPopupFloatL = left
+    electrics.values.soulPilotPopupFloatR = right
+    electrics.values.soulPilotPopupFloat = math.max(left, right)
   end)
 end
 
@@ -268,16 +289,56 @@ local function updateDoorLock(dt)
   end
 end
 
+local function detectWinkCapability()
+  if wink_capability_checked then
+    return wink_split
+  end
+  wink_capability_checked = true
+  local left = false
+  local right = false
+  local any = false
+  pcall(function()
+    for _, hydro in pairs(hydros.hydros or {}) do
+      if hydro.inputSource == "soulPilotPopupFloatL" then
+        left = true
+        any = true
+      elseif hydro.inputSource == "soulPilotPopupFloatR" then
+        right = true
+        any = true
+      elseif hydro.inputSource == "soulPilotPopupFloat" then
+        any = true
+      end
+    end
+  end)
+  wink_split = left and right
+  local message
+  if not any then
+    message = "popup wink: no popup hydro override; wink ignored"
+  elseif wink_split then
+    message = "popup wink: split L/R hydros found; asynchronous wink enabled"
+  else
+    message = "popup wink: single hydro override; synchronized 0.0 close/open"
+  end
+  if managed or isSeated() then
+    aplPrint(message)
+    toGE("INFO", message)
+  end
+  return wink_split
+end
+
 local function customInputAvailable()
   local available = false
   pcall(function()
     for _, hydro in pairs(hydros.hydros or {}) do
-      if hydro.inputSource == "soulPilotPopupFloat" then
+      if hydro.inputSource == "soulPilotPopupFloat"
+        or hydro.inputSource == "soulPilotPopupFloatL"
+        or hydro.inputSource == "soulPilotPopupFloatR" then
         available = true
         return
       end
     end
   end)
+  detectWinkCapability()
   custom_available = available
   return available
 end
@@ -379,7 +440,26 @@ local function startSquint()
   loadSquintConfig()
   squint_active = true
   squint_elapsed = 0.0
+  wink_active = false
   target = squint_min
+  return true
+end
+
+function M.wink()
+  if not customInputAvailable() then
+    toGE("WARN", "popup wink ignored: no popup hydro override")
+    return false
+  end
+  squint_active = false
+  squint_elapsed = 0.0
+  wink_active = true
+  wink_elapsed = 0.0
+  wink_phase = 0
+  wink_left = 1.0
+  wink_right = 1.0
+  if not wink_split then
+    target = 0.0
+  end
   return true
 end
 
@@ -403,6 +483,8 @@ function M.setManaged(value)
   if not managed then
     squint_active = false
     squint_elapsed = 0.0
+    wink_active = false
+    wink_elapsed = 0.0
     idle_timer = 0.0
     was_seated = false
     return_grace = 0.0
@@ -426,6 +508,8 @@ end
 function M.release()
   squint_active = false
   squint_elapsed = 0.0
+  wink_active = false
+  wink_elapsed = 0.0
   target = lightsTarget()
   return true
 end
@@ -461,6 +545,8 @@ function M.getState()
     current = current,
     target = target,
     squint_active = squint_active,
+    wink_active = wink_active,
+    wink_split = wink_split,
     squint_min = squint_min,
     squint_max = squint_max,
     duration = squint_duration,
@@ -499,7 +585,40 @@ function M.updateGFX(dt)
       initialized = true
     end
 
-    if squint_active then
+    if wink_active then
+      wink_elapsed = wink_elapsed + dt
+      if wink_split then
+        local phase = math.floor(wink_elapsed / WINK_PHASE_S)
+        local wanted_left = 1.0
+        local wanted_right = 1.0
+        if phase == 0 then
+          wanted_left = 0.0
+        elseif phase == 1 then
+          wanted_right = 0.0
+        elseif phase >= 3 then
+          wink_active = false
+        end
+        wink_left = moveToward(wink_left, wanted_left, WINK_RATE * dt)
+        wink_right = moveToward(wink_right, wanted_right, WINK_RATE * dt)
+        writeSplit(wink_left, wink_right)
+      elseif wink_phase == 0 then
+        target = 0.0
+        if wink_elapsed >= WINK_PHASE_S then
+          wink_phase = 1
+          wink_elapsed = 0.0
+        end
+        current = moveToward(current, target, WINK_RATE * dt)
+        writeValue(current)
+      else
+        target = 1.0
+        if wink_elapsed >= WINK_PHASE_S then
+          wink_active = false
+          target = lightsTarget()
+        end
+        current = moveToward(current, target, WINK_RATE * dt)
+        writeValue(current)
+      end
+    elseif squint_active then
       local phase = math.max(0.0, math.sin(2.0 * math.pi * squint_elapsed / squint_duration))
       target = squint_min + (phase * phase * phase) * (squint_max - squint_min)
       squint_elapsed = squint_elapsed + dt
@@ -507,12 +626,13 @@ function M.updateGFX(dt)
         squint_active = false
         target = lightsTarget()
       end
+      current = moveToward(current, target, MOVE_RATE * dt)
+      writeValue(current)
     else
       target = lightsTarget()
+      current = moveToward(current, target, MOVE_RATE * dt)
+      writeValue(current)
     end
-
-    current = moveToward(current, target, MOVE_RATE * dt)
-    writeValue(current)
   elseif managed and managed_time >= FEATURE_WARN_DELAY then
     warnMissingOverride()
   end
@@ -586,7 +706,7 @@ function M.updateGFX(dt)
     forceHeadlights()
   end
 
-  if not squint_active and isEngineRunning() and warmupFinished() then
+  if not squint_active and not wink_active and isEngineRunning() and warmupFinished() then
     if speedMps() <= STOP_SPEED_MPS then
       idle_timer = idle_timer + dt
       if idle_timer >= IDLE_DELAY then
@@ -610,6 +730,9 @@ function M.onReset()
   initialized = false
   squint_active = false
   squint_elapsed = 0.0
+  wink_active = false
+  wink_elapsed = 0.0
+  wink_phase = 0
   idle_timer = 0.0
   was_seated = false
   absent_hold = false
@@ -638,6 +761,10 @@ end
 
 function soulPilotCustomLightsCmd.playCatSquint()
   return M.playCatSquint()
+end
+
+function soulPilotCustomLightsCmd.wink()
+  return M.wink()
 end
 
 function soulPilotCustomLightsCmd.release()

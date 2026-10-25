@@ -301,12 +301,22 @@ function M.aplAutopilot(mode)
 end
 
 function M.onWheelOn()
+  if not autopilot_requested and state == "off" then
+    -- Ignore late callbacks from traffic vehicles or a previous mission.
+    return
+  end
   if commands then
     commands.setWheelRequested(true)
   end
 end
 
 function M.onWarmupDone(vehicle_id, elapsed, temperature, auto_engage, timed_out, driver_seated)
+  if not autopilot_requested and not pending and state == "off" then
+    if logger then
+      logger.logLine("INFO", "stale warmup-done ignored: autopilot is off")
+    end
+    return
+  end
   last_warmup_state = "done"
   local message = string.format(
     "MASTER: warmup done (pending=%s, state=%s, veh=%s, elapsed=%s, temp=%s, seated=%s)",
@@ -347,6 +357,9 @@ function M.onWarmupDone(vehicle_id, elapsed, temperature, auto_engage, timed_out
 end
 
 function M.onWarmupState(warmup_state)
+  if not autopilot_requested and not pending and state == "off" then
+    return
+  end
   warmup_state = tostring(warmup_state or "")
   last_warmup_state = warmup_state
   if pending and warmup_state == "done_outside" then
@@ -445,6 +458,25 @@ function M.reset()
   driver_wait = 0
   last_warmup_state = "off"
   hold_acc = 0
+end
+
+function M.forceOff()
+  local previous = state
+  M.reset()
+  if commands then
+    commands.aplWheel("off")
+    commands.aplPedals("off")
+    commands.aplLights("off")
+    commands.aplPopup("off")
+    commands.aplPain("off")
+    commands.setWheelRequested(false)
+    commands.setPedalsRequested(false)
+    commands.setWarmupRequested(false)
+  end
+  if logger then
+    logger.logLine("INFO", "MASTER forced OFF (was " .. tostring(previous) .. ")")
+  end
+  return true
 end
 
 return M

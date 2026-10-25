@@ -16,6 +16,15 @@ local master = require("extensions.soulPilot.modules.master")
 local commands = require("extensions.soulPilot.modules.commands")
 local diagnostics = require("extensions.soulPilot.modules.diagnostics")
 
+local LOCK_RESET_DELAY = 1.5
+local lock_reset_timer = 0
+local lock_reset_release_ids = nil
+local idle_hold_active = false
+local idle_hold_acc = 0
+local idle_hold_ids = {}
+local spectapilot_detected = false
+local specta_check_acc = 0
+
 local function getVehicleById(vehicle_id)
   if not getObjectByID then
     return nil
@@ -46,6 +55,124 @@ local function markCurrentPlayerVehicle()
     setVehicleManaged(vehicle:getID(), true)
     vehicle_bridge.setFallbackVehicle(vehicle:getID())
   end
+end
+
+local function scheduleLockReset(release_ids)
+  lock_reset_timer = LOCK_RESET_DELAY
+  lock_reset_release_ids = release_ids
+end
+
+local function forceMasterOff()
+  if master.forceOff then
+    master.forceOff()
+  else
+    master.reset()
+  end
+end
+
+local function resetLocksForced()
+  if commands.resetLockAll then
+    commands.resetLockAll()
+  else
+    commands.resetLock()
+  end
+end
+
+local function releaseIdleHold()
+  if commands and commands.setVehicleParkingBrake and #idle_hold_ids > 0 then
+    commands.setVehicleParkingBrake(idle_hold_ids, 0)
+  end
+  idle_hold_ids = {}
+  idle_hold_active = false
+  idle_hold_acc = 0
+end
+
+local function startMissionGuard()
+  idle_hold_active = true
+  idle_hold_acc = 0
+  idle_hold_ids = {}
+  if commands then
+    if commands.holdPlayerVehicles then
+      idle_hold_ids = commands.holdPlayerVehicles(true)
+    end
+    if commands.cancelPlayerWarmup then
+      commands.cancelPlayerWarmup()
+    end
+  end
+  scheduleLockReset(nil)
+end
+
+local function updateMissionGuard(dt)
+  if lock_reset_timer > 0 then
+    lock_reset_timer = math.max(0, lock_reset_timer - dt)
+    if lock_reset_timer <= 0 and commands then
+      resetLocksForced()
+      if lock_reset_release_ids then
+        local master_state = master.getState and master.getState() or "off"
+        for _, id in ipairs(lock_reset_release_ids) do
+          if master_state == "off" and commands.forceIdleVehicle then
+            commands.forceIdleVehicle(id, false)
+          elseif commands.setVehicleParkingBrake then
+            commands.setVehicleParkingBrake({ id }, 0)
+          end
+        end
+      end
+      lock_reset_release_ids = nil
+    end
+  end
+
+  if not idle_hold_active then
+    return
+  end
+  if master.isOn() then
+    releaseIdleHold()
+    return
+  end
+
+  idle_hold_acc = idle_hold_acc + dt
+  if idle_hold_acc >= 0.5 and commands then
+    idle_hold_acc = 0
+    if commands.setVehicleAiDisabled then
+      commands.setVehicleAiDisabled(idle_hold_ids, true)
+    end
+    if commands.setVehicleParkingBrake then
+      commands.setVehicleParkingBrake(idle_hold_ids, 1)
+    end
+  end
+end
+
+local function detectSpectaPilot()
+  if spectapilot_detected then
+    return true
+  end
+  local candidate = extensions and extensions.spectapilot_spectapilot or nil
+  if (type(candidate) ~= "table" or type(candidate.toggleAP) ~= "function")
+    and type(_G.spectapilot_spectapilot) == "table"
+    and type(_G.spectapilot_spectapilot.toggleAP) == "function" then
+    candidate = _G.spectapilot_spectapilot
+  end
+  if type(candidate) ~= "table" or type(candidate.toggleAP) ~= "function" then
+    return false
+  end
+
+  spectapilot_detected = true
+  local config = config_loader.loadMasterConfig()
+  local smoothing = config ~= nil and tonumber(config.smooth_spectapilot) == 1
+  _G.soulPilotSpectaPilotDetected = true
+  _G.soulPilotSpectaPilotSmoothing = smoothing
+  pcall(function()
+    if type(candidate.cfg) == "table" then
+      candidate.cfg.soulPilot_smoothing = smoothing
+    end
+  end)
+  if commands then
+    commands.setSpectaPilotDetected(true)
+  end
+  print("SpectaPilot detected")
+  logger.logLine("INFO", "SpectaPilot detected")
+  logger.logLine("INFO", "SpectaPilot smoothing option = "
+    .. (smoothing and "enabled" or "disabled"))
+  return true
 end
 
 logger.init()
@@ -104,20 +231,19 @@ function M.onExtensionLoaded()
   _G.soulPilot_main = M
   extensions.soulPilot_main = M
   markCurrentPlayerVehicle()
+  detectSpectaPilot()
 end
 
 function M.onExtensionUnloaded()
-  if commands then
-    commands.resetLock()
-  end
+  releaseIdleHold()
+  resetLocksForced()
   csv.stop()
   logger.closeLogFile()
 end
 
 function M.onShutdown()
-  if commands then
-    commands.resetLock()
-  end
+  releaseIdleHold()
+  resetLocksForced()
   csv.stop()
   logger.closeLogFile()
 end
@@ -126,6 +252,14 @@ function M.onUpdate(dt)
   if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then
     return
   end
+  if not spectapilot_detected then
+    specta_check_acc = specta_check_acc + dt
+    if specta_check_acc >= 2.0 then
+      specta_check_acc = 0
+      detectSpectaPilot()
+    end
+  end
+  updateMissionGuard(dt)
   pain.update(dt)
   master.update(dt)
   popup.update(dt)
@@ -141,10 +275,13 @@ function M.onClientPostStartMission()
   pet.reset()
   popup.reset()
   pain.reset()
-  master.reset()
-  commands.resetLock()
+  forceMasterOff()
+  resetLocksForced()
   markCurrentPlayerVehicle()
+  releaseIdleHold()
+  startMissionGuard()
   csv.stop()
+  logger.logLine("INFO", "mission guard active: master off, AI disabled, handbrake held")
 end
 
 function M.onVehicleLog(level, message)
@@ -217,6 +354,19 @@ function M.onVehicleReady(vehicle_id)
   setVehicleManaged(vehicle_id, managed)
   if managed then
     vehicle_bridge.setFallbackVehicle(vehicle_id)
+    if idle_hold_active and not master.isOn() and commands then
+      idle_hold_ids[#idle_hold_ids + 1] = vehicle_id
+      if commands.setVehicleAiDisabled then
+        commands.setVehicleAiDisabled({ vehicle_id }, true)
+      end
+      if commands.setVehicleParkingBrake then
+        commands.setVehicleParkingBrake({ vehicle_id }, 1)
+      end
+      if commands.cancelPlayerWarmup
+        and (not master.getState or master.getState() == "off") then
+        commands.cancelPlayerWarmup()
+      end
+    end
   end
   -- New AI traffic vehicles must also receive the global steering smoother
   -- when the player has enabled it after this vehicle was spawned.
@@ -237,16 +387,33 @@ function M.onVehicleSwitched(old_id, new_id, player)
     -- A manual/auto door lock belongs to one vehicle and one mission only.
     -- Reset it before switching the fallback id, so the old car is unlocked
     -- through the command bridge and the new car starts with a clean state.
-    commands.resetLock()
+    if idle_hold_active then
+      releaseIdleHold()
+    end
+    forceMasterOff()
+    resetLocksForced()
 
     -- Switching between cars: only the car the player is in may run the
     -- absent-driver / cat-squint logic.
     local old_vehicle = getVehicleById(old_id)
     if old_id and old_id ~= new_id and old_vehicle and not isUnicycle(old_vehicle) then
+      if commands.forceIdleVehicle then
+        commands.forceIdleVehicle(old_id, true)
+      end
       setVehicleManaged(old_id, false)
     end
     setVehicleManaged(new_id, true)
     vehicle_bridge.setFallbackVehicle(new_id)
+
+    -- On a manual car switch the new player car must be immediately
+    -- drivable: AI stays disabled, but the parking brake is released.
+    if commands.forceIdleVehicle then
+      commands.forceIdleVehicle(new_id, false)
+    end
+    if commands.cancelPlayerWarmup then
+      commands.cancelPlayerWarmup()
+    end
+    scheduleLockReset({ new_id })
     if commands and commands.onVehicleReady then
       commands.onVehicleReady(new_id)
     end
@@ -254,7 +421,8 @@ function M.onVehicleSwitched(old_id, new_id, player)
     -- The player left the car into walking/observer mode. Keep the old car
     -- managed so it can stop, apply the handbrake and trigger the squint.
     -- The door lock belongs to the previous seat, not to walking mode.
-    commands.resetLock()
+    commands.resetLockAll()
+    scheduleLockReset(nil)
   end
 end
 
