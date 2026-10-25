@@ -266,6 +266,13 @@ function M.onVehicleWarmupState(warmup_state)
   master.onWarmupState(warmup_state)
 end
 
+function M.onDriverReturnWaitDone(vehicle_id)
+  if master.onDriverReturnWaitDone then
+    return master.onDriverReturnWaitDone(vehicle_id)
+  end
+  return false
+end
+
 function M.onVehiclePain(kind, info)
   pain.onVehiclePain(kind, info)
 end
@@ -346,13 +353,20 @@ function M.onVehicleSwitched(old_id, new_id, player)
 
   local new_vehicle = getVehicleById(new_id)
   if new_vehicle and not isUnicycle(new_vehicle) then
+    local fallback_id = vehicle_bridge.getFallbackVehicleId and vehicle_bridge.getFallbackVehicleId()
+    local resuming_waiting_driver = master.isWaitingDriver and master.isWaitingDriver()
+      and master.isAutopilotRequested and master.isAutopilotRequested()
+      and fallback_id ~= nil and tonumber(fallback_id) == tonumber(new_id)
+
     -- A manual/auto door lock belongs to one vehicle and one mission only.
     -- Reset it before switching the fallback id, so the old car is unlocked
     -- through the command bridge and the new car starts with a clean state.
     if idle_hold_active then
       releaseIdleHold()
     end
-    forceMasterOff()
+    if not resuming_waiting_driver then
+      forceMasterOff()
+    end
     resetLocksForced()
 
     -- Switching between cars: only the car the player is in may run the
@@ -367,13 +381,16 @@ function M.onVehicleSwitched(old_id, new_id, player)
     setVehicleManaged(new_id, true)
     vehicle_bridge.setFallbackVehicle(new_id)
 
-    -- On a manual car switch the new player car must be immediately
-    -- drivable: AI stays disabled, but the parking brake is released.
-    if commands.forceIdleVehicle then
-      commands.forceIdleVehicle(new_id, false)
-    end
-    if commands.cancelPlayerWarmup then
-      commands.cancelPlayerWarmup()
+    -- Re-entering the same car after waiting for the driver must keep the
+    -- handbrake/AI hold until the 10 second return timer expires. A real
+    -- switch to another car still gets the immediate manual-switch release.
+    if not resuming_waiting_driver then
+      if commands.forceIdleVehicle then
+        commands.forceIdleVehicle(new_id, false)
+      end
+      if commands.cancelPlayerWarmup then
+        commands.cancelPlayerWarmup()
+      end
     end
     scheduleLockReset({ new_id })
     if commands and commands.onVehicleReady then
