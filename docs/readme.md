@@ -36,6 +36,10 @@
 - [wheel.lua](dev/vehicle/wheel.md)
 - [pedals.lua](dev/vehicle/pedals.md)
 
+## Tools
+
+- [Development tools and CSV analyzer](../tools/README.md)
+
 ## Quick links
 
 - [Project README](../README.md)
