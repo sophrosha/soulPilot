@@ -457,6 +457,19 @@ local function restoreAi()
   setAiMode("traffic")
 end
 
+local function notifyDriverReturnWaitDone()
+  -- The GE master may lag one or two frames behind playerInfo.anyPlayerSeated.
+  -- Let it end waiting_driver from the same authoritative state this timer used.
+  pcall(function()
+    if obj and obj.queueGameEngineLua then
+      local id = obj:getID()
+      obj:queueGameEngineLua(string.format(
+        "if extensions.soulPilot_main and extensions.soulPilot_main.onDriverReturnWaitDone then "
+        .. "extensions.soulPilot_main.onDriverReturnWaitDone(%d) end", id))
+    end
+  end)
+end
+
 local function startSquint(priority)
   if not customInputAvailable() then
     return false
@@ -783,6 +796,7 @@ function M.updateGFX(dt)
       seated_wait = math.max(0.0, seated_wait - dt)
       if seated_wait <= 0 then
         restoreAi()
+        notifyDriverReturnWaitDone()
         return_grace = 1.0
       end
     elseif absent_hold then
@@ -808,7 +822,10 @@ function M.updateGFX(dt)
 
   -- The covers are driven directly by soulPilotPopupFloatL/R now. Keep the
   -- lamps off while waiting outside; do not call setLightsState(1).
-  if not squint_active and not wink_active and isEngineRunning() and warmupFinished() then
+  -- Squinting is allowed while the warmup is still running, not only after it
+  -- has finished, as long as the owner explicitly requested autopilot.
+  local warmup_wait = warmupActive() or warmupFinished()
+  if not squint_active and not wink_active and isEngineRunning() and warmup_wait then
     if speedMps() <= STOP_SPEED_MPS then
       idle_timer = idle_timer + dt
       if idle_timer >= IDLE_DELAY then

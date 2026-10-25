@@ -116,21 +116,19 @@ function M.isOn()
   return state == "on"
 end
 
+function M.isWaitingDriver()
+  return state == "waiting_driver"
+end
+
+function M.isAutopilotRequested()
+  return autopilot_requested
+end
+
 function M.getState()
   return state
 end
 
-local function finish()
-  if not pending then
-    return
-  end
-  if not playerInCar() then
-    enterWaitingDriver()
-    return
-  end
-  pending = false
-  state = "on"
-  driver_wait = 0
+local function enableConfiguredModules()
   local config = config_loader.loadMasterConfig()
 
   if config.enable_wheel == 1 and not commands.isWheelRequested() then
@@ -151,7 +149,10 @@ local function finish()
   if config.enable_music == 1 and apl_music then
     apl_music("on")
   end
+  return config
+end
 
+local function releaseToTraffic(config)
   local mode = config.ai_mode ~= "" and config.ai_mode or "traffic"
   sendToDriversVehicle(string.format(
     'if playerInfo and playerInfo.anyPlayerSeated == true then '
@@ -163,6 +164,22 @@ local function finish()
     .. 'pcall(function() if controller and controller.mainController then '
     .. 'controller.mainController.smartParkingBrake(1) end end) '
     .. 'end', mode))
+  return mode
+end
+
+local function finish()
+  if not pending then
+    return
+  end
+  if not playerInCar() then
+    enterWaitingDriver()
+    return
+  end
+  pending = false
+  state = "on"
+  driver_wait = 0
+  local config = enableConfiguredModules()
+  local mode = releaseToTraffic(config)
   logger.debugPrint('apl_autopilot: ready - modules enabled, AI="' .. mode .. '"')
   if logger then
     logger.logLine("INFO", "master ON: modules enabled, ai=" .. mode)
@@ -177,6 +194,41 @@ local function releaseAndTraffic()
   pending = true
   finish()
   driver_wait = 0
+end
+
+-- The vehicle layer also runs a return timer based on playerInfo.anyPlayerSeated.
+-- This callback is the authoritative end of that timer: it must move the master
+-- out of waiting_driver even if the GE seat query lags behind by a frame or two.
+function M.onDriverReturnWaitDone(vehicle_id)
+  if not autopilot_requested or state ~= "waiting_driver" then
+    return false
+  end
+
+  local current = bridge and bridge.getVehicle()
+  if current and vehicle_id then
+    local ok, current_id = pcall(function()
+      return current:getID()
+    end)
+    if ok and tonumber(current_id) ~= tonumber(vehicle_id) then
+      return false
+    end
+  end
+
+  pending = false
+  state = "on"
+  driver_wait = 0
+  last_warmup_state = "done"
+  if commands then
+    commands.setWarmupRequested(false)
+  end
+
+  local config = enableConfiguredModules()
+  local mode = releaseToTraffic(config)
+  logger.debugPrint('apl_autopilot: driver returned after wait - AI="' .. mode .. '"')
+  if logger then
+    logger.logLine("INFO", "master ON: driver returned after 10s wait, ai=" .. mode)
+  end
+  return true
 end
 
 function M.aplAutopilot(mode)
@@ -229,8 +281,13 @@ function M.aplAutopilot(mode)
     state = "waiting_warmup"
     wait_time = 0
     poll_acc = 0
+    -- Send the request flag in the same vehicle command as the warmup start.
+    -- The separate command above can be queued a frame later, which used to
+    -- make the first part of the warmup run without the absent-driver gate.
     local command = string.format(
-      "soulPilotWarmupCmd.on('%s', {noSway=false, skipIfWarm=%s})",
+      "if soulPilotCustomLightsCmd and soulPilotCustomLightsCmd.setAutopilotRequested then "
+      .. "soulPilotCustomLightsCmd.setAutopilotRequested(true) end; "
+      .. "soulPilotWarmupCmd.on('%s', {noSway=false, skipIfWarm=%s})",
       config_loader.configPath("warmup.json"),
       tostring(config.skip_warmup_if_warm == 1))
     if not bridge.sendToVehicle(command) then
