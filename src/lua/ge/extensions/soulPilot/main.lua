@@ -218,6 +218,11 @@ function M.onVehicleReady(vehicle_id)
   if managed then
     vehicle_bridge.setFallbackVehicle(vehicle_id)
   end
+  -- New AI traffic vehicles must also receive the global steering smoother
+  -- when the player has enabled it after this vehicle was spawned.
+  if commands and commands.onVehicleReady then
+    commands.onVehicleReady(vehicle_id)
+  end
   vehicle_bridge.sendToVehicle("soulPilotCmd.setDebug(" .. tostring(logger.isDebug()) .. ")")
   logger.logLine("INFO", "vehicle layer ready (vehId=" .. tostring(vehicle_id) .. ")", "vehicle")
 end
@@ -229,6 +234,11 @@ function M.onVehicleSwitched(old_id, new_id, player)
 
   local new_vehicle = getVehicleById(new_id)
   if new_vehicle and not isUnicycle(new_vehicle) then
+    -- A manual/auto door lock belongs to one vehicle and one mission only.
+    -- Reset it before switching the fallback id, so the old car is unlocked
+    -- through the command bridge and the new car starts with a clean state.
+    commands.resetLock()
+
     -- Switching between cars: only the car the player is in may run the
     -- absent-driver / cat-squint logic.
     local old_vehicle = getVehicleById(old_id)
@@ -237,9 +247,14 @@ function M.onVehicleSwitched(old_id, new_id, player)
     end
     setVehicleManaged(new_id, true)
     vehicle_bridge.setFallbackVehicle(new_id)
+    if commands and commands.onVehicleReady then
+      commands.onVehicleReady(new_id)
+    end
   elseif new_id == nil or tonumber(new_id) == -1 then
     -- The player left the car into walking/observer mode. Keep the old car
     -- managed so it can stop, apply the handbrake and trigger the squint.
+    -- The door lock belongs to the previous seat, not to walking mode.
+    commands.resetLock()
   end
 end
 

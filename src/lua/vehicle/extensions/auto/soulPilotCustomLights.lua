@@ -413,11 +413,12 @@ function M.setManaged(value)
 end
 
 function M.playCatSquint()
+  -- AI traffic vehicles are not managed (they are not the player's car), but
+  -- they may still have the popup JBeam override and should squint when the
+  -- global pet-all command asks them to. The custom JBeam check in startSquint
+  -- makes vehicles without covers ignore the request.
   if not managed and isSeated() then
     managed = true
-  end
-  if not managed then
-    return false
   end
   return startSquint()
 end
@@ -440,6 +441,14 @@ function M.setDoorLock(value)
     setObjectPlayerLocked(false)
   end
   return door_lock_requested
+end
+
+function M.resetDoorLock()
+  door_lock_requested = false
+  door_locked = false
+  door_close_acc = 0.0
+  setObjectPlayerLocked(false)
+  return true
 end
 
 function M.closeDoors()
@@ -608,8 +617,10 @@ function M.onReset()
   seated_wait = 0.0
   waiting_for_warmup = false
   door_locked = false
+  door_lock_requested = false
   door_close_acc = 0.0
   door_message_cooldown = 0.0
+  setObjectPlayerLocked(false)
   custom_available = nil
   managed_time = 0.0
   -- Keep managed: a respawn of the player's vehicle must keep the feature on.
@@ -635,6 +646,10 @@ end
 
 function soulPilotCustomLightsCmd.setDoorLock(value)
   return M.setDoorLock(value)
+end
+
+function soulPilotCustomLightsCmd.resetDoorLock()
+  return M.resetDoorLock()
 end
 
 function soulPilotCustomLightsCmd.closeDoors()

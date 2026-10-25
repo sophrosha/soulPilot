@@ -8,6 +8,8 @@ local M = {}
 local DEFAULTS = {
   check_hz = 1.0,
   damage_threshold = 50000.0,
+  damage_speed_kph = 1.0,
+  damage_hold_s = 2.0,
   stuck_speed_kph = 5.0,
   stuck_time_s = 5.0,
   stuck_throttle_min = 0.5,
@@ -21,6 +23,7 @@ local cfg = nil
 local checkT = 0        -- аккумулятор опроса
 local stuckT = 0
 local flippedT = 0
+local damageT = 0
 local cooldownT = 0
 local damage = 0        -- приходит из GE (setDamage)
 local ignoreT = 0       -- сек «неуязвимости» после ремонта/телепорта (Фаза 9.5)
@@ -65,6 +68,14 @@ local function throttleRaw()
   v = tonumber(v) or 0
   if v ~= v then return 0 end
   return v
+end
+
+local function engineRunning()
+  local running = false
+  pcall(function()
+    running = (electrics.values.engineRunning or 0) > 0
+  end)
+  return running
 end
 
 -- Углы Эйлера (градусы). getDirectionVectorUp() в 0.39.4 врёт (up≈0.97 при
@@ -124,6 +135,7 @@ local function report(kind, info)
   cooldownT = cfg.cooldown_s
   stuckT = 0
   flippedT = 0
+  damageT = 0
   lastKind = kind
   aplPrint('aplPain: ' .. kind .. ' → ' .. info)
   toGE('INFO', 'pain ' .. kind .. ': ' .. info)
@@ -157,6 +169,7 @@ function M.updateGFX(dt)
     ignoreT = math.max(0, ignoreT - dt)
     stuckT = 0
     flippedT = 0
+    damageT = 0
     return
   end
 
@@ -164,6 +177,7 @@ function M.updateGFX(dt)
   if warmupBusy() or petBusy() then
     stuckT = 0
     flippedT = 0
+    damageT = 0
     return
   end
 
@@ -201,8 +215,22 @@ function M.updateGFX(dt)
 
   -- DAMAGE: только когда машина реально ВСТАЛА (мертвая). На ходу не чиним,
   -- даже если урон огромный (грунтовка/кочки дают миллионы).
-  if damage >= cfg.damage_threshold and spd <= cfg.stuck_speed_kph then
-    report('DAMAGE', string.format('damageSum=%.0f speed=%.1f', damage, spd))
+  -- A pothole/bump must never trigger recovery just because the car was
+  -- briefly slow. Require full structural threshold, near-zero speed, an
+  -- engine that is no longer running, and keep that state for a short hold.
+  local engine_off = not engineRunning()
+  local damage_ready = damage >= cfg.damage_threshold
+    and spd <= cfg.damage_speed_kph
+    and engine_off
+  if damage_ready then
+    damageT = damageT + step
+  else
+    damageT = 0
+  end
+  if damageT >= cfg.damage_hold_s then
+    report('DAMAGE', string.format(
+      'damageSum=%.0f speed=%.1f engineOff=%s %.1fs',
+      damage, spd, tostring(engine_off), damageT))
   end
 end
 
@@ -218,6 +246,8 @@ function soulPilotPainCmd.start(params)
   cfg = {
     check_hz = clampNum(t.check_hz, 0.1, 10, D.check_hz),
     damage_threshold = clampNum(t.damage_threshold, 0, 1e9, D.damage_threshold),
+    damage_speed_kph = clampNum(t.damage_speed_kph, 0, 20, D.damage_speed_kph),
+    damage_hold_s = clampNum(t.damage_hold_s, 0, 30, D.damage_hold_s),
     stuck_speed_kph = clampNum(t.stuck_speed_kph, 0, 100, D.stuck_speed_kph),
     stuck_time_s = clampNum(t.stuck_time_s, 1, 120, D.stuck_time_s),
     stuck_throttle_min = clampNum(t.stuck_throttle_min, 0.1, 1, D.stuck_throttle_min),
@@ -226,7 +256,7 @@ function soulPilotPainCmd.start(params)
     cooldown_s = clampNum(t.cooldown_s, 1, 600, D.cooldown_s),
   }
   active = true
-  checkT, stuckT, flippedT, cooldownT = 0, 0, 0, 0
+  checkT, stuckT, flippedT, damageT, cooldownT = 0, 0, 0, 0, 0
   damage = 0
   ignoreT = 0
   dmgReqT = 0
@@ -249,7 +279,7 @@ end
 -- GE: после ремонта/телепорта — «неуязвимость» N секунд (детекторы молчат)
 function soulPilotPainCmd.ignoreDamage(seconds)
   ignoreT = clampNum(seconds, 0, 30, 3.0)
-  stuckT, flippedT = 0, 0
+  stuckT, flippedT, damageT = 0, 0, 0
   aplPrint('aplPain: ignoreDamage=' .. string.format('%.1f', ignoreT) .. ' с')
   return true
 end
@@ -278,14 +308,14 @@ function soulPilotPainCmd.status()
     cfg and string.format('пороги: damage>=%.2f stuck<=%.0fкм/ч/%.0fс flip |roll|>90/|pitch|>90 %.1fс',
       cfg.damage_threshold, cfg.stuck_speed_kph, cfg.stuck_time_s,
       cfg.flipped_time_s) or nil,
-    string.format('таймеры: stuck=%.1f flipped=%.1f ignore=%.1f', stuckT, flippedT, ignoreT),
+    string.format('таймеры: stuck=%.1f flipped=%.1f damage=%.1f ignore=%.1f', stuckT, flippedT, damageT, ignoreT),
   }
   for _, l in ipairs(lines) do if l then print('aplPain: ' .. l) end end
   return true
 end
 
 function M.onReset()
-  stuckT, flippedT = 0, 0
+  stuckT, flippedT, damageT = 0, 0, 0
   -- active сохраняем: после respawn авто-восстановление продолжает работать
 end
 

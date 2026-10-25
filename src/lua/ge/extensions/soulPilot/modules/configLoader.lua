@@ -10,6 +10,7 @@ M.GRAPH_CONF = M.MOD_CONFIG_DIR .. "graph.json"
 
 M.MASTER_DEFAULTS = {
   enable_wheel = 1,
+  smooth_ai_cars = 1,
   enable_pedals = 1,
   enable_lights = 1,
   enable_popup = 1,
@@ -66,6 +67,8 @@ M.PAIN_DEFAULTS = {
   damage_threshold = 50000,
   damage_threshold_percent = 0.8,
   damage_threshold_by_model = { us_semi = 10000000 },
+  damage_speed_kph = 1.0,
+  damage_hold_s = 2.0,
   stuck_speed_kph = 5,
   stuck_time_s = 5,
   stuck_throttle_min = 0.5,
@@ -245,6 +248,7 @@ function M.loadMasterConfig()
   end
 
   config.enable_wheel = flag("enable_wheel", defaults.enable_wheel)
+  config.smooth_ai_cars = flag("smooth_ai_cars", defaults.smooth_ai_cars)
   config.enable_pedals = flag("enable_pedals", defaults.enable_pedals)
   config.enable_lights = flag("enable_lights", defaults.enable_lights)
   config.enable_popup = flag("enable_popup", defaults.enable_popup)
@@ -447,6 +451,8 @@ function M.loadPainConfig()
   config.check_hz = number("check_hz", 0.1, 10, defaults.check_hz)
   config.damage_threshold = number("damage_threshold", 0, 1e9, defaults.damage_threshold)
   config.damage_threshold_percent = number("damage_threshold_percent", 0, 1, defaults.damage_threshold_percent)
+  config.damage_speed_kph = number("damage_speed_kph", 0, 20, defaults.damage_speed_kph)
+  config.damage_hold_s = number("damage_hold_s", 0, 30, defaults.damage_hold_s)
   config.damage_threshold_by_model = copyTable(defaults.damage_threshold_by_model)
   if type(decoded.damage_threshold_by_model) == "table" then
     for model, value in pairs(decoded.damage_threshold_by_model) do

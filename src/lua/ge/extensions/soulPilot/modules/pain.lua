@@ -29,10 +29,40 @@ local function playerJBeam(vehicle)
   return nil
 end
 
+local function maxDamageCapacity(vehicle)
+  if not vehicle then
+    return nil
+  end
+  -- BeamNG has no documented getTotalDamageCapacity() in the Lua API used
+  -- here. Probe common names so a future game build can still provide a real
+  -- 80% threshold instead of the fixed fallback.
+  local methods = { "getTotalDamageCapacity", "getDamageCapacity", "getMaxDamage" }
+  for _, method in ipairs(methods) do
+    if vehicle[method] then
+      local ok, value = pcall(function()
+        return vehicle[method](vehicle)
+      end)
+      value = tonumber(value)
+      if ok and value and value > 0 then
+        return value
+      end
+    end
+  end
+  return nil
+end
+
 local function thresholdFor(vehicle, config)
   local jbeam = vehicle and playerJBeam(vehicle) or nil
   if jbeam and config.damage_threshold_by_model[jbeam] then
     return config.damage_threshold_by_model[jbeam], jbeam
+  end
+  local capacity = maxDamageCapacity(vehicle)
+  if capacity then
+    local percent = tonumber(config.damage_threshold_percent) or 0.8
+    local threshold = capacity * percent
+    if threshold > 0 then
+      return threshold, jbeam
+    end
   end
   return config.damage_threshold, jbeam
 end
@@ -123,10 +153,13 @@ function M.aplPain(mode)
     damage_acc = 0
     bridge.sendToVehicle(string.format(
       "soulPilotPainCmd.start({check_hz=%.2f,damage_threshold=%.3f,"
+        .. "damage_speed_kph=%.1f,damage_hold_s=%.1f,"
         .. "stuck_speed_kph=%.1f,stuck_time_s=%.1f,stuck_throttle_min=%.2f,"
         .. "flipped_up_dot=%.2f,flipped_time_s=%.1f,cooldown_s=%.1f})",
       config.check_hz,
       config.damage_threshold,
+      config.damage_speed_kph,
+      config.damage_hold_s,
       config.stuck_speed_kph,
       config.stuck_time_s,
       config.stuck_throttle_min,

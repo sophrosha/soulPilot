@@ -82,6 +82,69 @@ local function autoCsv(reason)
   end
 end
 
+local function isSmoothAiEnabled()
+  if not config_loader then
+    return false
+  end
+  local config = config_loader.loadMasterConfig()
+  return config ~= nil and tonumber(config.smooth_ai_cars) == 1
+end
+
+local function isUnicycle(vehicle)
+  local ok, name = pcall(function()
+    return vehicle and vehicle:getJBeamFilename() or ""
+  end)
+  return (ok and tostring(name):lower() == "unicycle") or false
+end
+
+local function sendWheelCommand(vehicle_id, path, enabled)
+  if not bridge or not bridge.sendToVehicleById then
+    return nil
+  end
+  local command
+  if enabled then
+    command = string.format('soulPilotWheelCmd.on("%s")', tostring(path or ""))
+  else
+    command = "soulPilotWheelCmd.off()"
+  end
+  return bridge.sendToVehicleById(vehicle_id, command)
+end
+
+local function broadcastWheel(path, enabled)
+  if type(getAllVehicles) ~= "function" then
+    return 0
+  end
+  local ok, vehicles = pcall(getAllVehicles)
+  if not ok or type(vehicles) ~= "table" then
+    return 0
+  end
+  local count = 0
+  for _, vehicle in ipairs(vehicles) do
+    if vehicle and not isUnicycle(vehicle) then
+      local id_ok, id = pcall(function()
+        return vehicle:getID()
+      end)
+      if id_ok and id then
+        if sendWheelCommand(id, path, enabled) then
+          count = count + 1
+        end
+      end
+    end
+  end
+  return count
+end
+
+function M.onVehicleReady(vehicle_id)
+  if not wheel_requested or not isSmoothAiEnabled() then
+    return false
+  end
+  local path = config_loader and config_loader.configPath("wheel.json") or nil
+  if not path then
+    return false
+  end
+  return sendWheelCommand(vehicle_id, path, true) ~= nil
+end
+
 function M.aplWheel(mode)
   mode = tostring(mode or ""):lower()
   local path = config_loader.configPath("wheel.json")
@@ -91,11 +154,18 @@ function M.aplWheel(mode)
       print("WARN apl_wheel: config not found (" .. tostring(path) .. "), vehicle will use defaults")
     end
     local vehicle = bridge.sendToVehicle(string.format('soulPilotWheelCmd.on("%s")', path))
-    if vehicle then
+    local smooth_ai = isSmoothAiEnabled()
+    if vehicle or smooth_ai then
       wheel_requested = true
-      logger.debugPrint("apl_wheel: ON (config: " .. tostring(path) .. ")")
+      local ai_count = 0
+      if smooth_ai then
+        ai_count = broadcastWheel(path, true)
+      end
+      logger.debugPrint("apl_wheel: ON (config: " .. tostring(path)
+        .. ", smooth_ai=" .. tostring(smooth_ai) .. ", vehicles=" .. tostring(ai_count) .. ")")
       if logger then
-        logger.logLine("INFO", "apl_wheel ON, conf=" .. tostring(path))
+        logger.logLine("INFO", "apl_wheel ON, conf=" .. tostring(path)
+          .. ", smooth_ai=" .. tostring(smooth_ai) .. ", vehicles=" .. tostring(ai_count))
       end
       autoCsv("apl_wheel")
     end
@@ -106,11 +176,13 @@ function M.aplWheel(mode)
     local command = 'local ok, off = pcall(function() return soulPilotWheelCmd.off() end); '
       .. 'print("soulPilotWheel: off round-trip ok=" .. tostring(ok) .. " off=" .. tostring(off)); '
       .. 'pcall(function() soulPilotWheelCmd.status() end)'
-    if bridge.sendToVehicle(command) then
+    local player_vehicle = bridge.sendToVehicle(command)
+    local ai_count = broadcastWheel(path, false)
+    if player_vehicle or ai_count > 0 then
       wheel_requested = false
-      logger.debugPrint("apl_wheel: OFF sent")
+      logger.debugPrint("apl_wheel: OFF sent (vehicles=" .. tostring(ai_count) .. ")")
       if logger then
-        logger.logLine("INFO", "apl_wheel OFF sent")
+        logger.logLine("INFO", "apl_wheel OFF sent (vehicles=" .. tostring(ai_count) .. ")")
       end
     end
     return true
@@ -234,6 +306,36 @@ function M.aplPetActive()
   return pet.isActive()
 end
 
+function M.aplPetAll()
+  if type(getAllVehicles) ~= "function" then
+    print("apl_petAll: getAllVehicles is not available")
+    return false
+  end
+
+  local ok, vehicles = pcall(getAllVehicles)
+  if not ok or type(vehicles) ~= "table" then
+    print("apl_petAll: could not enumerate vehicles")
+    return false
+  end
+
+  local sent = 0
+  for _, vehicle in ipairs(vehicles) do
+    if vehicle and not isUnicycle(vehicle) then
+      local id_ok, id = pcall(function()
+        return vehicle:getID()
+      end)
+      if id_ok and id and bridge and bridge.sendToVehicleById then
+        if bridge.sendToVehicleById(id, "soulPilotCustomLightsCmd.playCatSquint()") then
+          sent = sent + 1
+        end
+      end
+    end
+  end
+
+  print("apl_petAll: sent squint to " .. tostring(sent) .. " vehicle(s)")
+  return sent > 0
+end
+
 function M.aplPopup(mode)
   return popup.aplPopup(mode)
 end
@@ -309,9 +411,9 @@ local function vehicleSpeedKph()
   return math.max(0, tonumber(speed) or 0) * 3.6
 end
 
-local function setAutoDoorFilter(enabled)
+local function setAutoDoorFilter(enabled, force)
   enabled = enabled == true
-  if auto_door_locked == enabled then
+  if not force and auto_door_locked == enabled then
     return
   end
   auto_door_locked = enabled
@@ -406,12 +508,60 @@ function M.aplLock(mode)
 end
 
 function M.resetLock()
-  if lock_enabled then
-    applyLock(false)
-  end
-  setAutoDoorFilter(false)
-  sendDoorLock(false)
+  -- Forced reset: a level change or vehicle switch must never leave the
+  -- player locked in (or out of) the previous car. Do not rely on state
+  -- transitions here, because the old vehicle may still have playerLocked set.
+  lock_enabled = false
+  auto_door_locked = false
+  door_command_state = false
   door_check_acc = 0
+
+  pcall(function()
+    if not core_input_actionFilter then
+      return
+    end
+    core_input_actionFilter.setGroup(LOCK_FILTER, DOOR_ACTIONS)
+    core_input_actionFilter.addAction(0, LOCK_FILTER, false)
+    core_input_actionFilter.setGroup(AUTO_DOOR_FILTER, DOOR_ACTIONS)
+    core_input_actionFilter.addAction(0, AUTO_DOOR_FILTER, false)
+  end)
+
+  if not bridge then
+    return
+  end
+
+  local command = "soulPilotCustomLightsCmd.resetDoorLock()"
+  local ids = {}
+  local fallback_id = bridge.getFallbackVehicleId and bridge.getFallbackVehicleId()
+  if fallback_id then
+    ids[#ids + 1] = fallback_id
+  end
+  local vehicle = bridge.getVehicle()
+  if vehicle then
+    local ok, id = pcall(function()
+      return vehicle:getID()
+    end)
+    if ok and id then
+      ids[#ids + 1] = id
+    end
+    pcall(function()
+      if vehicle.setPlayerLocked then
+        vehicle:setPlayerLocked(false)
+      end
+    end)
+  end
+
+  local sent = {}
+  for _, id in ipairs(ids) do
+    if not sent[id] and bridge.sendToVehicleById then
+      if bridge.sendToVehicleById(id, command) then
+        sent[id] = true
+      end
+    end
+  end
+  if not next(sent) and bridge.sendToVehicle then
+    bridge.sendToVehicle(command)
+  end
 end
 
 function M.isDoorLocked()
@@ -536,6 +686,7 @@ local aliases = {
   apl_lights = "aplLights",
   apl_pet = "aplPet",
   apl_petActive = "aplPetActive",
+  apl_petAll = "aplPetAll",
   apl_popup = "aplPopup",
   apl_pain = "aplPain",
   apl_debug = "aplDebug",
