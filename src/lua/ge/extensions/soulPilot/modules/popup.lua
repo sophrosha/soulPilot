@@ -36,11 +36,15 @@ function M.isAuto()
 end
 
 function M.aplPopup(mode)
-  mode = tostring(mode or "")
+  mode = tostring(mode or ""):lower()
   local vehicle = bridge.getVehicle()
   if not vehicle then
     print("apl_popup: player vehicle not found")
     return false
+  end
+
+  if mode == "toggle" then
+    return M.aplPopup(auto_enabled and "off" or "auto")
   end
 
   if mode == "auto" then
@@ -116,7 +120,7 @@ function M.aplPopup(mode)
     return true
   end
 
-  print("Usage: apl_popup(\"auto\"|\"off\"|\"status\")")
+  print("Usage: apl_popup(\"auto\"|\"off\"|\"toggle\"|\"status\")")
   return false
 end
 

@@ -18,11 +18,13 @@ local wheel_requested = false
 local pedals_requested = false
 local warmup_requested = false
 local lock_enabled = false
+local spectapilot_detected = false
 
 local LOCK_FILTER = "soulPilotLockedActions"
 local AUTO_DOOR_FILTER = "soulPilotAutoDoorLock"
 local DOOR_ACTIONS = { "toggleWalkingMode" }
 local auto_door_locked = false
+local auto_lock_cooldown = 0
 local door_check_acc = 0
 local last_door_message = 0
 
@@ -42,6 +44,11 @@ end
 
 function M.isWheelRequested()
   return wheel_requested
+end
+
+function M.setSpectaPilotDetected(value)
+  spectapilot_detected = value == true
+  return spectapilot_detected
 end
 
 function M.isPedalsRequested()
@@ -87,7 +94,13 @@ local function isSmoothAiEnabled()
     return false
   end
   local config = config_loader.loadMasterConfig()
-  return config ~= nil and tonumber(config.smooth_ai_cars) == 1
+  if config == nil or tonumber(config.smooth_ai_cars) ~= 1 then
+    return false
+  end
+  if spectapilot_detected and tonumber(config.smooth_spectapilot) ~= 1 then
+    return false
+  end
+  return true
 end
 
 local function isUnicycle(vehicle)
@@ -340,6 +353,44 @@ function M.aplPopup(mode)
   return popup.aplPopup(mode)
 end
 
+function M.aplWink()
+  if not bridge then
+    return false
+  end
+  local vehicle = bridge.sendToVehicle("soulPilotCustomLightsCmd.wink()")
+  if not vehicle then
+    print("apl_wink: player vehicle not found")
+    return false
+  end
+  if logger then
+    logger.logLine("INFO", "apl_wink requested")
+  end
+  return true
+end
+
+function M.aplRecord(mode)
+  if not csv then
+    return false
+  end
+  mode = tostring(mode or "toggle"):lower()
+  local active = csv.isActive()
+  if mode == "toggle" then
+    mode = active and "off" or "on"
+  end
+  if mode == "on" then
+    local started = csv.start()
+    print(started and "apl_record: ON" or "apl_record: could not start")
+    return started
+  end
+  if mode == "off" then
+    local stopped = csv.stop()
+    print(stopped and "apl_record: OFF" or "apl_record: not recording")
+    return stopped
+  end
+  print("Usage: apl_record(\"on\"|\"off\"|\"toggle\")")
+  return false
+end
+
 function M.aplPain(mode)
   return pain.aplPain(mode)
 end
@@ -473,6 +524,7 @@ function M.aplLock(mode)
       print("apl_lock: already ON")
       return false
     end
+    auto_lock_cooldown = 0
     if not applyLock(true) then
       return false
     end
@@ -513,6 +565,7 @@ function M.resetLock()
   -- transitions here, because the old vehicle may still have playerLocked set.
   lock_enabled = false
   auto_door_locked = false
+  auto_lock_cooldown = 2.0
   door_command_state = false
   door_check_acc = 0
 
@@ -564,12 +617,143 @@ function M.resetLock()
   end
 end
 
+function M.getPlayerVehicleIds()
+  local ids = {}
+  local seen = {}
+  local function add(id)
+    id = tonumber(id)
+    if id and id >= 0 and not seen[id] then
+      seen[id] = true
+      ids[#ids + 1] = id
+    end
+  end
+
+  if bridge then
+    add(bridge.getFallbackVehicleId and bridge.getFallbackVehicleId())
+    local player = bridge.getVehicle()
+    if player then
+      local ok, id = pcall(function()
+        return player:getID()
+      end)
+      if ok then
+        add(id)
+      end
+    end
+  end
+
+  if type(getAllVehicles) == "function" then
+    local ok, vehicles = pcall(getAllVehicles)
+    if ok and type(vehicles) == "table" then
+      for _, vehicle in ipairs(vehicles) do
+        local controlled = false
+        pcall(function()
+          controlled = vehicle and vehicle:isPlayerControlled() == true
+        end)
+        if controlled then
+          local id_ok, id = pcall(function()
+            return vehicle:getID()
+          end)
+          if id_ok then
+            add(id)
+          end
+        end
+      end
+    end
+  end
+  return ids
+end
+
+local function sendToVehicleIds(ids, command)
+  local sent = 0
+  if not bridge then
+    return sent
+  end
+  for _, id in ipairs(ids or {}) do
+    if bridge.sendToVehicleById and bridge.sendToVehicleById(id, command) then
+      sent = sent + 1
+    end
+  end
+  return sent
+end
+
+function M.setVehicleAiDisabled(ids, disabled)
+  local command = string.format('if ai and ai.setMode then ai.setMode("%s") end',
+    disabled == false and "traffic" or "disabled")
+  return sendToVehicleIds(ids, command)
+end
+
+function M.setVehicleParkingBrake(ids, value)
+  local brake = (value == true or tonumber(value) == 1) and 1 or 0
+  local command = string.format(
+    'pcall(function() if controller and controller.mainController then '
+      .. 'controller.mainController.smartParkingBrake(%d) end end)', brake)
+  return sendToVehicleIds(ids, command)
+end
+
+function M.holdPlayerVehicles(enabled)
+  local ids = M.getPlayerVehicleIds()
+  if enabled ~= false then
+    M.setVehicleAiDisabled(ids, true)
+    M.setVehicleParkingBrake(ids, 1)
+  else
+    M.setVehicleParkingBrake(ids, 0)
+  end
+  return ids
+end
+
+function M.forceIdleVehicle(vehicle_id, handbrake)
+  local ids = {}
+  if vehicle_id then
+    ids[1] = vehicle_id
+  end
+  M.setVehicleAiDisabled(ids, true)
+  M.setVehicleParkingBrake(ids, handbrake == true and 1 or 0)
+  return ids
+end
+
+function M.cancelPlayerWarmup()
+  local ids = M.getPlayerVehicleIds()
+  sendToVehicleIds(ids,
+    'if soulPilotWarmupCmd and soulPilotWarmupCmd.off then soulPilotWarmupCmd.off() end')
+  return ids
+end
+
+function M.resetLockAll()
+  M.resetLock()
+  local ids = {}
+  if type(getAllVehicles) == "function" then
+    local ok, vehicles = pcall(getAllVehicles)
+    if ok and type(vehicles) == "table" then
+      for _, vehicle in ipairs(vehicles) do
+        local id_ok, id = pcall(function()
+          return vehicle:getID()
+        end)
+        if id_ok and id and not isUnicycle(vehicle) then
+          ids[#ids + 1] = id
+        end
+        pcall(function()
+          if vehicle and vehicle.setPlayerLocked then
+            vehicle:setPlayerLocked(false)
+          end
+        end)
+      end
+    end
+  end
+  sendToVehicleIds(ids, "soulPilotCustomLightsCmd.resetDoorLock()")
+end
+
 function M.isDoorLocked()
   return lock_enabled or auto_door_locked
 end
 
 function M.update(dt)
   if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then
+    return
+  end
+  if auto_lock_cooldown > 0 then
+    auto_lock_cooldown = math.max(0, auto_lock_cooldown - dt)
+    setAutoDoorFilter(false)
+    sendDoorLock(false)
     return
   end
   door_check_acc = door_check_acc + dt
@@ -688,6 +872,9 @@ local aliases = {
   apl_petActive = "aplPetActive",
   apl_petAll = "aplPetAll",
   apl_popup = "aplPopup",
+  apl_wink = "aplWink",
+  apl_record = "aplRecord",
+  apl_csv = "aplRecord",
   apl_pain = "aplPain",
   apl_debug = "aplDebug",
   apl_debug_set = "aplDebugSet",

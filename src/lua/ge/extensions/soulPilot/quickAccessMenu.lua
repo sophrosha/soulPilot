@@ -3,8 +3,15 @@
 -- Вкладка «soulPilot» появляется рядом с «Ремонт»/«ИИ» в списке категорий
 -- Free roam (/root/sandbox/), внутри — три кнопки (мастер, погладить, парковка).
 
+local config_loader = require("extensions.soulPilot.modules.configLoader")
+
 local M = {}
 local registered = false
+
+local function debugEnabled()
+  local ok, config = pcall(config_loader.loadMasterConfig)
+  return ok and config ~= nil and tonumber(config.debug_mode) == 1
+end
 
 function M.register()
   if registered then return true end
@@ -45,6 +52,56 @@ function M.register()
         uniqueID = 'aplPet',
         onSelect = function()
           if apl_pet then apl_pet('on') end
+          return { 'hide' }
+        end
+      })
+      if debugEnabled() then
+        table.insert(entries, {
+          title = 'Debug',
+          desc = 'Popup / Wink / CSV',
+          icon = 'bug',
+          startSlot = 3,
+          uniqueID = 'aplDebugFolder',
+          ['goto'] = '/root/sandbox/apl_debug/',
+        })
+      end
+    end
+  })
+
+  core_quickAccess.addEntry({
+    level = '/root/sandbox/apl_debug/',
+    generator = function(entries)
+      if not debugEnabled() then return end
+      table.insert(entries, {
+        title = 'Toggle Popup',
+        desc = 'Enable or disable automatic popup blink',
+        icon = 'carLights',
+        startSlot = 1,
+        uniqueID = 'aplDebugPopup',
+        onSelect = function()
+          if apl_popup then apl_popup('toggle') end
+          return { 'hide' }
+        end
+      })
+      table.insert(entries, {
+        title = 'Test Wink',
+        desc = 'Play one synchronized popup wink',
+        icon = 'eye',
+        startSlot = 2,
+        uniqueID = 'aplDebugWink',
+        onSelect = function()
+          if apl_wink then apl_wink() end
+          return { 'hide' }
+        end
+      })
+      table.insert(entries, {
+        title = 'Record CSV',
+        desc = 'Start or stop CSV recording',
+        icon = 'record',
+        startSlot = 3,
+        uniqueID = 'aplDebugCsv',
+        onSelect = function()
+          if apl_record then apl_record('toggle') end
           return { 'hide' }
         end
       })

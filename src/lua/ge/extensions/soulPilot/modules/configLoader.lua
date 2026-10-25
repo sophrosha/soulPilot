@@ -11,6 +11,7 @@ M.GRAPH_CONF = M.MOD_CONFIG_DIR .. "graph.json"
 M.MASTER_DEFAULTS = {
   enable_wheel = 1,
   smooth_ai_cars = 1,
+  smooth_spectapilot = 1,
   enable_pedals = 1,
   enable_lights = 1,
   enable_popup = 1,
@@ -249,6 +250,7 @@ function M.loadMasterConfig()
 
   config.enable_wheel = flag("enable_wheel", defaults.enable_wheel)
   config.smooth_ai_cars = flag("smooth_ai_cars", defaults.smooth_ai_cars)
+  config.smooth_spectapilot = flag("smooth_spectapilot", defaults.smooth_spectapilot)
   config.enable_pedals = flag("enable_pedals", defaults.enable_pedals)
   config.enable_lights = flag("enable_lights", defaults.enable_lights)
   config.enable_popup = flag("enable_popup", defaults.enable_popup)
@@ -423,6 +425,13 @@ function M.loadPopupConfig()
     if config.squint_max < config.squint_min then
       config.squint_max = config.squint_min
     end
+  end
+
+  -- debug_force_blink_delay_s is a diagnostics-only override. Never let a
+  -- stale/user value turn normal blinking into a 5-second loop.
+  local master = M.loadMasterConfig()
+  if not master or tonumber(master.debug_mode) ~= 1 then
+    config.debug_force_blink_delay_s = 0
   end
 
   if config.day_max_s < config.day_min_s then
