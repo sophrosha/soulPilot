@@ -196,6 +196,49 @@ local function releaseAndTraffic()
   driver_wait = 0
 end
 
+-- The player got back into the car on which autopilot was requested. Never
+-- force the master off here: if warmup is still running, let it finish; if the
+-- car is already waiting, arm the same 10 second return timer again.
+function M.onAutopilotVehicleEntered(vehicle_id)
+  if not autopilot_requested then
+    return false
+  end
+
+  local current = bridge and bridge.getVehicle()
+  if not current or not vehicle_id then
+    return false
+  end
+  local ok, current_id = pcall(function()
+    return current:getID()
+  end)
+  if not ok or tonumber(current_id) ~= tonumber(vehicle_id) then
+    return false
+  end
+
+  if state == "waiting_warmup" then
+    driver_wait = 0
+    if logger then
+      logger.logLine("INFO", "same autopilot vehicle entered during warmup; keeping warmup")
+    end
+    return true
+  end
+
+  if state == "waiting_driver" or state == "off" or state == "on" then
+    pending = false
+    state = "waiting_driver"
+    wait_time = 0
+    driver_wait = DRIVER_WAIT_S
+    hold_acc = 0
+    disableDriverlessVehicle()
+    if logger then
+      logger.logLine("INFO", "same autopilot vehicle entered; waiting 10s before AI enable")
+    end
+    return true
+  end
+
+  return false
+end
+
 -- The vehicle layer also runs a return timer based on playerInfo.anyPlayerSeated.
 -- This callback is the authoritative end of that timer: it must move the master
 -- out of waiting_driver even if the GE seat query lags behind by a frame or two.
