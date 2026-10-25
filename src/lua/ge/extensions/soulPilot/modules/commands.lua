@@ -97,7 +97,8 @@ local function isSmoothAiEnabled()
   if config == nil or tonumber(config.smooth_ai_cars) ~= 1 then
     return false
   end
-  if spectapilot_detected and tonumber(config.smooth_spectapilot) ~= 1 then
+  local specta_detected = spectapilot_detected or _G.soulPilotSpectaPilotDetected == true
+  if specta_detected and tonumber(config.smooth_spectapilot) ~= 1 then
     return false
   end
   return true

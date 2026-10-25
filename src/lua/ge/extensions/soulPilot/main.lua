@@ -165,10 +165,11 @@ local function detectSpectaPilot()
       candidate.cfg.soulPilot_smoothing = smoothing
     end
   end)
-  if commands then
+  if commands and commands.setSpectaPilotDetected then
     commands.setSpectaPilotDetected(true)
   end
   print("SpectaPilot detected")
+  logger.debugPrint("SpectaPilot detected")
   logger.logLine("INFO", "SpectaPilot detected")
   logger.logLine("INFO", "SpectaPilot smoothing option = "
     .. (smoothing and "enabled" or "disabled"))
