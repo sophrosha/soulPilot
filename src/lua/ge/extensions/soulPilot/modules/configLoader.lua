@@ -56,6 +56,9 @@ M.POPUP_DEFAULTS = {
   blink_min_s = 1.5,
   blink_max_s = 2.0,
   debug_force_blink_delay_s = 0,
+  squint_min = 0.25,
+  squint_max = 0.40,
+  squint_duration_s = 6.0,
 }
 
 M.PAIN_DEFAULTS = {
@@ -380,6 +383,9 @@ function M.loadPopupConfig()
     blink_min_s = defaults.blink_min_s,
     blink_max_s = defaults.blink_max_s,
     debug_force_blink_delay_s = defaults.debug_force_blink_delay_s,
+    squint_min = defaults.squint_min,
+    squint_max = defaults.squint_max,
+    squint_duration_s = defaults.squint_duration_s,
     from_file = false,
   }
 
@@ -407,6 +413,12 @@ function M.loadPopupConfig()
     config.blink_min_s = number("blink_min_s", 0.2, 10, config.blink_min_s)
     config.blink_max_s = number("blink_max_s", 0.2, 10, config.blink_max_s)
     config.debug_force_blink_delay_s = number("debug_force_blink_delay_s", 0, 600, config.debug_force_blink_delay_s)
+    config.squint_min = number("squint_min", 0, 1, config.squint_min)
+    config.squint_max = number("squint_max", 0, 1, config.squint_max)
+    config.squint_duration_s = number("squint_duration_s", 0.5, 60, config.squint_duration_s)
+    if config.squint_max < config.squint_min then
+      config.squint_max = config.squint_min
+    end
   end
 
   if config.day_max_s < config.day_min_s then
