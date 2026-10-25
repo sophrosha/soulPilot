@@ -5,6 +5,8 @@
   "damage_threshold_by_model": {
     "us_semi": 10000000.0
   },
+  "damage_speed_kph": 1.0,
+  "damage_hold_s": 2.0,
   "stuck_speed_kph": 5.0,
   "stuck_time_s": 5.0,
   "stuck_throttle_min": 0.5,
