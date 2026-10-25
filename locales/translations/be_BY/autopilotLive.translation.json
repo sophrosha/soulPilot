@@ -65,5 +65,6 @@
   "soulPilot.doors_locked": "Дзверы заблакаваны, ты не выйдзеш!",
   "soulPilot.warmup_ready": "Прагрэў завершаны, машына гатова",
   "soulPilot.warmup_timeout": "Прагрэў па таймаўту, машына гатова",
-  "soulPilot.warmup_outside": "Прагрэў завершаны, вадзіцель знадворку"
+  "soulPilot.warmup_outside": "Прагрэў завершаны, вадзіцель знадворку",
+  "soulPilot.autopilot_already_active": "Аўтапілот ужо актыўны"
 }

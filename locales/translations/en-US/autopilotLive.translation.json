@@ -65,5 +65,6 @@
   "soulPilot.doors_locked": "Doors are locked, you can't get out!",
   "soulPilot.warmup_ready": "Warmup complete, car is ready",
   "soulPilot.warmup_timeout": "Warmup timed out, car is ready",
-  "soulPilot.warmup_outside": "Warmup complete, driver is outside"
+  "soulPilot.warmup_outside": "Warmup complete, driver is outside",
+  "soulPilot.autopilot_already_active": "Autopilot is already active"
 }
