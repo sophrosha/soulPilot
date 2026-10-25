@@ -13,7 +13,8 @@ function M.getVehicle()
   if not (getPlayerVehicle) then
     return nil
   end
-  return getPlayerVehicle(0)
+  local vehicle = getPlayerVehicle(0)
+  return vehicle or nil
 end
 
 function M.getFallbackVehicle()
@@ -54,6 +55,30 @@ function M.sendToVehicle(command)
   if not ok then
     if logger then
       logger.logLine("WARN", "queueLuaCommand failed: " .. tostring(command) .. " : " .. tostring(error_message))
+    end
+    return nil
+  end
+  return vehicle
+end
+
+function M.sendToVehicleById(vehicle_id, command)
+  vehicle_id = tonumber(vehicle_id)
+  if not vehicle_id or vehicle_id < 0 or not getObjectByID then
+    return nil
+  end
+
+  local ok, vehicle = pcall(getObjectByID, vehicle_id)
+  if not ok or not vehicle then
+    return nil
+  end
+
+  local sent, error_message = pcall(function()
+    vehicle:queueLuaCommand(command)
+  end)
+  if not sent then
+    if logger then
+      logger.logLine("WARN", "queueLuaCommand failed for vehicle " .. tostring(vehicle_id)
+        .. ": " .. tostring(command) .. " : " .. tostring(error_message))
     end
     return nil
   end

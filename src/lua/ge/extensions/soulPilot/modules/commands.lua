@@ -17,6 +17,9 @@ local ui = nil
 local wheel_requested = false
 local pedals_requested = false
 local warmup_requested = false
+local lock_enabled = false
+
+local LOCK_FILTER = "soulPilotLockedActions"
 
 function M.init(context)
   logger = context.logger
@@ -260,6 +263,70 @@ function M.aplDebugSet(enabled)
   return enabled
 end
 
+local function applyLock(enabled)
+  local ok = pcall(function()
+    if not core_input_actionFilter then
+      error("core_input_actionFilter is not available")
+    end
+    core_input_actionFilter.setGroup(LOCK_FILTER, { "toggleWalkingMode" })
+    core_input_actionFilter.addAction(0, LOCK_FILTER, enabled == true)
+  end)
+  if not ok then
+    print("WARN apl_lock: input action filter is not available")
+    return false
+  end
+  lock_enabled = enabled == true
+  return true
+end
+
+function M.aplLock(mode)
+  mode = tostring(mode or ""):lower()
+
+  if mode == "on" then
+    if lock_enabled then
+      print("apl_lock: already ON")
+      return false
+    end
+    if not applyLock(true) then
+      return false
+    end
+    print("apl_lock: ON - driver exit is blocked")
+    if logger then
+      logger.logLine("INFO", "apl_lock ON")
+    end
+    return true
+  end
+
+  if mode == "off" then
+    if not lock_enabled then
+      print("apl_lock: already OFF")
+      return false
+    end
+    if not applyLock(false) then
+      return false
+    end
+    print("apl_lock: OFF - driver exit is allowed")
+    if logger then
+      logger.logLine("INFO", "apl_lock OFF")
+    end
+    return true
+  end
+
+  if mode == "status" then
+    print("apl_lock: " .. (lock_enabled and "ON" or "OFF"))
+    return true
+  end
+
+  print('Usage: apl_lock("on"|"off"|"status")')
+  return false
+end
+
+function M.resetLock()
+  if lock_enabled then
+    applyLock(false)
+  end
+end
+
 function M.aplStatus()
   local vehicle = bridge.getVehicle()
   print("--- soulPilot status ---")
@@ -269,6 +336,7 @@ function M.aplStatus()
   print("pedals: " .. tostring(pedals_requested))
   print("wheel: " .. tostring(wheel_requested))
   print("warmup: " .. tostring(warmup_requested))
+  print("driver lock: " .. tostring(lock_enabled))
   print("vehicle: " .. (vehicle and ("ID=" .. tostring(vehicle:getID())) or "(none)"))
   print("-----------------------")
   return true
@@ -303,6 +371,7 @@ local aliases = {
   apl_pain = "aplPain",
   apl_debug = "aplDebug",
   apl_debug_set = "aplDebugSet",
+  apl_lock = "aplLock",
   apl_status = "aplStatus",
   apl_diag = "aplDiag",
   apl_mapDiag = "aplMapDiag",

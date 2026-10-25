@@ -84,11 +84,16 @@ Keep `sway.amplitude` at or below `0.035`. On finish the sway is reset and the s
   "night_max_s": 300,
   "blink_min_s": 1.2,
   "blink_max_s": 1.2,
-  "debug_force_blink_delay_s": 0
+  "debug_force_blink_delay_s": 0,
+  "squint_min": 0.0,
+  "squint_max": 0.30,
+  "squint_duration_s": 6.0
 }
 ```
 
-- `debug_force_blink_delay_s: 0` — normal behavior, blink every 2–3 minutes.
+- `squint_min` / `squint_max` - cover travel during a cat-squint; `0.0` is fully closed, `1.0` is fully open.
+- `squint_duration_s` - total duration of the cat-squint envelope.
+- `debug_force_blink_delay_s: 0` - normal behavior, blink every 2-3 minutes.
 - `5` — debug mode, blink every 5 seconds (works at night too).
 - Model names are matched against the basename of `vehicle.JBeam`, so full JBeam paths are accepted.
 

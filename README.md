@@ -72,6 +72,7 @@ apl_wheel("status")
 apl_pedals("status")
 apl_pet("on")
 apl_popup("auto")
+apl_lock("on")
 apl_status()
 ```
 
