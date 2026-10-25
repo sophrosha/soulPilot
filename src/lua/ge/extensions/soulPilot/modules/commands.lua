@@ -448,9 +448,11 @@ local function vehicleSpeedKph()
   if not bridge then
     return 0
   end
-  local vehicle = bridge.getFallbackVehicle and bridge.getFallbackVehicle() or nil
+  -- The player's current car is authoritative for lock decisions. The
+  -- fallback (old/abandoned) car must not decide that the new car is moving.
+  local vehicle = bridge.getVehicle()
   if not vehicle then
-    vehicle = bridge.getVehicle()
+    vehicle = bridge.getFallbackVehicle and bridge.getFallbackVehicle() or nil
   end
   if not vehicle then
     return 0
@@ -486,10 +488,10 @@ local function sendDoorLock(value)
   door_command_state = value
   if bridge then
     local command = "soulPilotCustomLightsCmd.setDoorLock(" .. tostring(value) .. ")"
-    local fallback_id = bridge.getFallbackVehicleId and bridge.getFallbackVehicleId()
-    if not (fallback_id and bridge.sendToVehicleById and bridge.sendToVehicleById(fallback_id, command)) then
-      bridge.sendToVehicle(command)
-    end
+    -- Current player car first. The fallback is for walking/observer mode
+    -- only; using it first would lock the previous car and leave the new one
+    -- untouched after a vehicle switch.
+    bridge.sendToVehicle(command)
     local vehicle = bridge.getVehicle()
     pcall(function()
       if vehicle and vehicle.setPlayerLocked then
@@ -763,8 +765,9 @@ function M.update(dt)
   door_check_acc = 0
 
   local inside = playerInCar()
+  -- Automatic locking is movement-only. AI/master being enabled while the
+  -- car is still warming up or stopped must not lock the player inside.
   local should_lock = vehicleSpeedKph() > 5.0
-    or (inside and master and master.isOn and master.isOn() == true)
   setAutoDoorFilter(should_lock and inside)
   sendDoorLock(lock_enabled or should_lock)
 end

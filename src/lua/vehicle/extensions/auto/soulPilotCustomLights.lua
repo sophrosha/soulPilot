@@ -258,7 +258,9 @@ end
 local function updateDoorLock(dt)
   local should_lock = door_lock_requested
   if not should_lock and managed then
-    should_lock = speedMps() * 3.6 > 5.0 or (isSeated() and aiDriving())
+    -- Only actual movement may auto-lock. A stale aiDriving()/master flag
+    -- after a level load must never trap the player in a stationary car.
+    should_lock = speedMps() * 3.6 > 5.0
   end
 
   if should_lock then
