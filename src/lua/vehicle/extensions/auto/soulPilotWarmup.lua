@@ -195,6 +195,29 @@ local function engineRunning()
   return ok and v > 0 or false
 end
 
+local function driverSeated()
+  local seated = false
+  pcall(function()
+    seated = playerInfo and playerInfo.anyPlayerSeated == true or false
+  end)
+  return seated
+end
+
+local function reportedState()
+  if state == 'done' and not driverSeated() then
+    return 'done_outside'
+  end
+  return state
+end
+
+local function holdParkingBrake()
+  pcall(function()
+    if controller and controller.mainController and controller.mainController.smartParkingBrake then
+      controller.mainController.smartParkingBrake(1)
+    end
+  end)
+end
+
 -- Термалы combustionEngine: powertrain.getDevicesByType → dev.thermals
 -- (паттерн soulPilot.lua:61-79 для CSV). Ищем каждый опрос (1 Гц), пока
 -- не найдём: ранний вызов до init powertrain не должен отрубить поиск навсегда.
@@ -246,7 +269,11 @@ end
 -- 16.10 (api_research_phase5.md §2): input.event("parkingbrake", 0, ...)
 -- делает контроллер машины, НЕ наш модуль. Вызывается в finish() перед
 -- сообщением «готова»; при parking_brake_release_at_end=0 — ничего не делаем.
-local function releaseParkingBrake()
+local function releaseParkingBrake(seated)
+  if not seated then
+    holdParkingBrake()
+    return
+  end
   if cfg.finish.parking_brake_release_at_end <= 0 then return end
   local pb = 0
   pcall(function() pb = electrics.values.parkingbrake or 0 end)
@@ -266,22 +293,25 @@ local function releaseParkingBrake()
 end
 
 -- === Завершение ===
--- Сигнал GE: onVehicleWarmupDone(vehId, elapsed, tempC, autoEngage, timedOut) —
+-- Сигнал GE: onVehicleWarmupDone(vehId, elapsed, tempC, autoEngage, timedOut, seated) —
 -- GE печатает сообщение в консоль игрока и делает авто-engage (шаг 5.4).
-local function notifyDone(timedOut)
+local function notifyDone(timedOut, seated)
   pcall(function()
     obj:queueGameEngineLua(string.format(
-      'if extensions and extensions.soulPilot_main and extensions.soulPilot_main.onVehicleWarmupDone then extensions.soulPilot_main.onVehicleWarmupDone(%s, %s, %s, %s, %s) end',
+      'if extensions and extensions.soulPilot_main and extensions.soulPilot_main.onVehicleWarmupDone then extensions.soulPilot_main.onVehicleWarmupDone(%s, %s, %s, %s, %s, %s) end',
       tostring(obj and obj:getId() or -1), fmt(elapsed),
       lastCoolant and fmt(lastCoolant) or '-1',
       tostring(cfg.finish.auto_engage_after_warmup > 0),
-      tostring(timedOut)))
+      tostring(timedOut),
+      tostring(seated)))
   end)
   -- Фаза 10.5: дублируем состояние отдельным каналом (fallback мастера),
-  -- даже если onVehicleWarmupDone потерялся.
+  -- даже если onVehicleWarmupDone потерялся. Если водитель снаружи, не
+  -- отправляем "done": GE не должен включать traffic по этому сигналу.
   pcall(function()
     obj:queueGameEngineLua(
-      'if extensions and extensions.soulPilot_main and extensions.soulPilot_main.onVehicleWarmupState then extensions.soulPilot_main.onVehicleWarmupState("done") end')
+      'if extensions and extensions.soulPilot_main and extensions.soulPilot_main.onVehicleWarmupState then extensions.soulPilot_main.onVehicleWarmupState("'
+      .. (seated and 'done' or 'done_outside') .. '") end')
   end)
 end
 
@@ -300,8 +330,9 @@ end
 
 local function finish(timedOut)
   state = 'done'
+  local seated = driverSeated()
   resetSwayAtFinish()
-  releaseParkingBrake() -- снятие ручника — ПЕРЕД сообщением «готова» (шаг 5.4)
+  releaseParkingBrake(seated) -- только если водитель вернулся в машину
   local cool = lastCoolant and ('coolant ' .. fmt(lastCoolant) .. '°C, oil ' .. fmt(lastOil) .. '°C')
     or 'термалы недоступны (EV?) — только тайминг'
   if timedOut then
@@ -313,21 +344,29 @@ local function finish(timedOut)
   
   -- HUD-сообщение игроку
   pcall(function()
-    guihooks.message({ txt = timedOut
-        and 'soulPilot: прогрев по таймауту — машина готова'
-        or 'soulPilot: прогрев завершён, машина готова', context = {} }, 5,
-      'soulPilot.warmup')
-  end)
-
-  -- 1. ПРОБУЖДАЕМ ФАРЫ (если модуль Фазы 8 активен)
-  pcall(function()
-    if soulPilotPopupCmd and soulPilotPopupCmd.wake_up then
-      soulPilotPopupCmd.wake_up()
+    local txt
+    if not seated then
+      txt = 'soulPilot: warmup finished, driver is outside — AI disabled'
+    elseif timedOut then
+      txt = 'soulPilot: прогрев по таймауту — машина готова'
+    else
+      txt = 'soulPilot: прогрев завершён, машина готова'
     end
+    guihooks.message({ txt = txt, context = {} }, 5, 'soulPilot.warmup')
   end)
 
-  -- 2. АВТО-ЗАПУСК НАШИХ МОДУЛЕЙ (если включено в конфиге)
-  if cfg.finish.auto_engage_after_warmup > 0 then
+  -- 1. ПРОБУЖДАЕМ ФАРЫ только если водитель в машине. При выходе во время
+  -- прогрева машина должна остаться закрытой и не двигаться.
+  if seated then
+    pcall(function()
+      if soulPilotPopupCmd and soulPilotPopupCmd.wake_up then
+        soulPilotPopupCmd.wake_up()
+      end
+    end)
+  end
+
+  -- 2. АВТО-ЗАПУСК НАШИХ МОДУЛЕЙ (если водитель на месте)
+  if seated and cfg.finish.auto_engage_after_warmup > 0 then
     pcall(function()
       if soulPilotPedalsCmd and soulPilotPedalsCmd.on then
         soulPilotPedalsCmd.on('mods/unpacked/soulPilot/config/pedals.json')
@@ -348,7 +387,13 @@ local function finish(timedOut)
   -- ВАЖНО: ai.setMode / ai.driveInLane — API VEHICLE-VM (lua/vehicle/ai.lua:6233/6236).
   -- В GE-слое ai.setMode НЕТ (прошлый вызов через queueGameEngineLua был no-op).
   local aiMode = tostring(cfg.finish.ai_mode_after_warmup or '')
-  if aiMode ~= '' then
+  if not seated then
+    pcall(function() ai.setMode('disabled') end)
+    holdParkingBrake()
+    aiCheckT = 0
+    aiCheckMode = 'disabled'
+    toGE('WARN', 'Warmup finished, but driver is outside. AI is disabled.')
+  elseif aiMode ~= '' then
     local okAi, errAi = pcall(function()
       ai.setMode(aiMode)
       if aiMode == 'traffic' and ai.driveInLane then ai.driveInLane('on') end
@@ -362,7 +407,7 @@ local function finish(timedOut)
     toGE('INFO', 'warmup: ai_mode_after_warmup="" — AI не включаем')
   end
 
-  notifyDone(timedOut)
+  notifyDone(timedOut, seated)
 end
 
 -- === Шаг 5.3/5.6: sway — плавное покачивание рулём «как бабушка зарядку делает» ===
@@ -455,7 +500,7 @@ function M.updateGFX(dt)
     pcall(function()
       obj:queueGameEngineLua(string.format(
         'if extensions and extensions.soulPilot_main and extensions.soulPilot_main.onVehicleWarmupState then extensions.soulPilot_main.onVehicleWarmupState("%s") end',
-        tostring(state)))
+        tostring(reportedState())))
     end)
   end -- NaN/перерывы
 
@@ -618,9 +663,9 @@ function soulPilotWarmupCmd.getState()
   pcall(function()
     obj:queueGameEngineLua(string.format(
       'if extensions and extensions.soulPilot_main and extensions.soulPilot_main.onVehicleWarmupState then extensions.soulPilot_main.onVehicleWarmupState("%s") end',
-      tostring(state)))
+      tostring(reportedState())))
   end)
-  return state -- 'off'|'starting_engine'|'warming_up'|'done' (для pain/pet)
+  return reportedState() -- 'off'|'starting_engine'|'warming_up'|'done'|'done_outside'
 end
 
 -- Фаза 10.5: GE может попросить прислать состояние (fallback мастера)
@@ -628,9 +673,9 @@ function soulPilotWarmupCmd.pushState()
   pcall(function()
     obj:queueGameEngineLua(string.format(
       'if extensions and extensions.soulPilot_main and extensions.soulPilot_main.onVehicleWarmupState then extensions.soulPilot_main.onVehicleWarmupState("%s") end',
-      tostring(state)))
+      tostring(reportedState())))
   end)
-  return state
+  return reportedState()
 end
 
 function soulPilotWarmupCmd.status()

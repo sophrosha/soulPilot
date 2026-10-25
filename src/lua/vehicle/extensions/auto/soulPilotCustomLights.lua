@@ -37,6 +37,10 @@ local idle_timer = 0.0
 local was_seated = false
 local absent_hold = false
 local return_grace = 0.0
+local door_lock_requested = false
+local door_locked = false
+local door_close_acc = 0.0
+local door_message_cooldown = 0.0
 
 local function moveToward(value, wanted, max_step)
   if value < wanted then
@@ -159,6 +163,88 @@ local function speedMps()
   return math.max(0.0, speed)
 end
 
+local function aiDriving()
+  local driving = false
+  pcall(function()
+    driving = (ai and ai.isDriving and ai.isDriving()) or false
+  end)
+  return driving == true
+end
+
+local function setObjectPlayerLocked(locked)
+  pcall(function()
+    if obj and obj.setPlayerLocked then
+      obj:setPlayerLocked(locked == true)
+    end
+  end)
+end
+
+local function closeDoors()
+  pcall(function()
+    if not (controller and controller.getControllersByType) then
+      return
+    end
+    for _, coupler in pairs(controller.getControllersByType("advancedCouplerControl") or {}) do
+      if coupler and coupler.tryAttachGroupImpulse then
+        pcall(coupler.tryAttachGroupImpulse, coupler)
+      end
+    end
+  end)
+end
+
+local function doorsDetached()
+  local detached = false
+  pcall(function()
+    if not (controller and controller.getControllersByType) then
+      return
+    end
+    for _, coupler in pairs(controller.getControllersByType("advancedCouplerControl") or {}) do
+      if coupler and coupler.getGroupState then
+        local state = coupler:getGroupState()
+        if state ~= "attached" and state ~= "coupling" and state ~= "autoCoupling" then
+          detached = true
+          return
+        end
+      end
+    end
+  end)
+  return detached
+end
+
+local function updateDoorLock(dt)
+  local should_lock = door_lock_requested
+  if not should_lock and managed then
+    should_lock = speedMps() * 3.6 > 5.0 or (isSeated() and aiDriving())
+  end
+
+  if should_lock then
+    door_message_cooldown = math.max(0.0, door_message_cooldown - dt)
+    if door_message_cooldown <= 0.0 and doorsDetached() then
+      door_message_cooldown = 1.0
+      pcall(function()
+        guihooks.message("Doors are locked, you can't get out!", 3, "soulPilot.doorLock")
+      end)
+    end
+
+    if not door_locked then
+      door_locked = true
+      setObjectPlayerLocked(true)
+      closeDoors()
+    end
+    door_close_acc = door_close_acc + dt
+    if door_close_acc >= 0.25 then
+      door_close_acc = 0.0
+      closeDoors()
+    end
+  else
+    door_close_acc = 0.0
+    if door_locked then
+      door_locked = false
+      setObjectPlayerLocked(false)
+    end
+  end
+end
+
 local function customInputAvailable()
   local available = false
   pcall(function()
@@ -228,13 +314,13 @@ local function setAiMode(mode)
 end
 
 local function applyAbsentHold()
-  if absent_hold or not managed then
+  if not managed then
     return
   end
+  -- Re-assert this every frame. Warmup/master callbacks can otherwise put a
+  -- driverless car back into traffic after the first exit.
   absent_hold = true
-  if not setAiMode("stop") then
-    setAiMode("disabled")
-  end
+  setAiMode("disabled")
   setParkingBrake(1)
 end
 
@@ -308,6 +394,24 @@ function M.release()
   return true
 end
 
+function M.setDoorLock(value)
+  door_lock_requested = value == true
+  if door_lock_requested then
+    door_locked = true
+    setObjectPlayerLocked(true)
+    closeDoors()
+  elseif door_locked then
+    door_locked = false
+    setObjectPlayerLocked(false)
+  end
+  return door_lock_requested
+end
+
+function M.closeDoors()
+  closeDoors()
+  return true
+end
+
 function M.getState()
   return {
     current = current,
@@ -321,6 +425,8 @@ function M.getState()
     warm = isWarm(),
     managed = managed,
     custom_input = custom_available,
+    door_locked = door_locked,
+    door_lock_requested = door_lock_requested,
   }
 end
 
@@ -362,6 +468,8 @@ function M.updateGFX(dt)
     warnMissingOverride()
   end
 
+  updateDoorLock(dt)
+
   if not managed then
     return
   end
@@ -389,8 +497,9 @@ function M.updateGFX(dt)
     return
   end
 
+  applyAbsentHold()
+
   if not squint_active and isEngineRunning() then
-    applyAbsentHold()
     if speedMps() <= STOP_SPEED_MPS then
       idle_timer = idle_timer + dt
       if idle_timer >= IDLE_DELAY then
@@ -418,6 +527,9 @@ function M.onReset()
   was_seated = false
   absent_hold = false
   return_grace = 0.0
+  door_locked = false
+  door_close_acc = 0.0
+  door_message_cooldown = 0.0
   custom_available = nil
   managed_time = 0.0
   -- Keep managed: a respawn of the player's vehicle must keep the feature on.
@@ -441,6 +553,14 @@ function soulPilotCustomLightsCmd.release()
   return M.release()
 end
 
+function soulPilotCustomLightsCmd.setDoorLock(value)
+  return M.setDoorLock(value)
+end
+
+function soulPilotCustomLightsCmd.closeDoors()
+  return M.closeDoors()
+end
+
 function soulPilotCustomLightsCmd.configure(minimum, maximum, duration)
   return M.configure(minimum, maximum, duration)
 end
@@ -448,7 +568,7 @@ end
 function soulPilotCustomLightsCmd.status()
   local state = M.getState()
   print(string.format(
-    "soulPilotCustomLights: current=%.2f target=%.2f squint=%s range=%.2f..%.2f duration=%.1f idle=%.1f seated=%s managed=%s custom=%s",
+    "soulPilotCustomLights: current=%.2f target=%.2f squint=%s range=%.2f..%.2f duration=%.1f idle=%.1f seated=%s managed=%s custom=%s doors=%s manual=%s",
     state.current,
     state.target,
     tostring(state.squint_active),
@@ -458,7 +578,9 @@ function soulPilotCustomLightsCmd.status()
     state.idle_timer,
     tostring(state.seated),
     tostring(state.managed),
-    tostring(state.custom_input)))
+    tostring(state.custom_input),
+    tostring(state.door_locked),
+    tostring(state.door_lock_requested)))
   return true
 end
 
