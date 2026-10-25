@@ -20,6 +20,11 @@ local warmup_requested = false
 local lock_enabled = false
 
 local LOCK_FILTER = "soulPilotLockedActions"
+local AUTO_DOOR_FILTER = "soulPilotAutoDoorLock"
+local DOOR_ACTIONS = { "toggleWalkingMode" }
+local auto_door_locked = false
+local door_check_acc = 0
+local last_door_message = 0
 
 function M.init(context)
   logger = context.logger
@@ -263,12 +268,90 @@ function M.aplDebugSet(enabled)
   return enabled
 end
 
+local function playerInCar()
+  if not bridge then
+    return false
+  end
+  local vehicle = bridge.getVehicle()
+  if not vehicle then
+    return false
+  end
+  local walking = false
+  pcall(function()
+    walking = gameplay_walk
+      and gameplay_walk.isWalking
+      and gameplay_walk.isWalking(0) == true
+  end)
+  if walking then
+    return false
+  end
+  local ok, name = pcall(function()
+    return vehicle:getJBeamFilename()
+  end)
+  return not (ok and name and tostring(name):lower() == "unicycle")
+end
+
+local function vehicleSpeedKph()
+  if not bridge then
+    return 0
+  end
+  local vehicle = bridge.getFallbackVehicle and bridge.getFallbackVehicle() or nil
+  if not vehicle then
+    vehicle = bridge.getVehicle()
+  end
+  if not vehicle then
+    return 0
+  end
+  local speed = 0
+  pcall(function()
+    speed = vehicle:getVelocity():length()
+  end)
+  return math.max(0, tonumber(speed) or 0) * 3.6
+end
+
+local function setAutoDoorFilter(enabled)
+  enabled = enabled == true
+  if auto_door_locked == enabled then
+    return
+  end
+  auto_door_locked = enabled
+  pcall(function()
+    if core_input_actionFilter then
+      core_input_actionFilter.setGroup(AUTO_DOOR_FILTER, DOOR_ACTIONS)
+      core_input_actionFilter.addAction(0, AUTO_DOOR_FILTER, enabled)
+    end
+  end)
+end
+
+local door_command_state = false
+
+local function sendDoorLock(value)
+  value = value == true
+  if door_command_state == value then
+    return
+  end
+  door_command_state = value
+  if bridge then
+    local command = "soulPilotCustomLightsCmd.setDoorLock(" .. tostring(value) .. ")"
+    local fallback_id = bridge.getFallbackVehicleId and bridge.getFallbackVehicleId()
+    if not (fallback_id and bridge.sendToVehicleById and bridge.sendToVehicleById(fallback_id, command)) then
+      bridge.sendToVehicle(command)
+    end
+    local vehicle = bridge.getVehicle()
+    pcall(function()
+      if vehicle and vehicle.setPlayerLocked then
+        vehicle:setPlayerLocked(value)
+      end
+    end)
+  end
+end
+
 local function applyLock(enabled)
   local ok = pcall(function()
     if not core_input_actionFilter then
       error("core_input_actionFilter is not available")
     end
-    core_input_actionFilter.setGroup(LOCK_FILTER, { "toggleWalkingMode" })
+    core_input_actionFilter.setGroup(LOCK_FILTER, DOOR_ACTIONS)
     core_input_actionFilter.addAction(0, LOCK_FILTER, enabled == true)
   end)
   if not ok then
@@ -276,6 +359,7 @@ local function applyLock(enabled)
     return false
   end
   lock_enabled = enabled == true
+  sendDoorLock(lock_enabled or auto_door_locked)
   return true
 end
 
@@ -325,6 +409,86 @@ function M.resetLock()
   if lock_enabled then
     applyLock(false)
   end
+  setAutoDoorFilter(false)
+  sendDoorLock(false)
+  door_check_acc = 0
+end
+
+function M.isDoorLocked()
+  return lock_enabled or auto_door_locked
+end
+
+function M.update(dt)
+  if dt == nil or dt ~= dt or dt <= 0 or dt > 1 then
+    return
+  end
+  door_check_acc = door_check_acc + dt
+  if door_check_acc < 0.1 then
+    return
+  end
+  door_check_acc = 0
+
+  local inside = playerInCar()
+  local should_lock = vehicleSpeedKph() > 5.0
+    or (inside and master and master.isOn and master.isOn() == true)
+  setAutoDoorFilter(should_lock and inside)
+  sendDoorLock(lock_enabled or should_lock)
+end
+
+local function isLatchAction(name)
+  name = tostring(name or ""):lower()
+  return name:find("latch", 1, true) ~= nil
+    or name:find("door", 1, true) ~= nil
+end
+
+local function isExitAction(name)
+  name = tostring(name or ""):lower()
+  return name:find("seat", 1, true) ~= nil or name == "togglewalkingmode"
+end
+
+local function isDoorAction(name)
+  return isLatchAction(name) or isExitAction(name)
+end
+
+function M.onVehicleTriggersExecuteLink(lnk, actionValue, vehicleId, player)
+  if actionValue == 0 or not M.isDoorLocked() then
+    return
+  end
+  local action = lnk and (lnk.inputAction or lnk.targetEvent) or nil
+  if not isDoorAction(action) then
+    return
+  end
+
+  -- Latch attempts are closed and reported by the vehicle layer (this also
+  -- covers direct JBeam door triggers and plain input bindings). The GE hook
+  -- is the reliable place to report a blocked seat-exit attempt.
+  if isLatchAction(action) then
+    if bridge then
+      bridge.sendToVehicle("soulPilotCustomLightsCmd.closeDoors()")
+    end
+    return
+  end
+
+  local now = os.clock()
+  if now - last_door_message < 1.0 then
+    return
+  end
+  last_door_message = now
+
+  pcall(function()
+    guihooks.message("Doors are locked, you can't get out!", 3, "soulPilot.doorLock")
+  end)
+end
+
+function M.onVehicleTriggerActionLabel(data)
+  if not data or not M.isDoorLocked() then
+    return
+  end
+  if isDoorAction(data.actionName) then
+    data.title = "Doors are locked, you can't get out!"
+    data.icon = "circleSlashed"
+    data.color = { 1, 0.1, 0.1, 0.8 }
+  end
 end
 
 function M.aplStatus()
@@ -337,6 +501,7 @@ function M.aplStatus()
   print("wheel: " .. tostring(wheel_requested))
   print("warmup: " .. tostring(warmup_requested))
   print("driver lock: " .. tostring(lock_enabled))
+  print("auto door lock: " .. tostring(auto_door_locked))
   print("vehicle: " .. (vehicle and ("ID=" .. tostring(vehicle:getID())) or "(none)"))
   print("-----------------------")
   return true

@@ -88,6 +88,16 @@ local function speedKph()
   return math.max(0, s) * 3.6
 end
 
+local function warmupActive()
+  local state = 'off'
+  pcall(function()
+    if soulPilotWarmupCmd and soulPilotWarmupCmd.getState then
+      state = soulPilotWarmupCmd.getState()
+    end
+  end)
+  return state == 'starting_engine' or state == 'warming_up'
+end
+
 -- Штатный ручник (vehicleController.lua:428, экспорт M.smartParkingBrake;
 -- без фильтра = FILTER_DIRECT → прямое событие parkingbrake 0|1).
 local hbState = -1 -- последнее выставленное состояние (анти-спам)
@@ -277,11 +287,15 @@ function soulPilotPetCmd.start(params)
   elapsed = 0
   active = true
   curScale = 1
-  pcall(function()
-    if soulPilotCustomLightsCmd and soulPilotCustomLightsCmd.playCatSquint then
-      soulPilotCustomLightsCmd.playCatSquint()
-    end
-  end)
+  if not warmupActive() then
+    pcall(function()
+      if soulPilotCustomLightsCmd and soulPilotCustomLightsCmd.playCatSquint then
+        soulPilotCustomLightsCmd.playCatSquint()
+      end
+    end)
+  else
+    aplPrint('aplPet: warmup active — cat-squint skipped, audio only')
+  end
   lastAppliedScale = 1
   thrRandT = 0
   thrRandVal = 0

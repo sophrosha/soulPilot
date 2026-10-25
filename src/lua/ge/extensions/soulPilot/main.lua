@@ -133,6 +133,7 @@ function M.onUpdate(dt)
   master.update(dt)
   popup.update(dt)
   lights.update(dt)
+  commands.update(dt)
 end
 
 function M.onClientPostStartMission()
@@ -164,8 +165,8 @@ function M.onVehicleWheelOn()
   master.onWheelOn()
 end
 
-function M.onVehicleWarmupDone(vehicle_id, elapsed, temperature, auto_engage, timed_out)
-  master.onWarmupDone(vehicle_id, elapsed, temperature, auto_engage, timed_out)
+function M.onVehicleWarmupDone(vehicle_id, elapsed, temperature, auto_engage, timed_out, driver_seated)
+  master.onWarmupDone(vehicle_id, elapsed, temperature, auto_engage, timed_out, driver_seated)
 end
 
 function M.onVehicleWarmupState(warmup_state)
@@ -194,6 +195,18 @@ end
 
 function M.onVehicleLightsAutoOff()
   lights.onVehicleAutoOff()
+end
+
+function M.onVehicleTriggersExecuteLink(lnk, actionValue, vehicle_id, player)
+  if commands and commands.onVehicleTriggersExecuteLink then
+    commands.onVehicleTriggersExecuteLink(lnk, actionValue, vehicle_id, player)
+  end
+end
+
+function M.onVehicleTriggerActionLabel(data)
+  if commands and commands.onVehicleTriggerActionLabel then
+    commands.onVehicleTriggerActionLabel(data)
+  end
 end
 
 function M.onVehicleReady(vehicle_id)
